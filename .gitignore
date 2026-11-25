@@ -1,0 +1,4 @@
+.smoke-*
+.popup-smoke.png
+.env
+*.log
