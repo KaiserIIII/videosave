@@ -1,0 +1,265 @@
+export const defaults = {mode:'combined', quality:'', format:'auto', audioFormat:'m4a', subtitles:false, concurrency:2, saveAs:false};
+export const activeStates = ['queued', 'starting', 'processing', 'downloading', 'paused'];
+export const endpointDefault = 'http://127.0.0.1:8765';
+
+const storage = chrome.storage.local;
+const alarm = 'media-download-queue';
+let actions = Promise.resolve();
+
+export async function companion(connection, route, body) {
+  if (!connection?.token) throw new Error('请先连接本机服务');
+  if (!/^http:\/\/127\.0\.0\.1(?::\d+)?$/.test(connection.endpoint)) throw new Error('本机服务地址无效');
+  const response = await fetch(connection.endpoint + route, {
+    headers:{authorization:'Bearer ' + connection.token, ...(body && {'content-type':'application/json'})},
+    ...(body && {method:'POST', body:JSON.stringify(body)}),
+    signal:AbortSignal.timeout(6500),
+  }).catch(() => { throw new Error('本机服务未响应'); });
+  const data = await response.json();
+  if (!response.ok) throw Object.assign(new Error(data.error?.message || '本机服务请求失败'), {status:response.status});
+  return data;
+}
+
+export function usesCompanion(stream, settings) {
+  return ['m3u8', 'mpd'].includes(stream.kind) || settings.mode !== 'combined' ||
+    settings.format !== 'auto' || Boolean(settings.quality) || settings.subtitles;
+}
+
+function safeFilename(name, kind) {
+  const base = name.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().slice(0, 110).replace(/[. ]+$/, '')
+    .replace(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?=\.|$)/i, '_$1');
+  return (base || 'video') + '.' + kind;
+}
+
+function serial(work) {
+  const next = actions.then(work, work);
+  actions = next.catch(() => {});
+  return next;
+}
+
+async function readState() {
+  const saved = await storage.get(['downloadJobs', 'downloadSettings', 'connection']);
+  return {jobs:saved.downloadJobs ?? [], settings:{...defaults, ...saved.downloadSettings}, connection:saved.connection};
+}
+
+async function persist(jobs) {
+  await storage.set({downloadJobs:jobs});
+}
+
+async function startBrowser(job, output, connection) {
+  const file = output.href ? {
+    url:connection.endpoint + output.href,
+    filename:output.name,
+    headers:[{name:'Authorization', value:'Bearer ' + connection.token}],
+  } : {url:job.stream.url, filename:safeFilename(job.title, job.stream.kind)};
+  return chrome.downloads.download({...file, ...(job.settings.saveAs && {saveAs:true}), conflictAction:'uniquify'});
+}
+
+async function startJob(job, connection) {
+  if (!job.processed) {
+    job.files = [{id:await startBrowser(job, {}, connection)}];
+    job.state = 'downloading';
+    return;
+  }
+  const {mode, quality, audioFormat, format, subtitles} = job.settings;
+  const batch = await companion(connection, '/api/queue', {delivery:'browser', items:[{
+    kind:'stream', url:job.stream.url, title:job.title, mode, audioFormat, subtitles,
+    format:format === 'mkv' ? 'mkv' : 'mp4', ...(quality && {quality:Number(quality)}),
+  }]});
+  job.batch = batch.id;
+  job.state = 'processing';
+}
+
+async function transfer(job, connection, jobs) {
+  const batch = await companion(connection, '/api/batch/' + job.batch);
+  const item = batch.items[0];
+  job.percent = item.percent;
+  job.note = {queued:'等待本机处理', resolving:'读取媒体轨道', downloading:'正在下载并处理'}[item.status] || '';
+  if (item.status === 'cancelled' || item.status === 'error') {
+    job.state = item.status === 'error' ? 'failed' : 'cancelled';
+    job.note = item.error || '';
+    return;
+  }
+  if (item.status !== 'done') return;
+  if (!item.outputs?.length || item.outputs.some((output, idx) => output.href !==
+    `/api/batch/${job.batch}/files/0/${idx}`)) throw new Error('请使用当前版本的本机服务');
+  job.files ??= [];
+  for (const [index, output] of item.outputs.entries()) {
+    if (job.files[index]) continue;
+    job.files[index] = {id:await startBrowser(job, output, connection), name:output.name};
+    await persist(jobs);
+  }
+  job.state = 'downloading';
+  job.percent = null;
+}
+
+function release(job, connection) {
+  if (job.batch) void companion(connection, `/api/batch/${job.batch}/files/0`, {}).catch(() => {});
+}
+
+async function browserProgress(job, connection) {
+  const files = await Promise.all(job.files.map(async file => (await chrome.downloads.search({id:file.id}))[0]));
+  job.files.forEach((record, index) => {
+    if (files[index]?.filename) record.name = files[index].filename.split(/[\\/]/).at(-1);
+  });
+  const interrupted = files.find(file => file?.state === 'interrupted');
+  job.canResume = files.some(file => file?.canResume);
+  if ((files.some(file => !file) || interrupted) && !files.some(file => file?.state === 'in_progress')) {
+    job.state = 'failed';
+    job.note = interrupted?.error === 'USER_CANCELED' ? '浏览器已取消下载' : '浏览器下载中断';
+    return;
+  }
+  const total = files.reduce((sum, file) => sum + Math.max(0, file?.totalBytes || 0), 0);
+  const received = files.reduce((sum, file) => sum + (file?.bytesReceived || 0), 0);
+  job.bytes = received;
+  job.totalBytes = total;
+  job.percent = total > 0 ? Math.min(100, Math.floor(received / total * 100)) : null;
+  job.note = '';
+  if (files.every(file => file?.state === 'complete')) {
+    job.state = 'done';
+    job.percent = 100;
+    release(job, connection);
+  } else {
+    job.state = files.some(file => file?.paused) ? 'paused' : 'downloading';
+  }
+}
+
+async function tick(state) {
+  const {jobs, settings, connection} = state;
+  const before = JSON.stringify(jobs);
+  for (const job of jobs) {
+    try {
+      if (job.state === 'processing') await transfer(job, connection, jobs);
+      if (['downloading', 'paused'].includes(job.state)) await browserProgress(job, connection);
+    } catch (error) {
+      job.note = error.message;
+      if (job.state === 'processing' && !error.status && /未响应|请先连接/.test(error.message)) continue;
+      if (error.status === 404) job.expired = true;
+      job.state = 'failed';
+    }
+  }
+  // Persist the current state before assigning more browser downloads.
+  if (JSON.stringify(jobs) !== before) await persist(jobs);
+  let inFlight = jobs.filter(job => ['starting', 'processing', 'downloading', 'paused'].includes(job.state)).length;
+  for (const job of jobs.filter(job => job.state === 'queued').reverse()) {
+    if (inFlight >= settings.concurrency) break;
+    job.state = 'starting';
+    await persist(jobs);
+    try {
+      if (job.resumePending) {
+        await resumeFiles(job);
+        job.resumePending = false;
+        job.state = 'downloading';
+      } else if (job.batch) {
+        job.state = 'processing';
+      } else {
+        await startJob(job, connection);
+      }
+      inFlight++;
+    } catch (error) {
+      job.state = 'failed';
+      job.note = error.message;
+    }
+    await persist(jobs);
+  }
+  if (jobs.some(job => activeStates.includes(job.state))) {
+    if (!await chrome.alarms.get(alarm)) await chrome.alarms.create(alarm, {periodInMinutes:0.5});
+  } else {
+    await chrome.alarms.clear(alarm);
+  }
+  return jobs;
+}
+
+async function mutate({action, id, streams, settings}, state) {
+  const {jobs, connection} = state;
+  if (action === 'settings') {
+    state.settings = {...defaults, ...settings};
+    await storage.set({downloadSettings:state.settings});
+  }
+  if (action === 'enqueue') {
+    for (const stream of streams) {
+      const jobSettings = {...state.settings, ...stream.options};
+      if (!/^(?:mp4|webm|mkv|mov|m4v|ogv|avi|m3u8|mpd)$/.test(stream.kind)) {
+        throw new Error('不支持此媒体格式');
+      }
+      if (!/^https?:$/.test(new URL(stream.url).protocol)) throw new Error('媒体地址必须使用 HTTP(S)');
+      const processed = usesCompanion(stream, jobSettings);
+      if (processed && !connection?.token) throw new Error('请先连接本机服务');
+      jobs.unshift({id:crypto.randomUUID(), stream:{url:stream.url, kind:stream.kind},
+        title:stream.title?.trim() || '视频', settings:jobSettings, processed, state:'queued', percent:null});
+    }
+    const completed = jobs.filter(job => !activeStates.includes(job.state));
+    if (completed.length > 60) jobs.splice(0, jobs.length, ...jobs.filter(job => !completed.slice(60).includes(job)));
+    await persist(jobs);
+  }
+  const job = jobs.find(entry => entry.id === id);
+  if (job && action === 'cancel') {
+    await Promise.all(job.files?.filter(Boolean).map(file => chrome.downloads.cancel(file.id).catch(() => {})) ?? []);
+    if (job.batch) await companion(connection, '/api/cancel', {id:job.batch}).catch(() => {});
+    release(job, connection);
+    job.state = 'cancelled';
+    job.note = '';
+    await persist(jobs);
+  }
+  if (job && action === 'retry' && ['failed', 'cancelled'].includes(job.state)) {
+    const previous = job.files ?? [];
+    const records = await Promise.all(previous.map(async file => file ? (await chrome.downloads.search({id:file.id}))[0] : null));
+    if (job.state === 'failed' && job.batch && !job.expired && records.some(record =>
+      ['complete', 'in_progress'].includes(record?.state))) {
+      job.files = previous.map((file, index) => ['complete', 'in_progress'].includes(records[index]?.state) ? file : null);
+    } else {
+      release(job, connection);
+      for (const file of records) {
+        if (file?.state === 'in_progress') await chrome.downloads.cancel(file.id).catch(() => {});
+      }
+      Object.assign(job, {batch:null, files:[], bytes:0});
+    }
+    Object.assign(job, {state:'queued', percent:null, note:'', canResume:false, expired:false, resumePending:false});
+    await persist(jobs);
+  }
+  if (job && ['pause', 'resume'].includes(action)) {
+    if (action === 'resume' && job.state === 'failed') {
+      Object.assign(job, {state:'queued', resumePending:true});
+    } else if (action === 'resume') {
+      await resumeFiles(job);
+      job.state = 'downloading';
+    } else {
+      await Promise.all(job.files.filter(Boolean).map(async file => {
+        const [current] = await chrome.downloads.search({id:file.id});
+        if (current?.state === 'in_progress' && !current.paused) await chrome.downloads.pause(file.id);
+      }));
+      job.state = 'paused';
+    }
+    await persist(jobs);
+  }
+  return tick(state);
+}
+
+async function resumeFiles(job) {
+  await Promise.all(job.files.filter(Boolean).map(async file => {
+    const [current] = await chrome.downloads.search({id:file.id});
+    if (current?.canResume) await chrome.downloads.resume(file.id);
+  }));
+}
+
+export function registerDownloads() {
+  const refresh = () => serial(async () => tick(await readState())).catch(() => {});
+  chrome.runtime.onStartup.addListener(() => void serial(async () => {
+    const state = await readState();
+    for (const job of state.jobs.filter(entry => entry.state === 'starting')) {
+      job.state = 'failed';
+      job.note = '浏览器已重启，请检查下载记录后重试';
+    }
+    await persist(state.jobs);
+    await tick(state);
+  }).catch(() => {}));
+  chrome.alarms.onAlarm.addListener(event => { if (event.name === alarm) void refresh(); });
+  chrome.downloads.onChanged.addListener(event => {
+    if (event.state || event.paused || event.error) void refresh();
+  });
+  chrome.runtime.onMessage.addListener((message, sender, reply) => {
+    if (message?.scope !== 'media-downloads' || sender.id !== chrome.runtime.id || sender.tab && !sender.url?.startsWith(chrome.runtime.getURL(''))) return;
+    serial(async () => mutate(message, await readState()))
+      .then(jobs => reply({jobs}), error => reply({error:error.message}));
+    return true;
+  });
+}

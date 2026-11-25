@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open Media Toolkit</title>
+  <link rel="stylesheet" href="popup.css">
+  <script type="module" src="popup.mjs"></script>
+</head>
+<body>
+  <header class="masthead">
+    <div class="brand">
+      <span class="mark" aria-hidden="true">↓</span>
+      <h1>Open Media <span>Toolkit</span></h1>
+    </div>
+    <button id="connection-status" class="connection" type="button"><i></i>本机服务</button>
+  </header>
+  <nav class="navigation" aria-label="面板导航">
+    <button type="button" id="videos-toggle" data-panel="videos" aria-current="page">视频 <span id="media-count" hidden></span></button>
+    <button type="button" id="downloads-toggle" data-panel="downloads">下载 <span id="active-count" hidden></span></button>
+    <button type="button" id="settings-toggle" data-panel="settings">设置</button>
+  </nav>
+  <main>
+    <section id="videos" aria-labelledby="page-title">
+      <div class="section-header">
+        <div><p class="eyebrow">当前网页</p><h2 id="page-title">正在扫描…</h2></div>
+        <button id="refresh" class="quiet" type="button">↻ <span>扫描</span></button>
+      </div>
+      <div class="bulk" id="bulk" hidden>
+        <label><input id="all" type="checkbox"> 全选</label>
+        <button id="queue-selected" type="button" disabled>下载所选</button>
+      </div>
+      <p id="hint" class="empty" hidden></p>
+      <ul id="media" class="media" aria-label="检测到的视频"></ul>
+      <details class="manual">
+        <summary>粘贴媒体链接</summary>
+        <form id="manual" class="input-row">
+          <input id="manual-url" type="url" placeholder="https://…" aria-label="媒体直链" required>
+          <button type="submit">下载</button>
+        </form>
+      </details>
+    </section>
+    <section id="downloads" hidden aria-labelledby="download-heading">
+      <div class="section-header">
+        <div><p class="eyebrow">保存到 Edge 的下载目录</p><h2 id="download-heading">下载队列</h2></div>
+        <button id="folder" class="quiet" type="button">打开目录 ↗</button>
+      </div>
+      <p class="empty" id="queue-empty">下载任务会显示在这里。</p>
+      <ul id="queue" class="queue" aria-label="下载任务"></ul>
+    </section>
+    <section id="settings" hidden aria-labelledby="settings-heading">
+      <div class="section-header"><h2 id="settings-heading">默认下载选项</h2></div>
+      <div class="option-card">
+        <div id="settings-options" class="option-grid"></div>
+        <label class="check-row"><input id="save-as" type="checkbox"><span>每次询问保存位置</span></label>
+        <p class="hint">画质、转封装和音视频分离需要连接本机服务。</p>
+      </div>
+      <section class="service-card" aria-labelledby="service-heading">
+        <h3 id="service-heading">本机下载服务</h3>
+        <form id="pair">
+          <label>地址<input id="endpoint" type="url" placeholder="http://127.0.0.1:8765" required></label>
+          <label>配对码<input id="token" type="password" autocomplete="off" spellcheck="false" required></label>
+          <button type="submit">连接服务</button>
+        </form>
+      </section>
+    </section>
+  </main>
+  <footer>
+    <p id="status" role="status" aria-live="polite"></p>
+    <button id="history" type="button" class="text-button">Edge 下载记录 ↗</button>
+  </footer>
+</body>
+</html>
