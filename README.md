@@ -12,6 +12,10 @@
 
 「设置」可选择原画或最高画质、MP4 / MKV、M4A / MP3 和 1–2 个并发任务。支持音视频合并、单独提取视频或音频，以及保存成两个文件。画质会优先选用源文件已有的合适轨道，必要时向下转换。字幕设置可保留源内嵌的兼容字幕轨。分片流、转换和分离需要本机服务。播放器中的 DRM 视频和没有可访问媒体地址的流无法通过该扩展保存。
 
+配对本机服务后，扩展默认尝试加速原画直链。对至少 8 MiB、支持 HTTP Range 且提供强 ETag 的文件，本机服务使用最多八个连接并行下载并核对字节区间，保留原始文件。小文件或无法安全分段的直链由 Edge 直接下载。可在「原画直链加速」设置中随时切回浏览器直接下载。HTTP 和 MCP 的转换任务也会尝试并行读取符合条件的直链。
+
+完整的 HLS MPEG-TS 点播媒体列表可同时拉取最多八个分片。复杂播放列表、DASH 和仅截取前几秒的任务由 FFmpeg 直接读取。关闭面板后，本机处理好的文件也会自动保存到 Edge 的下载目录。
+
 ## 本机下载与 AI
 
 需要 Windows、Edge、Node.js 24，以及 PATH 中的 `ffmpeg` 和 `ffprobe`。可通过 `EDGE_BIN`、`FFMPEG_BIN`、`FFPROBE_BIN` 覆盖程序位置。
@@ -55,7 +59,7 @@ MCP 通过 stdio 运行，客户端配置中将路径换成本机的绝对路径
 ## 测试
 
 ```powershell
-node --test tests/media.test.mjs
+node --test tests/media.test.mjs tests/download-performance.test.mjs tests/range-performance.test.mjs
 node tests/smoke.mjs
 ```
 

@@ -91,7 +91,7 @@ async function checkPopupLayout(popup) {
   }
 }
 
-async function checkBrowserDelivery(popup, worker) {
+async function checkBrowserDelivery(popup, worker, endpoint) {
   const fixture = path.join(out, 'fixture.mp4');
   const caption = path.join(out, 'caption.srt');
   await writeFile(caption,'1\n00:00:00,100 --> 00:00:01,800\nA sample subtitle.\n');
@@ -99,14 +99,36 @@ async function checkBrowserDelivery(popup, worker) {
     '-f','lavfi','-i','testsrc2=size=640x480:rate=25','-f','lavfi','-i','sine=frequency=800','-i',caption,
     '-t','2','-c:v','libx264','-c:a','aac','-c:s','mov_text','-movflags','+faststart',fixture], {windowsHide:true});
   const media = await readFile(fixture);
+  const padding = Buffer.alloc(8 * 1024 * 1024);
+  padding.writeUInt32BE(padding.length);
+  padding.write('free', 4);
+  const rangeMedia = Buffer.concat([media, padding]);
+  const requestedParts = [];
+  let fullRequests = 0;
   let responses = 0;
   let maximum = 0;
   const source = createServer((req, res) => {
+    if (req.url.startsWith('/range')) {
+      const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? '');
+      if (!range) {
+        fullRequests++;
+        res.writeHead(200, {'content-type':'video/mp4', 'content-length':rangeMedia.length});
+        return res.end(rangeMedia);
+      }
+      const [, first, last] = range.map(Number);
+      if (last > 0) requestedParts.push(req.headers['if-range']);
+      res.writeHead(206, {'content-type':'video/mp4', 'content-length':last-first+1, etag:'"large-mp4"',
+        'content-range':`bytes ${first}-${last}/${rangeMedia.length}`});
+      return res.end(rangeMedia.subarray(first, last+1));
+    }
     const start = Number(/^bytes=(\d+)-/.exec(req.headers.range || '')?.[1] || 0);
     res.writeHead(req.headers.range ? 206 : 200, {'content-type':'video/mp4', 'accept-ranges':'bytes',
       'content-length':media.length-start, ...(req.headers.range &&
         {'content-range':`bytes ${start}-${media.length-1}/${media.length}`})});
-    if (!req.url.startsWith('/slow')) return res.end(media.subarray(start));
+    if (!req.url.startsWith('/slow')) {
+      setTimeout(() => res.end(media.subarray(start)), 500);
+      return;
+    }
     responses++;
     maximum = Math.max(maximum, responses);
     let offset = start;
@@ -131,19 +153,28 @@ async function checkBrowserDelivery(popup, worker) {
     })()`);
     await until(() => worker.evaluate(`chrome.storage.local.get('downloadSettings')
       .then(({downloadSettings:s})=>s?.quality==='360' && s?.mode==='separate' && s?.concurrency===1 && s?.audioFormat==='mp3' && s?.subtitles)`, 15000));
+    const saveStarted = performance.now();
     await popup.evaluate(`(() => {
       document.querySelector('#videos-toggle').click();
       document.querySelector('#manual-url').value = ${JSON.stringify(url)};
       document.querySelector('#manual').requestSubmit();
     })()`);
+    await until(() => worker.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
+      downloadJobs?.[0]?.title.includes('separate') && downloadJobs[0].state === 'processing')`));
+    // The popup normally polls while its Downloads page is visible. Reload into
+    // the Videos page so that only the background worker can finish the save.
+    await popup.send('Page.reload');
     try {
-      await until(() => popup.evaluate(`(() => {
-        const newest = document.querySelector('#queue li:first-child');
-        return newest?.innerText.includes('separate') && newest.dataset.state==='done';
-      })()`), 35000);
+      await until(() => worker.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
+        downloadJobs?.[0]?.title.includes('separate') && downloadJobs[0].state === 'done')`), 35000);
     } catch (error) {
       const state = await popup.evaluate('document.body.innerText');
       throw new Error('Browser delivery failed: ' + state, {cause:error});
+    }
+    const saveTime = Math.round(performance.now() - saveStarted);
+    console.log('Edge processed download and save:', saveTime, 'ms');
+    if (process.argv.includes('--delivery-only')) {
+      assert.ok(saveTime < 10000, `Processed files took ${saveTime} ms to reach Edge downloads`);
     }
     const listing = await readdir(browserOut);
     const files = listing.filter(file => file.startsWith('separate'));
@@ -156,9 +187,10 @@ async function checkBrowserDelivery(popup, worker) {
         ? [{codec_type:'audio'}] : [{codec_type:'video',height:360},{codec_type:'subtitle'}]);
     }
     console.log('Edge browser delivery in custom default folder', files);
+    await popup.evaluate('document.querySelector("#downloads-toggle").click()');
     await popup.evaluate(`chrome.runtime.sendMessage({scope:'media-downloads',action:'enqueue',streams:[1,2].map(i=>({
       title:'队列测试 '+i,kind:'mp4',url:${JSON.stringify(new URL('.',url).href)}+'slow'+i+'.mp4',
-      options:{mode:'combined',quality:'',format:'auto',subtitles:false}
+      options:{mode:'combined',quality:'',format:'auto',subtitles:false,accelerate:false}
     }))})`);
     await until(() => popup.evaluate(`document.querySelector('#queue li[data-state="queued"]') &&
       document.querySelector('#queue li[data-state="downloading"] progress') !== null`));
@@ -166,12 +198,58 @@ async function checkBrowserDelivery(popup, worker) {
       .filter(row=>row.textContent.includes('队列测试')).length===2`));
     assert.equal(maximum,1);
     console.log('Edge queue showed progress and held the second download until the first completed');
+
+    const rangeUrl = new URL('range.mp4', url).href;
+    await popup.evaluate(`chrome.runtime.sendMessage({scope:'media-downloads',action:'enqueue',streams:[{
+      title:'Parallel MP4',kind:'mp4',url:${JSON.stringify(rangeUrl)},
+      options:{mode:'combined',quality:'',format:'auto',subtitles:false}
+    }]})`);
+    await until(() => worker.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
+      downloadJobs?.[0]?.title === 'Parallel MP4' && downloadJobs[0].state === 'done' && !!downloadJobs[0].batch)`));
+    const downloaded = path.join(browserOut, 'Parallel MP4.mp4');
+    assert.deepEqual(await readFile(downloaded), rangeMedia);
+    assert.deepEqual(inspectFile(downloaded), {width:640,height:480,duration:2});
+    assert.deepEqual(requestedParts, Array(8).fill('"large-mp4"'));
+    assert.equal(fullRequests, 0);
+    console.log('Edge saved original Range MP4 byte-for-byte in the configured browser download folder');
+
+    const headers = {authorization:'Bearer '+token, 'content-type':'application/json'};
+    const {id} = await (await fetch(endpoint+'/api/queue', {method:'POST', headers,
+      body:JSON.stringify({items:[{kind:'stream', url:rangeUrl, title:'Parallel API', mode:'video'}]})})).json();
+    const result = await until(async () => {
+      const batch = await (await fetch(endpoint+'/api/batch/'+id, {headers})).json();
+      return batch.status === 'done' && batch.items[0];
+    });
+    assert.equal(result.status, 'done', JSON.stringify(result));
+    assert.deepEqual(inspectFile(result.file), {width:640,height:480,duration:2});
+    assert.deepEqual(requestedParts, Array(16).fill('"large-mp4"'));
+    assert.equal(fullRequests, 0);
+    console.log('HTTP queue processed staged Range MP4 without fetching the full upstream file again');
+
+    await popup.evaluate(`chrome.runtime.sendMessage({scope:'media-downloads',action:'enqueue',streams:[{
+      title:'Native fallback',kind:'mp4',url:${JSON.stringify(url)},
+      options:{mode:'combined',quality:'',format:'auto',subtitles:false}
+    }]})`);
+    await until(() => worker.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
+      downloadJobs?.[0]?.title === 'Native fallback' && downloadJobs[0].state === 'done' && !downloadJobs[0].batch)`));
+    assert.deepEqual(await readFile(path.join(browserOut, 'Native fallback.mp4')), media);
+    console.log('Edge native fallback saved the original when the server did not support validated ranges');
   } finally {
     source.closeAllConnections();
     source.close();
     await rm(fixture, {force:true});
     await rm(caption, {force:true});
   }
+}
+
+async function pairPopup(popup, endpoint) {
+  await until(() => popup.evaluate('!!document.querySelector("#settings-options [data-option]")').catch(() => false));
+  await popup.evaluate('document.querySelector("#settings-toggle").click()');
+  await popup.evaluate('document.querySelector("#endpoint").value = '+JSON.stringify(endpoint));
+  await popup.evaluate('document.querySelector("#token").value = '+JSON.stringify(token));
+  await popup.evaluate('document.querySelector("#pair").requestSubmit()');
+  await until(() => popup.evaluate('document.querySelector("#connection-status").dataset.connected === "true"'));
+  console.log('Edge popup companion pairing ok');
 }
 
 async function testPopup(endpoint) {
@@ -183,6 +261,15 @@ async function testPopup(endpoint) {
     const sw = await connectCdp(target.webSocketDebuggerUrl,signal);
     const tab = (await list()).find(row => row.type==='page' && row.url==='about:blank');
     const page = await connectCdp(tab.webSocketDebuggerUrl,signal);
+    const popupUrl = new URL('/popup.html',target.url).href;
+    if (process.argv.includes('--delivery-only')) {
+      try {
+        await page.send('Page.navigate',{url:popupUrl});
+        await pairPopup(page, endpoint);
+        await checkBrowserDelivery(page, sw, endpoint);
+      } finally { page.close(); sw.close(); edge.close(); }
+      return;
+    }
     const nav = await page.send('Page.navigate',{url:browserPage});
     assert.ok(!nav.errorText,nav.errorText);
     await page.send('Page.bringToFront');
@@ -202,7 +289,6 @@ async function testPopup(endpoint) {
       })()`);
       throw new Error('Public video duration did not load: ' + JSON.stringify(state), {cause:error});
     }
-    const popupUrl = new URL('/popup.html',target.url).href;
     const {targetId} = await edge.send('Target.createTarget',{url:popupUrl,background:true});
     const popupTarget = await until(async () => (await list()).find(row=>row.id===targetId));
     const popup = await connectCdp(popupTarget.webSocketDebuggerUrl,signal);
@@ -236,13 +322,8 @@ async function testPopup(endpoint) {
         throw new Error('Popup download did not complete: ' + JSON.stringify({rows,status}), {cause:error});
       }
       console.log('Edge popup real page', displayed.title, '0:52', inspectFile(downloaded.filename));
-      await popup.evaluate('document.querySelector("#settings-toggle").click()');
-      await popup.evaluate('document.querySelector("#endpoint").value = '+JSON.stringify(endpoint));
-      await popup.evaluate('document.querySelector("#token").value = '+JSON.stringify(token));
-      await popup.evaluate('document.querySelector("#pair").requestSubmit()');
-      await until(() => popup.evaluate('document.querySelector("#status").textContent.includes("已连接")'));
-      console.log('Edge popup companion pairing ok');
-      await checkBrowserDelivery(popup, sw);
+      await pairPopup(popup, endpoint);
+      await checkBrowserDelivery(popup, sw, endpoint);
       await popup.evaluate('document.querySelector("#videos-toggle").click()');
       await page.evaluate(`(() => {
         const other = document.createElement('video');
@@ -302,7 +383,7 @@ try {
     assert.ok(response.ok,JSON.stringify(data));
     return data;
   };
-  if (process.argv.includes('--popup-only')) {
+  if (process.argv.includes('--popup-only') || process.argv.includes('--delivery-only')) {
     await testPopup(endpoint);
   } else {
     assert.equal((await fetch(endpoint+'/api/health')).status,401);
@@ -323,8 +404,8 @@ try {
     assert.equal((await api('/api/recent')).items.length,2);
     await testMcp();
     await testPopup(endpoint);
-    assert.equal((await readdir(out)).length,2);
-    assert.equal((await readdir(browserOut)).length,5);
+    assert.equal((await readdir(out)).length,3);
+    assert.equal((await readdir(browserOut)).length,7);
   }
 } finally {
   if (server.exitCode === null) server.kill();

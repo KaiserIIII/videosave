@@ -74,7 +74,7 @@ export async function discover(url, cookies, signal) {
   }, signal);
 }
 
-export function inputArgs(url, cookies = []) {
+function inputArgs(url, cookies = []) {
   return [
     '-protocol_whitelist', 'http,https,tcp,tls,httpproxy', '-rw_timeout', '15000000',
     ...(cookies.length ? ['-cookies', cookies.map(({ name, value }) =>
@@ -116,7 +116,7 @@ export async function probeStream(url, cookies, signal, tracks = false) {
       ? 'format=duration:stream=index,codec_type,codec_name,width,height,bit_rate:stream_disposition=attached_pic,default'
       : 'format=duration:stream=width,height';
     const raw = await runMedia(FFPROBE, ['-v', 'error', '-show_entries', entries,
-      '-of', 'json', ...inputArgs(url, cookies), url.href], AbortSignal.any([signal, AbortSignal.timeout(25000)]));
+      '-of', 'json', ...mediaInput(url, cookies)], AbortSignal.any([signal, AbortSignal.timeout(25000)]));
     const parsed = JSON.parse(raw);
     const video = parsed.streams?.find(s => s.width);
     return { duration: Number(parsed.format?.duration) || null, width: video?.width ?? null, height: video?.height ?? null,
@@ -126,4 +126,12 @@ export async function probeStream(url, cookies, signal, tracks = false) {
     if (error.code === 'TOOL_UNAVAILABLE') throw error;
     return { duration: null, width: null, height: null };
   }
+}
+
+export function mediaInput(source, cookies, ...beforeSource) {
+  // Only the locally generated HLS playlist can reference other files.
+  if (typeof source === 'string') return ['-protocol_whitelist', 'file',
+    ...(source.endsWith('.bin') ? ['-format_whitelist', 'mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,ogg,avi,mpegts,mpeg'] : []),
+    ...beforeSource, source];
+  return [...inputArgs(source, cookies), ...beforeSource, source.href];
 }

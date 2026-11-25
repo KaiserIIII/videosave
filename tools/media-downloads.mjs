@@ -4,10 +4,12 @@ import { copyFile, link, mkdir, mkdtemp, readdir, realpath, rm, stat } from 'nod
 import { constants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { ApiError, FFMPEG, discover, inputArgs, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
+import { prefetchHls } from './hls-prefetch.mjs';
+import { prefetchRanges } from './range-prefetch.mjs';
+import { ApiError, FFMPEG, discover, mediaInput, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
 
 export { ApiError };
-export const VERSION = '0.2.0';
+export const VERSION = '0.2.1';
 
 function defaultDownloads() {
   try {
@@ -156,20 +158,29 @@ function durationLimit(value) {
   return Number(value);
 }
 
-export function queue({ items, maxSec, cookie, concurrency = 2, delivery = 'local' } = {}) {
+const directMedia = /^(?:mp4|webm|mkv|mov|m4v|ogv|avi)$/i;
+
+export function queueOriginal({ url, title, extension } = {}) {
+  if (typeof extension !== 'string' || !directMedia.test(extension)) {
+    throw new ApiError('INVALID_FORMAT', '需要一个直链视频格式');
+  }
+  return queue({items:[{kind:'stream', url, title}], delivery:'browser'}, extension.toLowerCase());
+}
+
+export function queue({ items, maxSec, cookie, concurrency = 2, delivery = 'local' } = {}, originalExtension) {
   const targets = getTargets(items);
   if (concurrency !== 1 && concurrency !== 2) throw new ApiError('INVALID_CONCURRENCY', '并发数应为 1 或 2');
   if (delivery !== 'local' && delivery !== 'browser') throw new ApiError('INVALID_DELIVERY', '无效的保存方式');
   const limit = durationLimit(maxSec);
   const cookies = parseCookies(cookie);
-  const key = createHash('sha256').update(JSON.stringify([targets, limit, cookies, concurrency, delivery])).digest('hex');
+  const key = createHash('sha256').update(JSON.stringify([targets, limit, cookies, concurrency, delivery, originalExtension])).digest('hex');
   const existing = batches.get(batchKeys.get(key));
   if (existing?.status === 'running') return { id: existing.id, total: targets.length };
 
   const id = randomUUID();
   const batch = {
     id, status: 'running', controller: new AbortController(), log: [], listeners: new Set(),
-    concurrency, running: 0, delivery, files: new Map(),
+    concurrency, running: 0, delivery, originalExtension, files: new Map(),
     items: targets.map(({ kind, title }, idx) => ({ idx, kind, title, status: 'queued', percent: 0, file: null, error: null })),
   };
   batches.set(id, batch);
@@ -230,6 +241,17 @@ export async function releaseFiles(id, itemIndex) {
   return { ok: true };
 }
 
+async function holdBrowserFiles(batch, item, staging, outputs, signal) {
+  const files = await Promise.all(outputs.map(async ({ file, name = path.basename(file) }) => ({
+    file, name, size: (await stat(file)).size,
+  })));
+  signal.throwIfAborted();
+  const timer = setTimeout(() => void releaseFiles(batch.id, item.idx), browserFileLifetime);
+  timer.unref();
+  batch.files.set(item.idx, { staging, outputs: files, timer });
+  item.outputs = files.map(({ name }, index) => ({ name, href: `/api/batch/${batch.id}/files/${item.idx}/${index}` }));
+}
+
 function outputTracks(target, tracks) {
   const videos = tracks?.filter(track => track.codec_type === 'video' && !track.disposition?.attached_pic)
     .sort((a, b) => (b.height || 0) - (a.height || 0) || (Number(b.bit_rate) || 0) - (Number(a.bit_rate) || 0));
@@ -281,51 +303,82 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     item.title ||= found.pageTitle || '';
   }
   const scopedCookies = source.origin === input.origin ? cookies : [];
-  const { duration, width, height, tracks } = await probeStream(source, scopedCookies, signal, true);
-  const { video, scaled, videoArgs, combinedAudio, audioArgs, subtitleArgs } = outputTracks(target, tracks);
-  const actualHeight = scaled ? target.quality - target.quality % 2 : video?.height ?? height;
-  const actualWidth = scaled ? Math.round(video.width * actualHeight / video.height / 2) * 2 : video?.width ?? width;
-  item.info = { duration, width: actualWidth, height: actualHeight };
-  const expected = duration && limit ? Math.min(duration, limit) : duration || limit;
-  const name = [filename(item.title), target.mode !== 'audio' && actualWidth && actualHeight ? `${actualWidth}x${actualHeight}` : null,
-    limit ? `前${limit}秒` : null].filter(Boolean).join('_');
   const directory = batch.delivery === 'browser' ? os.tmpdir() : OUT_DIR;
   await mkdir(directory, { recursive: true });
   const staging = await mkdtemp(path.join(directory, '.media-toolkit-'));
-  const outputs = [];
-  const addOutput = (suffix, extension, args) => {
-    const outputName = name + suffix;
-    const file = path.join(staging, outputName + '.' + extension);
-    outputs.push({ name: outputName, extension, file,
-      args: [...args, ...(limit ? ['-t', String(limit)] : []),
-        ...(['mp4', 'm4a'].includes(extension) ? ['-movflags', '+faststart'] : []), file] });
-  };
-  if (target.mode !== 'audio') addOutput(target.mode === 'combined' ? '' : '_视频', target.format,
-    [...videoArgs, ...(target.mode === 'combined' ? combinedAudio : []), ...subtitleArgs]);
-  if (['audio', 'separate'].includes(target.mode)) addOutput('_音频', target.audioFormat, audioArgs);
   let held = false;
   const saved = [];
   try {
+    const updateProgress = percent => {
+      if (percent > item.percent) { item.percent = percent; publish(batch); }
+    };
+    const downloadProgress = fraction => {
+      item.status = 'downloading';
+      updateProgress(Math.floor(fraction * 90));
+    };
+    const direct = batch.originalExtension || directMedia.test(path.extname(source.pathname).slice(1));
+    const prefetch = direct ? prefetchRanges : prefetchHls;
+    const staged = !limit && await prefetch(source, scopedCookies, staging, signal, downloadProgress);
+    signal.throwIfAborted();
+    if (batch.originalExtension) {
+      if (staged) {
+        await holdBrowserFiles(batch, item, staging, [{file:staged, name:`${filename(item.title)}.${batch.originalExtension}`}], signal);
+        held = true;
+      } else {
+        item.native = true;
+      }
+      item.status = 'done';
+      item.percent = 100;
+      publish(batch, staged ? '原画下载完成' : '交给浏览器直接下载');
+      return;
+    }
+    if (!staged && item.status === 'downloading') {
+      item.status = 'resolving';
+      item.percent = 0;
+      publish(batch, '并行下载未完成，改用 FFmpeg 读取原地址');
+    }
+    let media = staged || source;
+    let info = await probeStream(media, scopedCookies, signal, true);
+    if (staged && direct && !info.tracks?.length) {
+      media = source;
+      item.percent = 0;
+      publish(batch, '改用原地址读取媒体格式');
+      info = await probeStream(media, scopedCookies, signal, true);
+    }
+    const { duration, width, height, tracks } = info;
+    const { video, scaled, videoArgs, combinedAudio, audioArgs, subtitleArgs } = outputTracks(target, tracks);
+    const actualHeight = scaled ? target.quality - target.quality % 2 : video?.height ?? height;
+    const actualWidth = scaled ? Math.round(video.width * actualHeight / video.height / 2) * 2 : video?.width ?? width;
+    item.info = { duration, width: actualWidth, height: actualHeight };
+    const expected = duration && limit ? Math.min(duration, limit) : duration || limit;
+    const name = [filename(item.title), target.mode !== 'audio' && actualWidth && actualHeight ? `${actualWidth}x${actualHeight}` : null,
+      limit ? `前${limit}秒` : null].filter(Boolean).join('_');
+    const outputs = [];
+    const addOutput = (suffix, extension, args) => {
+      const outputName = name + suffix;
+      const file = path.join(staging, outputName + '.' + extension);
+      outputs.push({ name: outputName, extension, file,
+        args: [...args, ...(limit ? ['-t', String(limit)] : []),
+          ...(['mp4', 'm4a'].includes(extension) ? ['-movflags', '+faststart'] : []), file] });
+    };
+    if (target.mode !== 'audio') addOutput(target.mode === 'combined' ? '' : '_视频', target.format,
+      [...videoArgs, ...(target.mode === 'combined' ? combinedAudio : []), ...subtitleArgs]);
+    if (['audio', 'separate'].includes(target.mode)) addOutput('_音频', target.audioFormat, audioArgs);
+
     item.status = 'downloading';
     publish(batch, `[${item.idx + 1}] 正在下载`);
     await runMedia(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-progress', 'pipe:1', '-nostats',
-      ...inputArgs(source, scopedCookies), '-i', source.href, ...outputs.flatMap(output => output.args)], signal, line => {
+      ...mediaInput(media, scopedCookies, '-i'), ...outputs.flatMap(output => output.args)], signal, line => {
       const seconds = /^out_time_us=(\d+)$/.exec(line)?.[1];
       if (!seconds || !expected) return;
-      const percent = Math.min(99, Math.floor(Number(seconds) / 10000 / expected));
-      if (percent > item.percent) { item.percent = percent; publish(batch); }
+      const fraction = Number(seconds) / 1000000 / expected;
+      updateProgress(Math.min(99, Math.floor(media === staged ? 90 + fraction * 10 : fraction * 100)));
     });
     signal.throwIfAborted();
+    if (staged) await rm(direct ? staged : path.dirname(staged), { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
     if (batch.delivery === 'browser') {
-      const files = await Promise.all(outputs.map(async output => ({
-        file: output.file, name: path.basename(output.file), size: (await stat(output.file)).size,
-      })));
-      signal.throwIfAborted();
-      const timer = setTimeout(() => void releaseFiles(batch.id, item.idx), browserFileLifetime);
-      timer.unref();
-      batch.files.set(item.idx, { staging, outputs: files, timer });
+      await holdBrowserFiles(batch, item, staging, outputs.map(({file}) => ({file})), signal);
       held = true;
-      item.outputs = files.map(({ name }, index) => ({ name, href: `/api/batch/${batch.id}/files/${item.idx}/${index}` }));
     } else {
       for (const output of outputs) {
         signal.throwIfAborted();

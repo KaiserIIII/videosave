@@ -14,6 +14,7 @@ const optionSets = {
   audioFormat:['音频格式', [['m4a','M4A'], ['mp3','MP3']]],
   subtitles:['源文件内嵌字幕', [['false','不保留'], ['true','有则保留']]],
   concurrency:['并发任务', [['1','1 个'], ['2','2 个']]],
+  accelerate:['原画直链加速', [['true','自动 · 需本机服务'], ['false','浏览器直接下载']]],
 };
 
 let panel = 'videos';
@@ -91,7 +92,7 @@ function optionsInto(parent, keys, initial, changed) {
     select.value = String(values[key]);
     select.addEventListener('change', guarded(async () => {
       values[key] = key === 'concurrency' ? Number(select.value)
-        : key === 'subtitles' ? select.value === 'true' : select.value;
+        : ['subtitles', 'accelerate'].includes(key) ? select.value === 'true' : select.value;
       syncControls();
       await changed(values);
     }));
@@ -313,7 +314,7 @@ function updateJobs(jobs) {
     lastJobs = snapshot;
   }
   clearTimeout(pollTimer);
-  if (active && panel === 'downloads') pollTimer = setTimeout(tick, 1100);
+  if (panel === 'downloads' && jobs.some(job => job.state === 'downloading')) pollTimer = setTimeout(tick, 1100);
 }
 
 async function tick() {

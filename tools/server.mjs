@@ -93,6 +93,8 @@ const server = http.createServer(async (req, res) => {
         return reply(res, 200, await downloads.probe(await body(req)));
       case 'POST /api/queue':
         return reply(res, 200, downloads.queue(await body(req)));
+      case 'POST /api/queue/original':
+        return reply(res, 200, downloads.queueOriginal(await body(req)));
       case 'GET /api/recent':
         return reply(res, 200, await downloads.recent());
       case 'POST /api/open':
