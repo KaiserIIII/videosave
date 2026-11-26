@@ -111,20 +111,7 @@ button:disabled { opacity:.55;cursor:default }
 }
 .brand { display:flex;align-items:center;gap:10px;min-inline-size:0 }
 h1 { font-size:16px;letter-spacing:-.025em;font-weight:700 }
-.mark {
-  display:grid;
-  place-items:center;
-  position:relative;
-  flex:none;
-  inline-size:30px;
-  block-size:30px;
-  border-radius:6px;
-  background:var(--visible-accent);
-  color:var(--mark-ink,#182942);
-}
-.mark::before { content:""; inline-size:12px;block-size:9px;border:2px solid currentColor;border-top:0;position:absolute;inset-block-end:6px }
-.mark b::before { content:"";position:absolute;inset:5px auto auto 14px;width:2px;height:12px;background:currentColor }
-.mark b::after { content:"";position:absolute;inset:10px auto auto 11px;width:6px;height:6px;border:solid currentColor;border-width:0 2px 2px 0;transform:rotate(45deg) }
+.mark { flex:none;display:block }
 .connection {
   flex:none;
   min-block-size:28px;

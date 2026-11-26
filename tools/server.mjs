@@ -69,7 +69,7 @@ const server = http.createServer(async (req, res) => {
     if (localPort === 80) hosts.push('127.0.0.1', 'localhost');
     if (!hosts.includes(req.headers.host)) throw new ApiError('FORBIDDEN_HOST', '仅接受本机地址', 403);
     const origin = req.headers.origin || '';
-    if (origin && !/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) {
+    if (origin && !/^(?:chrome-extension:\/\/[a-p]{32}|moz-extension:\/\/[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})$/i.test(origin)) {
       throw new ApiError('FORBIDDEN_ORIGIN', '仅接受浏览器扩展或本机工具', 403);
     }
     if (origin) {

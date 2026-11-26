@@ -10,7 +10,7 @@ import { prefetchRanges } from './range-prefetch.mjs';
 import { ApiError, FFMPEG, discover, mediaInput, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
 
 export { ApiError };
-export const VERSION = '0.5.0';
+export const VERSION = '0.6.0';
 
 function defaultDownloads() {
   try {
@@ -78,7 +78,7 @@ export async function probe({ url: value, cookie } = {}) {
   return schedule(session.signal, async () => {
     const result = await discover(url, cookies, session.signal).catch(error => {
       if (error instanceof ApiError) throw error;
-      throw new ApiError('PAGE_FAILED', '隔离 Edge 探测失败', 502);
+      throw new ApiError('PAGE_FAILED', '隔离浏览器探测失败', 502);
     });
     for (const stream of result.streams) {
       const source = mediaUrl(stream.url);
@@ -351,8 +351,10 @@ async function runItem(batch, item, target, limit, cookies, signal) {
   let sourceKind = target.sourceKind;
   if (target.kind === 'page') {
     const found = await discover(input, cookies, signal);
-    const stream = found.streams[0];
-    if (!stream) throw new ApiError('NO_MEDIA', '页面里没有找到可下载的媒体', 422);
+    if (!found.streams.length) throw new ApiError('NO_MEDIA', '页面里没有找到可下载的媒体', 422);
+    const stream = found.streams.find(candidate => candidate.recommended) ??
+      (found.streams.length === 1 ? found.streams[0] : null);
+    if (!stream) throw new ApiError('AMBIGUOUS_MEDIA', '页面中有多个视频，请选择明确的视频来源', 422);
     source = mediaUrl(stream.url);
     sourceKind ||= ['m3u8','mpd'].includes(stream.kind) ? stream.kind : undefined;
     item.title ||= stream.title || found.pageTitle || '';

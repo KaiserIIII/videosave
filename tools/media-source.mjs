@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { connectCdp, withEdge } from './edge-session.mjs';
+import { connectCdp, withChromium } from './edge-session.mjs';
 import { classify, isPlaylist, mediaResponseSize, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
 
 export class ApiError extends Error {
@@ -34,9 +34,9 @@ export function parseCookies(header = '') {
 }
 
 export async function discover(url, cookies, signal) {
-  return withEdge(['--autoplay-policy=no-user-gesture-required'], async ({ list }) => {
+  return withChromium(['--autoplay-policy=no-user-gesture-required'], async ({ list }) => {
     const target = (await list()).find(t => t.type === 'page' && t.url === 'about:blank');
-    if (!target) throw new ApiError('PAGE_FAILED', '隔离 Edge 未创建页面', 502);
+    if (!target) throw new ApiError('PAGE_FAILED', '隔离浏览器未创建页面', 502);
     const page = await connectCdp(target.webSocketDebuggerUrl, signal);
     try {
       const responses = new Map();
@@ -54,7 +54,7 @@ export async function discover(url, cookies, signal) {
         await page.send('Network.setCookies', { cookies: cookies.map(cookie => ({ ...cookie, url: url.origin, path: '/', secure: url.protocol === 'https:' })) });
       }
       const nav = await page.send('Page.navigate', { url: url.href });
-      if (nav.errorText) throw new ApiError('PAGE_FAILED', 'Edge 无法打开目标页面', 502);
+      if (nav.errorText) throw new ApiError('PAGE_FAILED', '浏览器无法打开目标页面', 502);
       const deadline = Date.now() + 20000;
       let collectUntil = deadline;
       let found;
@@ -72,8 +72,9 @@ export async function discover(url, cookies, signal) {
       return {
         pageTitle: found?.pageMetadata?.title || found?.pageTitle || null,
         streams: streams.flatMap(stream => [stream,...(stream.alternates ?? [])]).slice(0, 24)
-          .map(({url,kind,title,filename,duration,width,height,size}) =>
-          ({url,kind,title:title || sourceTitle({url,filename}) || undefined,duration,width,height,size:size ?? null})),
+          .map(({url,kind,title,filename,duration,width,height,size,recommended}) =>
+          ({url,kind,title:title || sourceTitle({url,filename}) || undefined,duration,width,height,size:size ?? null,
+            ...(recommended && {recommended:true})})),
         pages: found?.pages || [],
       };
     } finally { page.close(); }

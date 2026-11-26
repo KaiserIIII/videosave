@@ -1,9 +1,10 @@
+import { browserApi, isFirefox } from './browser.mjs';
 import { downloadFolder, readDownloadSettings } from './settings.mjs';
 
 export const activeStates = ['queued', 'starting', 'processing', 'downloading', 'paused'];
 export const endpointDefault = 'http://127.0.0.1:8765';
 
-const storage = chrome.storage.local;
+const storage = browserApi.storage.local;
 const alarm = 'media-download-queue';
 let processingTimer;
 let actions = Promise.resolve();
@@ -56,8 +57,9 @@ async function startBrowser(job, output, connection) {
   } : {url:job.stream.url, filename:safeFilename(job.title, job.stream.kind)};
   const folder = downloadFolder(job.settings.downloadFolder ?? '');
   if (folder) file.filename = folder + '/' + file.filename;
-  return chrome.downloads.download({...file, ...(job.settings.saveAs && {saveAs:true}),
-    conflictAction:job.settings.conflictAction === 'prompt' ? 'prompt' : 'uniquify'});
+  const prompt = job.settings.conflictAction === 'prompt';
+  return browserApi.downloads.download({...file, ...((job.settings.saveAs || prompt && isFirefox) && {saveAs:true}),
+    conflictAction:prompt && !isFirefox ? 'prompt' : 'uniquify'});
 }
 
 async function startNative(job, connection) {
@@ -131,7 +133,7 @@ function release(job, connection) {
 }
 
 async function browserProgress(job, connection) {
-  const files = await Promise.all(job.files.map(async file => (await chrome.downloads.search({id:file.id}))[0]));
+  const files = await Promise.all(job.files.map(async file => (await browserApi.downloads.search({id:file.id}))[0]));
   job.files.forEach((record, index) => {
     if (files[index]?.filename) record.name = files[index].filename.split(/[\\/]/).at(-1);
   });
@@ -155,7 +157,7 @@ async function browserProgress(job, connection) {
   job.bytes = received;
   job.totalBytes = total;
   job.percent = total > 0 ? Math.min(100, Math.floor(received / total * 100)) : null;
-  job.note = job.batch ? '正在保存到 Edge' : '';
+  job.note = job.batch ? '正在保存到浏览器下载目录' : '';
   if (files.every(file => file?.state === 'complete')) {
     job.state = 'done';
     job.percent = 100;
@@ -181,7 +183,7 @@ function updateProcessingTimer(jobs, delay) {
     processingTimer = undefined;
   } else if (processingTimer === undefined) {
     // The alarm recovers persisted jobs if the worker is stopped. While active,
-    // check only as long as a companion task still needs to hand files to Edge.
+    // Poll only while a companion task still needs to hand a file to the browser.
     processingTimer = setTimeout(() => {
       processingTimer = undefined;
       void refresh();
@@ -256,9 +258,9 @@ async function tick(state) {
   }
   updateProcessingTimer(jobs, processingDelay);
   if (jobs.some(job => activeStates.includes(job.state))) {
-    if (!await chrome.alarms.get(alarm)) await chrome.alarms.create(alarm, {periodInMinutes:0.5});
+    if (!await browserApi.alarms.get(alarm)) await browserApi.alarms.create(alarm, {periodInMinutes:0.5});
   } else {
-    await chrome.alarms.clear(alarm);
+    await browserApi.alarms.clear(alarm);
   }
   return jobs;
 }
@@ -294,7 +296,7 @@ async function mutate({action, id, streams, settings}, state) {
   }
   const job = jobs.find(entry => entry.id === id);
   if (job && action === 'cancel') {
-    await Promise.all(job.files?.filter(Boolean).map(file => chrome.downloads.cancel(file.id).catch(() => {})) ?? []);
+    await Promise.all(job.files?.filter(Boolean).map(file => browserApi.downloads.cancel(file.id).catch(() => {})) ?? []);
     if (job.batch) await companion(connection, '/api/cancel', {id:job.batch}).catch(() => {});
     release(job, connection);
     job.state = 'cancelled';
@@ -303,14 +305,14 @@ async function mutate({action, id, streams, settings}, state) {
   }
   if (job && action === 'retry' && ['failed', 'cancelled'].includes(job.state)) {
     const previous = job.files ?? [];
-    const records = await Promise.all(previous.map(async file => file ? (await chrome.downloads.search({id:file.id}))[0] : null));
+    const records = await Promise.all(previous.map(async file => file ? (await browserApi.downloads.search({id:file.id}))[0] : null));
     if (job.state === 'failed' && job.batch && !job.expired && records.some(record =>
       ['complete', 'in_progress'].includes(record?.state))) {
       job.files = previous.map((file, index) => ['complete', 'in_progress'].includes(records[index]?.state) ? file : null);
     } else {
       release(job, connection);
       for (const file of records) {
-        if (file?.state === 'in_progress') await chrome.downloads.cancel(file.id).catch(() => {});
+        if (file?.state === 'in_progress') await browserApi.downloads.cancel(file.id).catch(() => {});
       }
       Object.assign(job, {batch:null, files:[], bytes:0, totalBytes:0, speed:0, sampledAt:0, sampledBytes:0});
     }
@@ -325,8 +327,8 @@ async function mutate({action, id, streams, settings}, state) {
       job.state = 'downloading';
     } else {
       await Promise.all(job.files.filter(Boolean).map(async file => {
-        const [current] = await chrome.downloads.search({id:file.id});
-        if (current?.state === 'in_progress' && !current.paused) await chrome.downloads.pause(file.id);
+        const [current] = await browserApi.downloads.search({id:file.id});
+        if (current?.state === 'in_progress' && !current.paused) await browserApi.downloads.pause(file.id);
       }));
       job.state = 'paused';
     }
@@ -337,13 +339,13 @@ async function mutate({action, id, streams, settings}, state) {
 
 async function resumeFiles(job) {
   await Promise.all(job.files.filter(Boolean).map(async file => {
-    const [current] = await chrome.downloads.search({id:file.id});
-    if (current?.canResume) await chrome.downloads.resume(file.id);
+    const [current] = await browserApi.downloads.search({id:file.id});
+    if (current?.canResume) await browserApi.downloads.resume(file.id);
   }));
 }
 
 export function registerDownloads() {
-  chrome.runtime.onStartup.addListener(() => void serial(async () => {
+  browserApi.runtime.onStartup.addListener(() => void serial(async () => {
     const state = await readState();
     for (const job of state.jobs.filter(entry => entry.state === 'starting')) {
       job.state = 'failed';
@@ -352,12 +354,12 @@ export function registerDownloads() {
     await persist(state.jobs);
     await tick(state);
   }).catch(() => {}));
-  chrome.alarms.onAlarm.addListener(event => { if (event.name === alarm) void refresh(); });
-  chrome.downloads.onChanged.addListener(event => {
+  browserApi.alarms.onAlarm.addListener(event => { if (event.name === alarm) void refresh(); });
+  browserApi.downloads.onChanged.addListener(event => {
     if (event.state || event.paused || event.error) void refresh();
   });
-  chrome.runtime.onMessage.addListener((message, sender, reply) => {
-    if (message?.scope !== 'media-downloads' || sender.id !== chrome.runtime.id || sender.tab && !sender.url?.startsWith(chrome.runtime.getURL(''))) return;
+  browserApi.runtime.onMessage.addListener((message, sender, reply) => {
+    if (message?.scope !== 'media-downloads' || sender.id !== browserApi.runtime.id || sender.tab && !sender.url?.startsWith(browserApi.runtime.getURL(''))) return;
     serial(async () => mutate(message, await readState()))
       .then(jobs => reply({jobs}), error => reply({error:error.message}));
     return true;

@@ -57,6 +57,29 @@ test('prefers the actual player and suppresses noise without discarding a separa
   ]);
   assert.deepEqual(result.map(({title}) => title), ['实际片名','独立播放的短片']);
 });
+test('drops a positively identified preroll even when its URL also appears in network observations', () => {
+  const film = 'https://cdn.example/123.mp4';
+  const preroll = 'https://different-cdn.example/456.mp4';
+  const frames = [{frameId:0,result:{playerCount:1, excludedMedia:[preroll],
+    pageMetadata:{videoTitle:'页面正片'}, candidates:[{url:film,mediaElement:true,currentSource:true},{url:preroll}]}}];
+  const result = pageStreams(frames, [
+    {frameId:0,url:preroll,mime:'video/mp4',width:1920},
+    {frameId:0,url:film,mime:'video/mp4',width:600},
+  ]);
+  assert.deepEqual(result.map(({url,title,recommended}) => ({url,title,recommended})), [
+    {url:film,title:'页面正片',recommended:true},
+  ]);
+});
+test('recommends a uniquely active player without treating separate videos as alternatives', () => {
+  const film = 'https://cdn.example/film.mp4';
+  const clip = 'https://cdn.example/clip.mp4';
+  const results = (playing = false) => pageStreams([{frameId:0,result:{playerCount:2,candidates:[
+    {url:film,mediaElement:true,playerIndex:0,playing},
+    {url:clip,mediaElement:true,playerIndex:1},
+  ]}}], []);
+  assert.equal(results().some(row=>row.recommended), false);
+  assert.deepEqual(results(true).filter(row=>row.recommended).map(row=>row.url), [film]);
+});
 test('uses a master playlist for an opaque player and hides its observed renditions', () => {
   const frames = [{frameId:0,result:{candidates:[],opaquePlayer:{title:'电影名称',duration:80}}}];
   const result = pageStreams(frames, ['master.m3u8','720p/index.m3u8','1080p/index.m3u8'].map(path =>
@@ -130,7 +153,7 @@ test('accepts nested download folders and rejects absolute paths and Windows dev
   assert.equal(downloadFolder(' 视频\\教程 '), '视频/教程');
   assert.equal(downloadFolder(''), '');
   for (const folder of ['C:\\Downloads', '\\\\server\\share', '/', '../video', 'video//', 'video/NUL.mp4', 'video/a.']) {
-    assert.throws(() => downloadFolder(folder), /Edge 下载目录/);
+    assert.throws(() => downloadFolder(folder), /浏览器下载目录/);
   }
 });
 

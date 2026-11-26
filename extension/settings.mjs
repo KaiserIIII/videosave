@@ -12,7 +12,7 @@ export function validConcurrency(value) {
 }
 
 export function downloadFolder(value) {
-  const fieldError = '请输入 Edge 下载目录下的文件夹，例如 视频/教程';
+  const fieldError = '请输入浏览器下载目录下的文件夹，例如 视频/教程';
   if (typeof value !== 'string') throw new Error(fieldError);
   const folder = value.trim().replace(/\\/g, '/');
   if (!folder) return '';

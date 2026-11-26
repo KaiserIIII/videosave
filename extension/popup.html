@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Open Media Toolkit</title>
+  <title>视频快存</title>
   <link rel="stylesheet" href="popup.css">
   <script type="module" src="popup.mjs"></script>
 </head>
 <body>
   <header class="masthead">
     <div class="brand">
-      <span class="mark" aria-hidden="true"><b></b></span>
-      <h1>Open Media Toolkit</h1>
+      <img class="mark" src="icons/icon-32.png" width="30" height="30" alt="">
+      <h1>视频快存</h1>
     </div>
     <button id="connection-status" class="connection" type="button"><i></i>本机服务</button>
   </header>
@@ -54,12 +54,12 @@
         <h2>下载</h2>
         <div id="settings-options" class="option-grid"></div>
         <label class="folder-field">下载子文件夹
-          <input id="download-folder" type="text" maxlength="100" placeholder="Edge 默认下载目录"
-                 autocomplete="off" spellcheck="false" aria-label="Edge 下载目录下的子文件夹">
+          <input id="download-folder" type="text" maxlength="100" placeholder="浏览器默认下载目录"
+                 autocomplete="off" spellcheck="false" aria-label="浏览器下载目录下的子文件夹">
         </label>
         <div class="save-tools">
           <label class="check-row"><input id="save-as" type="checkbox"><span>每次询问保存位置</span></label>
-          <button type="button" class="text-button" id="edge-download-settings">更改默认目录 ↗</button>
+          <button type="button" class="text-button" id="browser-download-settings">更改默认目录 ↗</button>
         </div>
       </div>
       <div class="option-card settings-more">
@@ -94,7 +94,7 @@
   </main>
   <footer>
     <p id="status" role="status" aria-live="polite"></p>
-    <button id="history" type="button" class="text-button">Edge 下载记录 ↗</button>
+    <button id="history" type="button" class="text-button">浏览器下载记录 ↗</button>
   </footer>
   <dialog id="preview-dialog" aria-labelledby="preview-title">
     <div class="preview-head">

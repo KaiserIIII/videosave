@@ -1,10 +1,11 @@
+import { browserApi } from './browser.mjs';
 
 import { classify, mediaResponseSize } from './media.mjs';
 import { registerDownloads } from './downloads.mjs';
 
 registerDownloads();
 
-const storage = chrome.storage.session;
+const storage = browserApi.storage.session;
 const writes = new Map();
 const tabKey = id => 'media:' + id;
 
@@ -22,12 +23,12 @@ function update(tab, fn) {
 }
 
 const all = {urls:['http://*/*','https://*/*']};
-chrome.webRequest.onBeforeRequest.addListener(
+browserApi.webRequest.onBeforeRequest.addListener(
   ({tabId}) => { if (tabId >= 0) update(tabId, () => []); },
   {...all, types:['main_frame']},
 );
-chrome.tabs.onRemoved.addListener(tabId => update(tabId, () => []));
-chrome.webRequest.onHeadersReceived.addListener(details => {
+browserApi.tabs.onRemoved.addListener(tabId => update(tabId, () => []));
+browserApi.webRequest.onHeadersReceived.addListener(details => {
   if (details.tabId < 0 || details.statusCode < 200 || details.statusCode >= 300) return;
   const header = name => details.responseHeaders.find(entry => entry.name.toLowerCase() === name)?.value;
   const mime = header('content-type') ?? '';

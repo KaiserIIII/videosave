@@ -1,10 +1,23 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-const EDGE = process.env.EDGE_BIN || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+const edgeDefault = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+
+function chromiumExecutable() {
+  const configured = process.env.BROWSER_BIN || process.env.EDGE_BIN;
+  if (configured) return configured;
+  const chrome = 'Google/Chrome/Application/chrome.exe';
+  const brave = 'BraveSoftware/Brave-Browser/Application/brave.exe';
+  const candidates = [edgeDefault, ...['ProgramFiles','ProgramFiles(x86)','LOCALAPPDATA'].flatMap(name =>
+    process.env[name] ? [chrome,brave].map(entry => path.join(process.env[name],entry)) : [])];
+  const installed = candidates.find(existsSync);
+  if (!installed) throw new Error('找不到 Chromium 浏览器。请用 BROWSER_BIN 指定 Edge、Chrome 或 Brave。');
+  return installed;
+}
 
 export async function connectCdp(url, signal) {
   const ws = new WebSocket(url);
@@ -67,7 +80,11 @@ export async function connectCdp(url, signal) {
   };
 }
 
-export async function withEdge(args, run, signal, {downloadsDirectory} = {}) {
+export function withEdge(args, run, signal, options) {
+  return withChromium(args, run, signal, {...options, executable:process.env.EDGE_BIN || edgeDefault});
+}
+
+export async function withChromium(args, run, signal, {downloadsDirectory, executable = chromiumExecutable()} = {}) {
   signal?.throwIfAborted();
   const profile = await mkdtemp(path.join(os.tmpdir(), 'media-toolkit-edge-'));
   if (downloadsDirectory) {
@@ -76,7 +93,7 @@ export async function withEdge(args, run, signal, {downloadsDirectory} = {}) {
     await writeFile(path.join(settings, 'Preferences'),
       JSON.stringify({download:{default_directory:downloadsDirectory, prompt_for_download:false}}));
   }
-  const edge = spawn(EDGE, [
+  const edge = spawn(executable, [
     '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-gpu',
     '--mute-audio', '--disable-background-networking', '--disable-component-update',
     '--disable-sync', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
@@ -88,7 +105,7 @@ export async function withEdge(args, run, signal, {downloadsDirectory} = {}) {
     const deadline = Date.now() + 12000;
     while (Date.now() < deadline) {
       signal?.throwIfAborted();
-      if (startupError || edge.exitCode !== null) throw new Error('无法启动隔离的 Edge');
+      if (startupError || edge.exitCode !== null) throw new Error('无法启动隔离的 Chromium 浏览器');
       const ports = await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8').catch(() => '');
       const [port, browserPath] = ports.trim().split(/\r?\n/);
       if (port && browserPath) {
@@ -100,7 +117,7 @@ export async function withEdge(args, run, signal, {downloadsDirectory} = {}) {
       }
       await sleep(100, undefined, { signal });
     }
-    throw new Error('Edge 调试端口启动超时');
+    throw new Error('Chromium 调试端口启动超时');
   } finally {
     if (edge.pid && edge.exitCode === null) {
       spawnSync('taskkill.exe', ['/PID', String(edge.pid), '/F', '/T'], { stdio: 'ignore', windowsHide: true });

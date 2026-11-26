@@ -8,7 +8,7 @@ const supportedProtocols = new Set([latestProtocol, '2025-06-18', '2025-03-26', 
 const string = { type: 'string' };
 const object = (properties, required = []) => ({ type: 'object', properties, required });
 const operations = [
-  ['probe_page', 'Find playable streams and linked pages.', object({ url: string, cookie: string }, ['url']), downloads.probe],
+  ['probe_page', 'Find playable streams and linked pages. Prefer a stream marked recommended. If several videos remain without a recommendation, select the one matching the requested title or ask which video to save.', object({ url: string, cookie: string }, ['url']), downloads.probe],
   ['start_download', 'Queue media streams or pages for download.', object({
     items: { type: 'array', minItems: 1, items: object({
       kind: { type: 'string', enum: ['stream', 'page'] }, url: string, title: string, format: { type: 'string', enum: ['mp4', 'mkv'] },

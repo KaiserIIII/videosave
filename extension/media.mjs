@@ -55,6 +55,7 @@ export function pageStreams(frames, requests) {
   const covered = new Set();
   const inferred = [];
   const rejected = new Set(requests.filter(row => row.mime && !classify(row.url,row.mime)).map(row => row.url));
+  const excluded = new Set(frames.flatMap(({result}) => result.excludedMedia ?? []));
   const metadata = frames.find(frame => frame.frameId === 0)?.result.pageMetadata;
   const playerCount = frames.reduce((count, frame) => count + (frame.result.playerCount || 0), 0);
   const observed = frames.flatMap(({ frameId, result }) => {
@@ -78,14 +79,15 @@ export function pageStreams(frames, requests) {
     if (playlist) inferred.push({...playlist, ...result.opaquePlayer, fromPlayer:true});
     return candidates;
   });
+  const eligible = url => !rejected.has(url.href) && (!excluded.has(url.href) || declared.has(url.href));
   const network = requests.filter(request => {
     const url = URL.parse(request.url);
-    return url && !rejected.has(url.href) && !covered.has(`${request.frameId} ${url.href}`) && (declared.has(url.href) ||
+    return url && eligible(url) && !covered.has(`${request.frameId} ${url.href}`) && (declared.has(url.href) ||
       !noisy.test(url.pathname) && request.type !== 'image');
   });
   const streams = pickStreams([...network, ...observed.filter(candidate => {
     const url = URL.parse(candidate.url);
-    return url && !rejected.has(url.href) && !covered.has(`${candidate.frameId} ${url.href}`) &&
+    return url && eligible(url) && !covered.has(`${candidate.frameId} ${url.href}`) &&
       (candidate.mediaElement || !noisy.test(url.pathname));
   }), ...inferred]);
   const players = new Map();
@@ -111,10 +113,14 @@ export function pageStreams(frames, requests) {
   if (representatives.length === 1 && playerCount <= 1 && metadata) {
     const [stream] = representatives;
     if (stream.frameId !== 0 && !stream.namedByPlayer && metadata.videoTitle) stream.title = metadata.videoTitle;
-    stream.title ||= sourceTitle(stream) || metadata.title;
+    stream.title ||= metadata.videoTitle || sourceTitle(stream) || metadata.title;
     stream.poster ||= metadata.poster;
   }
-  const priority = stream => stream.playing ? 2 : stream.mediaElement || stream.fromPlayer ? 1 : 0;
+  const verified = representatives.filter(stream => stream.mediaElement || stream.fromPlayer);
+  const active = verified.filter(stream => stream.playing);
+  const preferred = active.length === 1 ? active[0] : verified.length === 1 ? verified[0] : null;
+  if (preferred) preferred.recommended = true;
+  const priority = stream => stream.recommended ? 3 : stream.playing ? 2 : stream.mediaElement || stream.fromPlayer ? 1 : 0;
   return representatives.sort((a, b) => priority(b) - priority(a));
 }
 
@@ -146,7 +152,25 @@ export function scanDocument() {
     const duration = days * 86400 + hours * 3600 + minutes * 60 + Number(secs);
     return Number.isFinite(duration) && duration > 0 ? duration : null;
   };
-  const videos = [...document.querySelectorAll('video')];
+  const videos = [];
+  const excludedMedia = new Set();
+  const adMarker = /^(?:(?:vjs[-_])?(?:pre|mid|post)[-_]?roll(?:[-_](?:video|player|ad|container))?|(?:video[-_]ad|ad[-_]video))$/i;
+  for (const video of document.querySelectorAll('video')) {
+    let element = video;
+    let isAd = false;
+    for (let depth = 0; element && depth < 4; depth++, element = element.parentElement) {
+      if (adMarker.test(element.id) || [...element.classList].some(name => adMarker.test(name))) {
+        isAd = true;
+        break;
+      }
+    }
+    if (isAd) {
+      for (const address of [video.currentSrc, video.src, ...[...video.querySelectorAll('source')].map(source => source.src)]) {
+        const url = normalizeUrl(address);
+        if (url) excludedMedia.add(url);
+      }
+    } else videos.push(video);
+  }
   const structured = [];
   for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
       const json = script.textContent;
@@ -169,7 +193,8 @@ export function scanDocument() {
   const primary = videos.length === 1 ? videos[0] : playing.length === 1 ? playing[0] : null;
   const sessionTitle = clean(navigator.mediaSession?.metadata?.title);
   const pageVideo = structured.length === 1 ? structured[0] : null;
-  const videoTitle = clean(pageVideo?.name) || sessionTitle ||
+  const titleNode = document.querySelector('[itemtype$="/VideoObject"] [itemprop="name"], #viewvideo-title');
+  const videoTitle = clean(pageVideo?.name) || clean(titleNode?.getAttribute('content') || titleNode?.textContent) || sessionTitle ||
     (/^video(?:\.|$)/.test(meta('property','og:type')) ? meta('property','og:title') : '');
   const pageMetadata = {
     videoTitle,
@@ -210,7 +235,7 @@ export function scanDocument() {
     .filter(a => /^https?:/.test(a.href) && a.href !== location.href && /\/(?:watch|videos?|clip)(?:[/?#]|$)/i.test(a.href))
     .map(a => [a.href, {url: a.href, title: (a.title || a.textContent.trim()).slice(0, 120)}])).values()].slice(0, 80);
   const opaqueCount = videos.filter(video => (video.currentSrc || video.src).startsWith('blob:')).length;
-  return { pageTitle:document.title, pageMetadata, playerCount:videos.length, candidates, pages, opaquePlayer,
+  return { pageTitle:document.title, pageMetadata, playerCount:videos.length, candidates, pages, opaquePlayer, excludedMedia:[...excludedMedia],
     encrypted:videos.some(video => video.mediaKeys),
     opaqueCount, opaque:opaqueCount > 0, ready:document.readyState === 'complete' };
 }

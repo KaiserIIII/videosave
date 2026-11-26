@@ -1,10 +1,11 @@
+import { browserApi, downloadsPage, downloadSettingsPage } from './browser.mjs';
 import { classify, isPlaylist, pageStreams, scanDocument, sourceTitle } from './media.mjs';
 import { activeStates, companion, endpointDefault, usesCompanion } from './downloads.mjs';
 import { defaults, downloadFolder, maxConcurrency, readDownloadSettings } from './settings.mjs';
 import { canQuerySize, preparePreview, queryMediaSize } from './preview.mjs';
 
 const $ = id => document.getElementById(id);
-const storage = chrome.storage.local;
+const storage = browserApi.storage.local;
 const acceptedEndpoint = /^http:\/\/127\.0\.0\.1(?::[0-9]+)?$/;
 const statusNames = {queued:'排队中', starting:'正在启动', processing:'本机处理中',
   downloading:'下载中', paused:'已暂停', done:'已完成', failed:'下载失败', cancelled:'已取消'};
@@ -154,7 +155,7 @@ function connectionLabel() {
 }
 
 async function request(action, args = {}) {
-  const result = await chrome.runtime.sendMessage({scope:'media-downloads', action, ...args});
+  const result = await browserApi.runtime.sendMessage({scope:'media-downloads', action, ...args});
   if (!result || result.error) throw new Error(result?.error || '下载队列暂不可用');
   updateJobs(result.jobs);
 }
@@ -416,8 +417,8 @@ async function refresh(retries = 4) {
   scanning = true;
   if (retries === 4) $('refresh').disabled = true;
   try {
-    const frames = (await chrome.scripting.executeScript({target:{tabId:tab.id, allFrames:true},func:scanDocument})
-      .catch(() => [])).filter(frame => frame.result);
+    const scan = allFrames => browserApi.scripting.executeScript({target:{tabId:tab.id, allFrames},func:scanDocument});
+    const frames = (await scan(true).catch(() => scan(false).catch(() => []))).filter(frame => frame.result);
     const observations = frames.map(frame => frame.result);
     const top = frames.find(frame => frame.frameId === 0)?.result;
     pageTitle = top?.pageTitle || tab.title || '';
@@ -425,7 +426,7 @@ async function refresh(retries = 4) {
     $('page-title').textContent = pageTitle || '当前标签页';
     $('page-title').title = pageTitle;
     const key = 'media:' + tab.id;
-    const requests = (await chrome.storage.session.get(key))[key] || [];
+    const requests = (await browserApi.storage.session.get(key))[key] || [];
     const encrypted = observations.some(row => row.encrypted);
     streams = encrypted ? [] : pageStreams(frames, requests);
     const snapshot = JSON.stringify(streams);
@@ -497,7 +498,7 @@ function renderJob(job) {
       label.title = file.name;
       row.append(label);
       actions.append(button(job.files.length === 1 ? '在文件夹中显示' : '显示' + (index === 0 ? '视频' : '音频'),
-        'quiet', () => chrome.downloads.show(file.id)));
+        'quiet', () => browserApi.downloads.show(file.id)));
     }
   }
   if (actions.childElementCount) row.append(actions);
@@ -562,20 +563,25 @@ $('all').addEventListener('change', () => {
   updateBulk();
 });
 $('queue-selected').addEventListener('click', guarded(() => enqueue(streams.filter(stream => selected.has(stream.url)))));
-$('history').addEventListener('click', guarded(() => chrome.tabs.create({url:'edge://downloads/'})));
+function linkToBrowserPage(id, url) {
+  const link = $(id);
+  link.hidden = !url;
+  if (url) link.addEventListener('click', guarded(() => browserApi.tabs.create({url})));
+}
+linkToBrowserPage('history', downloadsPage);
 $('folder').addEventListener('click', guarded(async () => {
   if (preferences.downloadFolder && !preferences.saveAs) {
     const ids = downloadJobs.filter(job => job.state === 'done' && job.settings.downloadFolder === preferences.downloadFolder)
       .flatMap(job => job.files.map(file => file.id));
-    const downloads = await Promise.all(ids.map(id => chrome.downloads.search({id, exists:true, state:'complete'})));
+    const downloads = await Promise.all(ids.map(id => browserApi.downloads.search({id, exists:true, state:'complete'})));
     const suffix = '/' + preferences.downloadFolder.toLowerCase();
     const match = downloads.flat().find(file => file.filename.toLowerCase().replaceAll('\\', '/')
       .split('/').slice(0, -1).join('/').endsWith(suffix));
-    if (match) return chrome.downloads.show(match.id);
+    if (match) return browserApi.downloads.show(match.id);
   }
-  return chrome.downloads.showDefaultFolder();
+  return browserApi.downloads.showDefaultFolder();
 }));
-$('edge-download-settings').addEventListener('click', guarded(() => chrome.tabs.create({url:'edge://settings/downloads'})));
+linkToBrowserPage('browser-download-settings', downloadSettingsPage);
 $('clear').addEventListener('click', guarded(() => request('clear')));
 $('pair').addEventListener('submit', guarded(async event => {
   event.preventDefault();
@@ -600,15 +606,15 @@ $('manual').addEventListener('submit', guarded(async event => {
 }));
 
 await guarded(async () => {
-  if (!(await chrome.tabs.getCurrent())) {
-    const browser = await chrome.windows.getCurrent();
+  if (!(await browserApi.tabs.getCurrent())) {
+    const browser = await browserApi.windows.getCurrent();
     const width = Math.min(screen.availWidth, browser.width ?? screen.availWidth);
     const height = Math.min(screen.availHeight, browser.height ?? screen.availHeight);
     const style = document.documentElement.style;
     const preferredWidth = Math.max(180, width - 32);
     style.setProperty('--popup-available-width', preferredWidth + 'px');
     style.setProperty('--popup-available-height', Math.max(160, height - 120) + 'px');
-    // Edge opens with a provisional viewport and can then cap the popup
+    // The browser can cap the popup after opening a provisional viewport
     // to a narrower area around its toolbar.
     let fitTimer;
     const fitWidth = () => {
@@ -714,7 +720,7 @@ await guarded(async () => {
     if (changes.downloadJobs) updateJobs(changes.downloadJobs.newValue ?? []);
   });
   updateJobs(saved.downloadJobs ?? []);
-  [tab] = await chrome.tabs.query({active:true,currentWindow:true});
+  [tab] = await browserApi.tabs.query({active:true,currentWindow:true});
   if (preferences.startPanel === 'downloads') showPanel('downloads');
   await refresh();
 })()
