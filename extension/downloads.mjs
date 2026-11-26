@@ -56,7 +56,8 @@ async function startBrowser(job, output, connection) {
   } : {url:job.stream.url, filename:safeFilename(job.title, job.stream.kind)};
   const folder = downloadFolder(job.settings.downloadFolder ?? '');
   if (folder) file.filename = folder + '/' + file.filename;
-  return chrome.downloads.download({...file, ...(job.settings.saveAs && {saveAs:true}), conflictAction:'uniquify'});
+  return chrome.downloads.download({...file, ...(job.settings.saveAs && {saveAs:true}),
+    conflictAction:job.settings.conflictAction === 'prompt' ? 'prompt' : 'uniquify'});
 }
 
 async function startNative(job, connection) {

@@ -1,6 +1,7 @@
-import { classify, pageStreams, scanDocument, sourceTitle } from './media.mjs';
+import { classify, isPlaylist, pageStreams, scanDocument, sourceTitle } from './media.mjs';
 import { activeStates, companion, endpointDefault, usesCompanion } from './downloads.mjs';
-import { defaultConcurrency, defaults, downloadFolder, maxConcurrency, readDownloadSettings } from './settings.mjs';
+import { defaults, downloadFolder, maxConcurrency, readDownloadSettings } from './settings.mjs';
+import { canQuerySize, preparePreview, queryMediaSize } from './preview.mjs';
 
 const $ = id => document.getElementById(id);
 const storage = chrome.storage.local;
@@ -14,15 +15,19 @@ const optionSets = {
   format:['视频格式', [['auto','自动 · 原格式 / MP4'], ['mp4','MP4'], ['mkv','MKV']]],
   audioFormat:['音频格式', [['m4a','M4A'], ['mp3','MP3']]],
   subtitles:['源文件内嵌字幕', [['false','不保留'], ['true','有则保留']]],
-  concurrency:['同时下载', Array.from({length:maxConcurrency}, (_, index) => {
-    const count = index + 1;
-    return [String(count), count + (count === defaultConcurrency ? ' 项 · 默认' : ' 项')];
-  })],
+  concurrency:['同时下载 · 1–' + maxConcurrency],
   accelerate:['原画直链加速', [['true','自动 · 需本机服务'], ['false','浏览器直接下载']]],
   connections:['单任务连接数', [['4','4 · 稳定'], ['8','8 · 默认'], ['12','12 · 高速']]],
   fastStart:['MP4 / M4A 文件优化', [['true','支持边下边播'], ['false','优先完成保存']]],
   naming:['默认文件名', [['title','视频标题'], ['source','源文件名']]],
+  conflictAction:['遇到同名文件', [['uniquify','自动加序号'], ['prompt','询问保存位置']]],
   density:['列表密度', [['comfortable','标准'], ['compact','紧凑']]],
+  preview:['动态预览', [['click','点击封面'], ['hover','悬停或点击'], ['off','关闭']]],
+  previewSeconds:['预览时长', [['3','3 秒'], ['6','6 秒'], ['10','10 秒']]],
+  showSize:['源视频大小', [['true','显示'], ['false','隐藏']]],
+  sizeLookup:['缺少大小时', [['true','轻量查询'], ['false','仅用网页记录']]],
+  showThumbnails:['封面', [['true','显示'], ['false','隐藏']]],
+  startPanel:['打开时显示', [['videos','视频'], ['downloads','下载队列']]],
   autoScan:['自动补扫', [['true','开启'], ['false','仅手动扫描']]],
   showHost:['视频来源域名', [['false','隐藏'], ['true','显示']]],
 };
@@ -42,6 +47,11 @@ let scanTimer;
 let pollTimer;
 let polling = false;
 let openedOptions;
+let hoverPreview;
+let previewController;
+let previewObjectUrl;
+let sizeLookupRunning = false;
+const observedSizes = new Map();
 const selected = new Set();
 
 function status(message) { $('status').textContent = message; }
@@ -65,6 +75,7 @@ function button(text, className, handler) {
 }
 
 function showPanel(next) {
+  stopHoverPreview();
   if (panel !== next) $(next).animate([{opacity:0,transform:'translateY(5px)'},{opacity:1,transform:'none'}],
     {duration:matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180,easing:'ease-out'});
   panel = next;
@@ -77,6 +88,12 @@ function showPanel(next) {
   $('status').textContent = '';
   document.querySelector('main').scrollTop = 0;
   if (panel === 'downloads') void tick();
+}
+
+function showServiceSettings() {
+  showPanel('settings');
+  $('service-settings').open = true;
+  $('endpoint').focus();
 }
 
 function durationLabel(duration) {
@@ -95,22 +112,35 @@ function optionsInto(parent, keys, values, changed) {
     if (controls.quality) controls.quality.disabled = values.mode === 'audio';
     if (controls.subtitles) controls.subtitles.disabled = values.mode === 'audio';
     if (controls.audioFormat) controls.audioFormat.disabled = !['audio','separate'].includes(values.mode);
+    if (controls.previewSeconds) controls.previewSeconds.disabled = values.preview === 'off';
+    if (controls.sizeLookup) controls.sizeLookup.disabled = !values.showSize;
   };
   for (const key of keys) {
     const [label, choices] = optionSets[key];
     const field = element('label', '', label);
-    const select = element('select');
-    select.dataset.option = key;
-    for (const [value, text] of choices) select.add(new Option(text, value));
-    select.value = String(values[key]);
-    select.addEventListener('change', guarded(async () => {
-      values[key] = ['concurrency','connections'].includes(key) ? Number(select.value)
-        : ['subtitles','accelerate','fastStart','autoScan','showHost'].includes(key) ? select.value === 'true' : select.value;
+    const control = element(choices ? 'select' : 'input');
+    control.dataset.option = key;
+    if (choices) {
+      for (const [value, text] of choices) control.add(new Option(text, value));
+    } else {
+      control.type = 'number';
+      control.min = '1';
+      control.max = String(maxConcurrency);
+      control.required = true;
+    }
+    control.value = String(values[key]);
+    control.addEventListener('change', guarded(async () => {
+      if (!control.checkValidity()) {
+        control.value = String(values[key]);
+        throw new Error('同时下载数量须为 1 至 ' + maxConcurrency + ' 的整数');
+      }
+      values[key] = typeof defaults[key] === 'number' ? Number(control.value)
+        : typeof defaults[key] === 'boolean' ? control.value === 'true' : control.value;
       syncControls();
       await changed(values);
     }));
-    controls[key] = select;
-    field.append(select);
+    controls[key] = control;
+    field.append(control);
     parent.append(field);
   }
   syncControls();
@@ -131,8 +161,7 @@ async function request(action, args = {}) {
 
 async function enqueue(items) {
   if (!connection.token && items.some(stream => usesCompanion(stream, {...preferences, ...stream.options}))) {
-    showPanel('settings');
-    $('endpoint').focus();
+    showServiceSettings();
     throw new Error('当前选项需要连接本机服务');
   }
   await request('enqueue', {streams:items.map(stream => ({...stream,title:downloadTitle(stream)}))});
@@ -159,6 +188,137 @@ function updateBulk() {
   $('queue-selected').textContent = selected.size ? '下载所选 · ' + selected.size : '下载所选';
 }
 
+function sizeLabel(stream) {
+  const result = stream.size ? {size:stream.size, estimated:stream.sizeEstimated} : observedSizes.get(stream.url);
+  return result ? (result.estimated ? '约 ' : '') + formatBytes(result.size) : '大小未知';
+}
+
+async function queryMissingSizes() {
+  if (!preferences.showSize || !preferences.sizeLookup || sizeLookupRunning) return;
+  const pending = streams.filter(stream => !stream.size && canQuerySize(stream) && !observedSizes.has(stream.url)).slice(0, 12);
+  if (!pending.length) return;
+  sizeLookupRunning = true;
+  try {
+    await Promise.all(Array.from({length:Math.min(4, pending.length)}, async () => {
+      while (pending.length) {
+        const stream = pending.shift();
+        observedSizes.set(stream.url, await queryMediaSize(stream).catch(() => null));
+        const row = Array.from($('media').children).find(item => item.dataset.url === stream.url);
+        const label = row?.querySelector('.media-size');
+        const current = streams.find(item => item.url === stream.url);
+        if (current && label) label.textContent = sizeLabel(current);
+      }
+    }));
+  } finally {
+    sizeLookupRunning = false;
+  }
+}
+
+function resetVideo(video) {
+  video.pause();
+  video.removeAttribute('src');
+  video.load();
+}
+
+function stopHoverPreview(container) {
+  if (!hoverPreview || container && hoverPreview.container !== container) return;
+  const {timer, video} = hoverPreview;
+  hoverPreview = undefined;
+  clearTimeout(timer);
+  if (video) {
+    resetVideo(video);
+    video.remove();
+  }
+}
+
+function scheduleHoverPreview(container, stream) {
+  if ($('preview-dialog').open || matchMedia('(prefers-reduced-motion: reduce)').matches || isPlaylist(stream.kind)) return;
+  stopHoverPreview();
+  const pending = {container, timer:setTimeout(() => {
+    const video = element('video');
+    pending.video = video;
+    video.muted = true;
+    video.playsInline = true;
+    video.setAttribute('aria-hidden', 'true');
+    video.src = stream.url;
+    video.addEventListener('timeupdate', () => {
+      if (video.currentTime >= preferences.previewSeconds) video.pause();
+    });
+    video.addEventListener('error', () => stopHoverPreview(container), {once:true});
+    container.append(video);
+    void video.play().catch(() => stopHoverPreview(container));
+  }, 320)};
+  hoverPreview = pending;
+}
+
+async function openPreview(stream, title) {
+  const dialog = $('preview-dialog');
+  if (dialog.open) return;
+  stopHoverPreview();
+  const video = $('preview-video');
+  const notice = $('preview-status');
+  const setNotice = message => {
+    notice.textContent = message;
+    notice.hidden = !message;
+  };
+  const controller = new AbortController();
+  previewController = controller;
+  $('preview-title').textContent = title;
+  setNotice('正在加载预览…');
+  dialog.showModal();
+  const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(25000)]);
+  const play = async url => {
+    signal.throwIfAborted();
+    video.src = url;
+    const stop = () => resetVideo(video);
+    signal.addEventListener('abort', stop, {once:true});
+    try {
+      await video.play();
+      signal.throwIfAborted();
+    } finally {
+      signal.removeEventListener('abort', stop);
+    }
+    setNotice('');
+  };
+  try {
+    if (!isPlaylist(stream.kind) || stream.kind === 'm3u8' && video.canPlayType('application/vnd.apple.mpegurl')) {
+      try {
+        await play(stream.url);
+        return;
+      } catch (error) {
+        signal.throwIfAborted();
+        if (!connection.token) throw error;
+      }
+    }
+    if (!connection.token) {
+      setNotice('连接本机服务后可预览此视频。');
+      return;
+    }
+    const clip = await preparePreview(connection, stream, preferences.previewSeconds, signal);
+    signal.throwIfAborted();
+    previewObjectUrl = URL.createObjectURL(clip);
+    await play(previewObjectUrl);
+  } catch (error) {
+    if (!controller.signal.aborted) setNotice('预览不可用 · ' + (signal.aborted ? '加载超时' : error.message));
+  }
+}
+
+$('preview-video').addEventListener('timeupdate', event => {
+  const video = event.target;
+  if (!video.dataset.previewEnded && video.currentTime >= preferences.previewSeconds) {
+    video.dataset.previewEnded = 'true';
+    video.pause();
+  }
+});
+$('preview-dialog').addEventListener('close', () => {
+  previewController?.abort();
+  const video = $('preview-video');
+  resetVideo(video);
+  delete video.dataset.previewEnded;
+  if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+  previewObjectUrl = undefined;
+});
+
 function renderMedia(stream) {
   const row = element('li');
   row.dataset.url = stream.url;
@@ -170,6 +330,7 @@ function renderMedia(stream) {
     stream.duration && durationLabel(stream.duration), stream.width && stream.height && (stream.width + '×' + stream.height),
     preferences.showHost && new URL(stream.url).hostname,
   ].filter(Boolean).join(' · '));
+  if (preferences.showSize) details.append(element('span', 'media-size', sizeLabel(stream)));
   summary.append(label, details);
 
   const checkbox = element('input');
@@ -181,16 +342,22 @@ function renderMedia(stream) {
     else selected.delete(stream.url);
     updateBulk();
   });
-  const preview = element('div', 'preview');
+  const preview = preferences.preview === 'off' ? element('div', 'preview')
+    : button('', 'preview preview-trigger', () => openPreview(stream, label.textContent));
   preview.append(element('span', 'play-icon'));
-  preview.setAttribute('aria-hidden', 'true');
-  if (stream.poster && /^https?:$/.test(URL.parse(stream.poster)?.protocol || '')) {
+  if (preferences.preview !== 'off') preview.setAttribute('aria-label', '预览 ' + label.textContent);
+  else preview.setAttribute('aria-hidden', 'true');
+  if (preferences.showThumbnails && stream.poster && /^https?:$/.test(URL.parse(stream.poster)?.protocol || '')) {
     const image = element('img');
     image.src = stream.poster;
     image.alt = '';
     image.referrerPolicy = 'no-referrer';
     image.addEventListener('error', () => image.remove(), {once:true});
     preview.append(image);
+  }
+  if (preferences.preview === 'hover') {
+    preview.addEventListener('pointerenter', event => { if (event.pointerType === 'mouse') scheduleHoverPreview(preview, stream); });
+    preview.addEventListener('pointerleave', () => stopHoverPreview(preview));
   }
   const actions = element('div', 'actions');
   const config = element('div', 'card-options');
@@ -262,7 +429,7 @@ async function refresh(retries = 4) {
     const encrypted = observations.some(row => row.encrypted);
     streams = encrypted ? [] : pageStreams(frames, requests);
     const snapshot = JSON.stringify(streams);
-    if (snapshot !== lastStreams && !openedOptions) {
+    if (snapshot !== lastStreams && !openedOptions && !hoverPreview) {
       for (const url of selected) {
         if (!streams.some(stream => stream.url === url)) selected.delete(url);
       }
@@ -275,8 +442,10 @@ async function refresh(retries = 4) {
     hint.textContent = encrypted ? '播放器启用了 DRM' : observations.some(row => row.opaque)
       ? '播放一段视频后再扫描，查找分片清单。'
       : '还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。';
+    void queryMissingSizes();
     if (preferences.autoScan && retries && observations.length && !encrypted &&
-        (!streams.length || streams.some(stream => !stream.duration || !stream.title))) {
+        (!streams.length || streams.some(stream => !stream.duration || !stream.title ||
+          preferences.showSize && canQuerySize(stream) && !stream.size && !observedSizes.has(stream.url)))) {
       scanTimer = setTimeout(guarded(() => refresh(retries - 1)), 1500);
     }
   } finally {
@@ -287,6 +456,7 @@ async function refresh(retries = 4) {
 
 function formatBytes(bytes) {
   if (!bytes) return '';
+  if (bytes < 1024) return bytes + ' B';
   const scale = bytes >= 1024 ** 3 ? [1024 ** 3, 'GB'] : bytes >= 1024 ** 2 ? [1024 ** 2, 'MB'] : [1024, 'KB'];
   return (bytes / scale[0]).toFixed(1) + ' ' + scale[1];
 }
@@ -381,7 +551,7 @@ async function tick() {
 for (const nav of document.querySelectorAll('nav [data-panel]')) {
   nav.addEventListener('click', () => showPanel(nav.dataset.panel));
 }
-$('connection-status').addEventListener('click', () => showPanel('settings'));
+$('connection-status').addEventListener('click', showServiceSettings);
 $('refresh').addEventListener('click', guarded(() => refresh()));
 $('all').addEventListener('change', () => {
   selected.clear();
@@ -487,6 +657,7 @@ await guarded(async () => {
     applyAppearance();
     await request('settings', {settings:preferences});
     if (!openedOptions) $('media').replaceChildren(...streams.map(renderMedia));
+    void queryMissingSizes();
   };
   const values = {...preferences};
   for (const [theme, name] of Object.entries(themes)) {
@@ -515,10 +686,10 @@ await guarded(async () => {
     values.accent = '';
     return saveOptions(values);
   }));
-  optionsInto($('settings-options'), ['mode','quality','format','audioFormat','subtitles','naming'], values, saveOptions);
-  optionsInto($('transfer-options'), ['concurrency','connections','accelerate','fastStart'], values, saveOptions);
-  optionsInto($('interface-options'), ['density'], values, saveOptions);
-  optionsInto($('detection-options'), ['autoScan','showHost'], values, saveOptions);
+  optionsInto($('settings-options'), ['quality','concurrency','mode','format','audioFormat','subtitles'], values, saveOptions);
+  optionsInto($('transfer-options'), ['connections','accelerate','fastStart','naming','conflictAction'], values, saveOptions);
+  optionsInto($('interface-options'), ['density','startPanel'], values, saveOptions);
+  optionsInto($('detection-options'), ['preview','previewSeconds','showSize','sizeLookup','showThumbnails','autoScan','showHost'], values, saveOptions);
   folderInput.addEventListener('input', () => folderInput.setCustomValidity(''));
   folderInput.addEventListener('keydown', event => {
     if (event.key === 'Enter' && !event.isComposing) folderInput.blur();
@@ -544,5 +715,6 @@ await guarded(async () => {
   });
   updateJobs(saved.downloadJobs ?? []);
   [tab] = await chrome.tabs.query({active:true,currentWindow:true});
+  if (preferences.startPanel === 'downloads') showPanel('downloads');
   await refresh();
 })()

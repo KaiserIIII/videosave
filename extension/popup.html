@@ -49,54 +49,60 @@
       <p class="empty" id="queue-empty">暂无下载</p>
       <ul id="queue" class="queue" aria-label="下载任务"></ul>
     </section>
-    <section id="settings" hidden aria-labelledby="settings-heading">
+    <section id="settings" hidden aria-label="设置">
       <div class="option-card">
-        <h2 id="settings-heading">外观</h2>
-        <div id="themes" role="group" aria-label="界面主题"></div>
-        <div class="accent-row">
-          <label for="theme-accent">强调色</label>
-          <input type="color" id="theme-accent">
-          <button type="button" class="quiet" id="reset-accent" hidden>恢复主题颜色</button>
-        </div>
-        <div id="interface-options" class="option-grid"></div>
-      </div>
-      <div class="option-card settings-group">
-        <h2>保存位置</h2>
+        <h2>下载</h2>
+        <div id="settings-options" class="option-grid"></div>
         <label class="folder-field">下载子文件夹
           <input id="download-folder" type="text" maxlength="100" placeholder="Edge 默认下载目录"
-                 autocomplete="off" spellcheck="false" aria-describedby="folder-help">
+                 autocomplete="off" spellcheck="false" aria-label="Edge 下载目录下的子文件夹">
         </label>
-        <p id="folder-help" class="field-help">相对于 Edge 下载目录，例如 视频/教程。留空使用默认目录。</p>
         <div class="save-tools">
           <label class="check-row"><input id="save-as" type="checkbox"><span>每次询问保存位置</span></label>
-          <button type="button" class="text-button" id="edge-download-settings">Edge 下载设置 ↗</button>
+          <button type="button" class="text-button" id="edge-download-settings">更改默认目录 ↗</button>
         </div>
       </div>
-      <div class="option-card settings-group">
-        <h2>下载默认值</h2>
-        <div id="settings-options" class="option-grid"></div>
+      <div class="option-card settings-more">
+        <details class="settings-block">
+          <summary>传输与文件格式</summary>
+          <div id="transfer-options" class="option-grid"></div>
+        </details>
+        <details class="settings-block">
+          <summary>视频列表与预览</summary>
+          <div id="detection-options" class="option-grid"></div>
+        </details>
+        <details class="settings-block" id="appearance-settings">
+          <summary>外观</summary>
+          <div id="themes" role="group" aria-label="界面主题"></div>
+          <div class="accent-row">
+            <label for="theme-accent">强调色</label>
+            <input type="color" id="theme-accent">
+            <button type="button" class="quiet" id="reset-accent" hidden>恢复主题颜色</button>
+          </div>
+          <div id="interface-options" class="option-grid"></div>
+        </details>
+        <details class="settings-block" id="service-settings">
+          <summary>本机下载服务</summary>
+          <form id="pair">
+            <label>地址<input id="endpoint" type="url" placeholder="http://127.0.0.1:8765" required></label>
+            <label>配对码<input id="token" type="password" autocomplete="off" spellcheck="false" required></label>
+            <button type="submit">连接服务</button>
+          </form>
+        </details>
       </div>
-      <div class="option-card settings-group">
-        <h2>传输</h2>
-        <div id="transfer-options" class="option-grid"></div>
-      </div>
-      <div class="option-card settings-group">
-        <h2>视频检测</h2>
-        <div id="detection-options" class="option-grid"></div>
-      </div>
-      <section class="service-card" aria-labelledby="service-heading">
-        <h3 id="service-heading">本机下载服务</h3>
-        <form id="pair">
-          <label>地址<input id="endpoint" type="url" placeholder="http://127.0.0.1:8765" required></label>
-          <label>配对码<input id="token" type="password" autocomplete="off" spellcheck="false" required></label>
-          <button type="submit">连接服务</button>
-        </form>
-      </section>
     </section>
   </main>
   <footer>
     <p id="status" role="status" aria-live="polite"></p>
     <button id="history" type="button" class="text-button">Edge 下载记录 ↗</button>
   </footer>
+  <dialog id="preview-dialog" aria-labelledby="preview-title">
+    <div class="preview-head">
+      <h2 id="preview-title"></h2>
+      <form method="dialog"><button class="quiet close-preview" aria-label="关闭预览" type="submit">×</button></form>
+    </div>
+    <video id="preview-video" preload="none" playsinline muted controls></video>
+    <p id="preview-status" role="status" hidden></p>
+  </dialog>
 </body>
 </html>

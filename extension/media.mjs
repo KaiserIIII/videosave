@@ -2,6 +2,21 @@
 const adaptive = new Set(['m3u8', 'mpd']);
 const formats = new Set(['mp4', 'webm', 'mkv', 'mov', 'm4v', 'ogv', 'avi', 'm3u8', 'mpd']);
 
+export function mediaResponseSize(kind, status, header) {
+  if (!kind || adaptive.has(kind)) return undefined;
+  const encoding = header('content-encoding');
+  if (encoding && encoding.trim().toLowerCase() !== 'identity') return undefined;
+  const length = status === 206
+    ? /^bytes \d+-\d+\/(\d+)$/i.exec(header('content-range')?.trim())?.[1]
+    : status === 200 ? /^\d+$/.exec(header('content-length')?.trim())?.[0] : undefined;
+  const size = Number(length);
+  return Number.isSafeInteger(size) && size > 0 ? size : undefined;
+}
+
+export function isPlaylist(kind) {
+  return adaptive.has(kind);
+}
+
 export function classify(value, contentType = '', mediaElement = false) {
   const url = URL.parse(value);
   if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;

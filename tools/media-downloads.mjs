@@ -1,6 +1,6 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFile, link, mkdir, mkdtemp, readdir, realpath, rm, stat } from 'node:fs/promises';
+import { copyFile, link, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -10,7 +10,7 @@ import { prefetchRanges } from './range-prefetch.mjs';
 import { ApiError, FFMPEG, discover, mediaInput, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
 
 export { ApiError };
-export const VERSION = '0.4.0';
+export const VERSION = '0.5.0';
 
 function defaultDownloads() {
   try {
@@ -28,6 +28,7 @@ const session = new AbortController();
 const workQueue = [];
 let runningDownloads = 0;
 let runningProbes = 0;
+let runningPreviews = 0;
 const batches = new Map();
 const batchKeys = new Map();
 
@@ -81,10 +82,41 @@ export async function probe({ url: value, cookie } = {}) {
     });
     for (const stream of result.streams) {
       const source = mediaUrl(stream.url);
-      Object.assign(stream, await probeStream(source, source.origin === url.origin ? cookies : [], session.signal));
+      const info = await probeStream(source, source.origin === url.origin ? cookies : [], session.signal, false, stream.kind);
+      const hasObservedSize = stream.size != null;
+      for (const [key, value] of Object.entries(info)) {
+        if (value != null && (!['size','sizeEstimated'].includes(key) || !hasObservedSize)) stream[key] = value;
+      }
     }
     return result;
   });
+}
+
+export async function preview({url: value, seconds = 6}, requestSignal) {
+  const url = mediaUrl(value);
+  if (![3,6,10].includes(seconds)) throw new ApiError('INVALID_PREVIEW_DURATION', '预览时长可设为 3、6 或 10 秒');
+  if (runningPreviews >= 2) throw new ApiError('PREVIEW_BUSY', '本机服务正在生成预览，请稍后再试', 429);
+  const signal = AbortSignal.any([requestSignal, session.signal, AbortSignal.timeout(21000)]);
+  const limit = 8 * 1024 * 1024;
+  let staging;
+  runningPreviews++;
+  try {
+    staging = await mkdtemp(path.join(os.tmpdir(), '.media-toolkit-preview-'));
+    const file = path.join(staging, 'clip.mp4');
+    await runMedia(FFMPEG, ['-hide_banner','-loglevel','error','-nostdin',
+      ...mediaInput(url, [], '-i'), '-map','0:v:0','-an','-sn','-dn',
+      '-t',String(seconds),'-vf',"scale=-2:'min(240,ih)',fps=16",'-threads','2',
+      '-c:v','libx264','-preset','ultrafast','-pix_fmt','yuv420p','-fs',String(limit - 65536),'-movflags','+faststart',file], signal);
+    const size = (await stat(file)).size;
+    if (size <= 0 || size > limit) throw new ApiError('PREVIEW_FAILED', '预览文件超出大小限制', 502);
+    return await readFile(file, {signal});
+  } catch (error) {
+    if (signal.aborted) throw new ApiError('PREVIEW_TIMED_OUT', '生成预览超时', 504);
+    throw error;
+  } finally {
+    if (staging) await rm(staging, {recursive:true,force:true,maxRetries:5}).catch(() => {});
+    runningPreviews--;
+  }
 }
 
 function snapshot(batch) {

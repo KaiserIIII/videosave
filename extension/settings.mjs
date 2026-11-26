@@ -1,10 +1,11 @@
-export const defaultConcurrency = 10;
-export const maxConcurrency = 24;
+export const defaultConcurrency = 24;
+export const maxConcurrency = 64;
 
 export const defaults = {mode:'combined', quality:'', format:'auto', audioFormat:'m4a', subtitles:false,
-  concurrency:defaultConcurrency, concurrencyVersion:1, connections:8, accelerate:true, saveAs:false,
+  concurrency:defaultConcurrency, concurrencyVersion:2, connections:8, accelerate:true, saveAs:false,
   downloadFolder:'', fastStart:true, naming:'title', theme:'system', accent:'', density:'comfortable',
-  autoScan:true, showHost:false};
+  autoScan:true, showHost:false, showSize:true, sizeLookup:true, preview:'click', previewSeconds:6,
+  showThumbnails:true, startPanel:'videos', conflictAction:'uniquify'};
 
 export function validConcurrency(value) {
   return Number.isInteger(value) && value >= 1 && value <= maxConcurrency;
@@ -25,7 +26,9 @@ export function downloadFolder(value) {
 
 export function readDownloadSettings(saved) {
   const settings = {...defaults, ...saved};
-  if (!validConcurrency(settings.concurrency) || (!saved?.concurrencyVersion && settings.concurrency === 2)) {
+  const oldDefault = !saved?.concurrencyVersion && settings.concurrency === 2 ||
+    saved?.concurrencyVersion === 1 && settings.concurrency === 10;
+  if (!validConcurrency(settings.concurrency) || oldDefault) {
     settings.concurrency = defaultConcurrency;
   }
   settings.concurrencyVersion = defaults.concurrencyVersion;

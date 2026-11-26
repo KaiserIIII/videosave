@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
@@ -61,7 +61,7 @@ async function testMcp() {
     send('notifications/initialized');
     const result = await call('tools/list',{},2);
     assert.deepEqual(result.tools.map(tool=>tool.name),['probe_page','start_download','get_progress','list_downloads','open_file']);
-    assert.deepEqual(result.tools[1].inputSchema.properties.concurrency, {type:'integer',minimum:1,maximum:24,default:10});
+    assert.deepEqual(result.tools[1].inputSchema.properties.concurrency, {type:'integer',minimum:1,maximum:64,default:24});
     const listing = await call('tools/call',{name:'list_downloads'},3);
     assert.equal(listing.structuredContent.items.length,2);
     console.log('MCP',result.tools.map(tool=>tool.name).join(', '));
@@ -93,10 +93,10 @@ async function checkPopupLayout(popup) {
 }
 
 async function checkSettings(popup, worker) {
-  assert.equal(await popup.evaluate('document.querySelector("[data-option=concurrency]").value'), '10');
-  await worker.evaluate('chrome.storage.local.set({downloadSettings:{concurrency:2}})');
+  assert.equal(await popup.evaluate('document.querySelector("[data-option=concurrency]").value'), '24');
+  await worker.evaluate('chrome.storage.local.set({downloadSettings:{concurrency:10,concurrencyVersion:1}})');
   await popup.send('Page.reload');
-  await until(() => popup.evaluate('document.querySelector("[data-option=concurrency]")?.value === "10"').catch(() => false));
+  await until(() => popup.evaluate('document.querySelector("[data-option=concurrency]")?.value === "24"').catch(() => false));
   await popup.evaluate('document.querySelector("#settings-toggle").click()');
 
   const colors = new Set();
@@ -115,7 +115,7 @@ async function checkSettings(popup, worker) {
     accent.dispatchEvent(new Event('change'));
   })()`);
   await until(() => worker.evaluate(`chrome.storage.local.get('downloadSettings').then(({downloadSettings:s}) =>
-    s?.theme==='amber' && s?.accent==='#dd8352' && s?.downloadFolder==='视频/教程' && s?.concurrency===10)`));
+    s?.theme==='amber' && s?.accent==='#dd8352' && s?.downloadFolder==='视频/教程' && s?.concurrency===24)`));
   await popup.send('Page.reload');
   await until(() => popup.evaluate(`document.documentElement.dataset.theme === 'amber' &&
     document.querySelector('#theme-accent').value === '#dd8352' &&
@@ -134,12 +134,14 @@ async function checkSettings(popup, worker) {
   try {
     await popup.evaluate('document.querySelector("#themes input[value=amber]").click()');
     assert.equal(await popup.evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    await popup.evaluate('document.querySelector("#appearance-settings").open = true');
     const tiles = await popup.evaluate(`[...document.querySelectorAll('.theme-choice')].map(el => ({
       theme:el.dataset.preview, right:el.getBoundingClientRect().right, viewport:innerWidth,
       content:el.scrollWidth, width:el.clientWidth
     }))`);
     assert.ok(tiles.every(tile => tile.right <= tile.viewport && tile.content <= tile.width), JSON.stringify(tiles));
     if (process.env.SMOKE_SETTINGS_SCREENSHOT) {
+      await popup.evaluate('document.querySelector("#appearance-settings").open = false; document.querySelector("main").scrollTop = 0');
       const shot = await popup.send('Page.captureScreenshot',{format:'png'});
       await writeFile(process.env.SMOKE_SETTINGS_SCREENSHOT, Buffer.from(shot.data,'base64'));
     }
@@ -202,7 +204,7 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
     }, 150);
     res.once('close', () => { responses--; clearInterval(timer); });
   };
-  const servers = [createServer(serve), createServer(serve)];
+  const servers = Array.from({length:5}, () => createServer(serve));
   await Promise.all(servers.map(server => {
     server.listen(0, '127.0.0.1');
     return once(server, 'listening');
@@ -210,17 +212,17 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
   try {
     const [source] = servers;
     const url = `http://127.0.0.1:${source.address().port}/separate.mp4`;
-    const urls = Array.from({length:10}, (_, index) =>
-      `http://127.0.0.1:${servers[index % 2].address().port}/slow-burst-${index}.mp4`);
+    const urls = Array.from({length:25}, (_, index) =>
+      `http://127.0.0.1:${servers[index % servers.length].address().port}/slow-burst-${index}.mp4`);
     await popup.evaluate(`chrome.runtime.sendMessage({scope:'media-downloads',action:'enqueue',streams:
-      ${JSON.stringify(urls)}.map((url,index)=>({url,title:'十项并发 '+index,kind:'mp4',
+      ${JSON.stringify(urls)}.map((url,index)=>({url,title:'并发测试 '+index,kind:'mp4',
         options:{accelerate:false,downloadFolder:'并发验证'}}))})`);
     await until(() => worker.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
-      downloadJobs.filter(job=>job.title.startsWith('十项并发') && job.state==='done').length===10)`));
-    assert.equal(maximum, 10);
-    assert.equal((await readdir(path.join(browserOut,'并发验证'))).length, 10);
+      downloadJobs.filter(job=>job.title.startsWith('并发测试') && job.state==='done').length===25)`));
+    assert.equal(maximum, 24);
+    assert.equal((await readdir(path.join(browserOut,'并发验证'))).length, 25);
     maximum = 0;
-    console.log('Edge started and saved 10 concurrent downloads');
+    console.log('Edge saved 25 downloads and observed a peak of 24 concurrent transfers');
     await popup.evaluate(`(() => {
       for (const [key, value] of Object.entries({mode:'separate',quality:'360',concurrency:'1',audioFormat:'mp3',subtitles:'true'})) {
         const option = document.querySelector('#settings [data-option="'+key+'"]');
@@ -334,7 +336,7 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
 
 async function pairPopup(popup, endpoint) {
   await until(() => popup.evaluate('!!document.querySelector("#settings-options [data-option]")').catch(() => false));
-  await popup.evaluate('document.querySelector("#settings-toggle").click()');
+  await popup.evaluate('document.querySelector("#connection-status").click()');
   await popup.evaluate('document.querySelector("#endpoint").value = '+JSON.stringify(endpoint));
   await popup.evaluate('document.querySelector("#token").value = '+JSON.stringify(token));
   await popup.evaluate('document.querySelector("#pair").requestSubmit()');
@@ -399,6 +401,27 @@ async function testPopup(endpoint) {
       const displayed = await popup.evaluate(`({title:${mediaRow}.querySelector('.media-title').textContent,details:${mediaRow}.innerText})`);
       assert.equal(displayed.title, videoTitle);
       assert.match(displayed.details, /0:52/);
+      const sizeLabel = await until(() => popup.evaluate(`${mediaRow}.querySelector('.media-size')?.textContent`)
+        .then(size => /\d (?:KB|MB)/.test(size) && size));
+      await popup.send('Page.bringToFront');
+      await popup.evaluate(`${mediaRow}.querySelector('.preview-trigger').click()`);
+      const readPreview = () => popup.evaluate(`(() => {
+        const video = document.querySelector('#preview-video');
+        return {time:video.currentTime,paused:video.paused,width:video.videoWidth,muted:video.muted,
+          ready:video.readyState,error:video.error?.message,visible:document.visibilityState,
+          open:document.querySelector('#preview-dialog').open, notice:document.querySelector('#preview-status').textContent};
+      })()`);
+      const previewStatus = await until(async () => {
+        const {time,paused,width,muted} = await readPreview();
+        return time > 0.15 && !paused && {width,muted};
+      }).catch(async error => {
+        throw new Error('Public video preview did not play: ' + JSON.stringify(await readPreview()), {cause:error});
+      });
+      assert.deepEqual(previewStatus, {width:854, muted:true});
+      await popup.evaluate('document.querySelector("#preview-dialog").close()');
+      await until(() => popup.evaluate('!document.querySelector("#preview-video").hasAttribute("src")'));
+      await page.send('Page.bringToFront');
+      console.log('Edge real-page video size and animated preview', sizeLabel, previewStatus);
       assert.equal(await popup.evaluate(`Array.from(document.querySelectorAll('#media .media-title'))
         .filter(title => title.textContent === ${JSON.stringify(videoTitle)}).length`), 1);
       await popup.evaluate(`${mediaRow}.querySelector('.actions button:last-child').click()`);
@@ -414,6 +437,7 @@ async function testPopup(endpoint) {
         throw new Error('Popup download did not complete: ' + JSON.stringify({rows,status}), {cause:error});
       }
       console.log('Edge popup real page', displayed.title, '0:52', inspectFile(downloaded.filename));
+      assert.equal(sizeLabel, ((await stat(downloaded.filename)).size / (1024 ** 2)).toFixed(1) + ' MB');
       await pairPopup(popup, endpoint);
       await checkBrowserDelivery(popup, sw, endpoint);
       await popup.evaluate('document.querySelector("#videos-toggle").click()');
@@ -486,6 +510,18 @@ try {
     assert.equal((await api('/api/health')).ok,true);
     const probed = await api('/api/probe',{url:pageUrl});
     assert.ok(probed.streams.some(row=>row.kind==='webm' && row.width>0),JSON.stringify(probed));
+    assert.ok(probed.streams.some(row=>row.kind==='webm' && row.size>0 && !row.sizeEstimated),JSON.stringify(probed));
+    const previewUrl = endpoint + '/api/preview';
+    const clip = await fetch(previewUrl, {method:'POST', headers:{authorization:'Bearer '+token,
+      'content-type':'application/json'}, body:JSON.stringify({url:hls, seconds:3}),signal});
+    assert.equal(clip.status, 200, clip.ok ? '' : await clip.text());
+    const clipFile = path.join(out,'preview.mp4');
+    await writeFile(clipFile, Buffer.from(await clip.arrayBuffer()));
+    const clipInfo = inspectFile(clipFile);
+    assert.equal(clipInfo.height,240);
+    assert.ok(Math.abs(clipInfo.duration - 3) < 0.15, JSON.stringify(clipInfo));
+    await rm(clipFile);
+    console.log('Public HLS preview', clipInfo);
     const batch = await api('/api/queue',{items:[{kind:'stream',url:hls,title:'HLS'},{kind:'stream',url:dash,title:'DASH',format:'mkv'}],maxSec:3});
     const sse = await fetch(endpoint+'/api/batch/'+batch.id+'/events',{headers:{authorization:'Bearer '+token},signal});
     assert.ok(sse.headers.get('content-type').startsWith('text/event-stream'));

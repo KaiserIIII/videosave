@@ -91,6 +91,14 @@ const server = http.createServer(async (req, res) => {
         return reply(res, 200, { ok: true, version: VERSION, outDir: OUT_DIR });
       case 'POST /api/probe':
         return reply(res, 200, await downloads.probe(await body(req)));
+      case 'POST /api/preview': {
+        const controller = new AbortController();
+        res.once('close', () => controller.abort());
+        const clip = await downloads.preview(await body(req), controller.signal);
+        if (res.destroyed) return;
+        res.writeHead(200, {'content-type':'video/mp4','content-length':clip.length,'cache-control':'no-store'});
+        return res.end(clip);
+      }
       case 'POST /api/queue':
         return reply(res, 200, downloads.queue(await body(req)));
       case 'POST /api/queue/original':

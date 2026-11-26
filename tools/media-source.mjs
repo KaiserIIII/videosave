@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { connectCdp, withEdge } from './edge-session.mjs';
-import { classify, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
+import { classify, isPlaylist, mediaResponseSize, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
 
 export class ApiError extends Error {
   constructor(code, message, status = 400) {
@@ -41,9 +41,12 @@ export async function discover(url, cookies, signal) {
     try {
       const responses = new Map();
       page.on('Network.responseReceived', ({ response, frameId, type }) => {
-        if (response.status < 200 || response.status >= 300 || (!classify(response.url, response.mimeType) && !classify(response.url))) return;
+        const kind = classify(response.url, response.mimeType);
+        if (response.status < 200 || response.status >= 300 || (!kind && !classify(response.url))) return;
         if (responses.size < 120 || responses.has(response.url)) {
-          responses.set(response.url, {url:response.url, mime:response.mimeType, frameId, type:type?.toLowerCase()});
+          const headers = new Map(Object.entries(response.headers).map(([name,value]) => [name.toLowerCase(),String(value)]));
+          const size = mediaResponseSize(kind, response.status, name => headers.get(name)) ?? responses.get(response.url)?.size;
+          responses.set(response.url, {url:response.url, mime:response.mimeType, size, frameId, type:type?.toLowerCase()});
         }
       });
       await page.send('Network.enable');
@@ -69,8 +72,8 @@ export async function discover(url, cookies, signal) {
       return {
         pageTitle: found?.pageMetadata?.title || found?.pageTitle || null,
         streams: streams.flatMap(stream => [stream,...(stream.alternates ?? [])]).slice(0, 24)
-          .map(({url,kind,title,filename,duration,width,height}) =>
-          ({url,kind,title:title || sourceTitle({url,filename}) || undefined,duration,width,height})),
+          .map(({url,kind,title,filename,duration,width,height,size}) =>
+          ({url,kind,title:title || sourceTitle({url,filename}) || undefined,duration,width,height,size:size ?? null})),
         pages: found?.pages || [],
       };
     } finally { page.close(); }
@@ -113,16 +116,23 @@ export async function runMedia(bin, args, signal, onLine) {
 const FFPROBE = process.env.FFPROBE_BIN || 'ffprobe';
 export const FFMPEG = process.env.FFMPEG_BIN || 'ffmpeg';
 
-export async function probeStream(url, cookies, signal, tracks = false) {
+export async function probeStream(url, cookies, signal, tracks = false, kind) {
   try {
     const entries = tracks
       ? 'format=duration:stream=index,codec_type,codec_name,width,height,bit_rate:stream_disposition=attached_pic,default'
-      : 'format=duration:stream=width,height';
+      : 'format=duration,size,format_name:stream=width,height:stream_tags=variant_bitrate';
     const raw = await runMedia(FFPROBE, ['-v', 'error', '-show_entries', entries,
       '-of', 'json', ...mediaInput(url, cookies)], AbortSignal.any([signal, AbortSignal.timeout(25000)]));
     const parsed = JSON.parse(raw);
     const video = parsed.streams?.find(s => s.width);
-    return { duration: Number(parsed.format?.duration) || null, width: video?.width ?? null, height: video?.height ?? null,
+    const duration = Number(parsed.format?.duration) || null;
+    const adaptive = isPlaylist(kind) || /^(?:hls|dash)(?:,|$)/.test(parsed.format?.format_name ?? '');
+    const bytes = Number(parsed.format?.size);
+    const bitRate = Number(video?.tags?.variant_bitrate);
+    const estimate = adaptive && duration > 0 && bitRate > 0 ? Math.round(duration * bitRate / 8) : null;
+    const size = !adaptive && Number.isSafeInteger(bytes) && bytes > 0 ? bytes : null;
+    return { duration, width: video?.width ?? null, height: video?.height ?? null,
+      ...(!tracks && {size, ...(estimate > 0 && Number.isSafeInteger(estimate) && {size:estimate, sizeEstimated:true})}),
       ...(tracks && {tracks:parsed.streams ?? []}) };
   } catch (error) {
     signal.throwIfAborted();

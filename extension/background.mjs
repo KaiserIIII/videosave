@@ -1,5 +1,5 @@
 
-import { classify } from './media.mjs';
+import { classify, mediaResponseSize } from './media.mjs';
 import { registerDownloads } from './downloads.mjs';
 
 registerDownloads();
@@ -29,11 +29,15 @@ chrome.webRequest.onBeforeRequest.addListener(
 chrome.tabs.onRemoved.addListener(tabId => update(tabId, () => []));
 chrome.webRequest.onHeadersReceived.addListener(details => {
   if (details.tabId < 0 || details.statusCode < 200 || details.statusCode >= 300) return;
-  const mime = details.responseHeaders.find(header => header.name.toLowerCase() === 'content-type')?.value ?? '';
-  if ((!classify(details.url, mime) && !classify(details.url)) || ['image','stylesheet','font','script','ping'].includes(details.type)) return;
-  const disposition = details.responseHeaders.find(header => header.name.toLowerCase() === 'content-disposition')?.value ?? '';
+  const header = name => details.responseHeaders.find(entry => entry.name.toLowerCase() === name)?.value;
+  const mime = header('content-type') ?? '';
+  const kind = classify(details.url, mime);
+  if ((!kind && !classify(details.url)) || ['image','stylesheet','font','script','ping'].includes(details.type)) return;
+  const disposition = header('content-disposition') ?? '';
   const filename = /(?:^|;)\s*filename\*=UTF-8'[^']*'([^;]+)/i.exec(disposition)?.[1] ||
     /(?:^|;)\s*filename=(?:"([^"]+)"|([^;]+))/i.exec(disposition)?.slice(1).find(Boolean);
+  const size = mediaResponseSize(kind, details.statusCode, header);
   update(details.tabId, rows => [...rows.filter(row => row.url !== details.url),
-    {url:details.url, mime, filename, type:details.type, frameId:details.frameId}].slice(-120));
+    {url:details.url, mime, filename, size:size ?? rows.find(row => row.url === details.url)?.size,
+      type:details.type, frameId:details.frameId}].slice(-120));
 }, all, ['responseHeaders']);
