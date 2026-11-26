@@ -1,5 +1,11 @@
 .smoke-*
-.popup-smoke.png
+.browser-smoke-*/
+.firefox-smoke-*/
+.popup-*.png
+.settings-*.png
+.archive/
+.publish-*/
+dist/
 .env
 .local-tools/
 .platform-research-*/

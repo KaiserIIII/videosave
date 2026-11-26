@@ -4,10 +4,14 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream';
 import * as downloads from './media-downloads.mjs';
+import { configureMediaProxy } from './media-proxy.mjs';
+import { localPairingCode } from './preferences.mjs';
 
+configureMediaProxy();
 const { ApiError, VERSION } = downloads;
 const port = Number(process.env.PORT ?? 8765);
-const pairingCode = process.env.MEDIA_TOOLKIT_TOKEN || randomBytes(24).toString('base64url');
+const pairingCode = process.env.MEDIA_TOOLKIT_TOKEN || (process.env.MEDIA_TOOLKIT_LOCAL_PAIRING === '1'
+  ? localPairingCode({create:true}) : randomBytes(24).toString('base64url'));
 const expected = Buffer.from('Bearer ' + pairingCode);
 function authorized(request) {
   const actual = Buffer.from(request.headers.authorization ?? '');
@@ -119,7 +123,9 @@ const server = http.createServer(async (req, res) => {
       case 'POST /api/open':
         return reply(res, 200, await downloads.openDownload((await body(req)).file));
       case 'POST /api/cancel':
-        return reply(res, 200, downloads.cancel((await body(req)).id));
+        return reply(res, 200, await downloads.cancel((await body(req)).id));
+      case 'POST /api/retry':
+        return reply(res, 200, downloads.retryBatch(await body(req)));
     }
     const transfer = /^\/api\/batch\/([\w-]+)\/files\/(\d+)(?:\/(\d+))?$/.exec(pathname);
     if (transfer) {
@@ -131,16 +137,24 @@ const server = http.createServer(async (req, res) => {
         return reply(res, 200, await downloads.releaseFiles(id, Number(item)));
       }
     }
-    const batch = /^\/api\/batch\/([\w-]+)(\/events)?$/.exec(pathname);
+    const batch = /^\/api\/batch\/([\w-]+)(?:\/(events|wait))?$/.exec(pathname);
     if (req.method === 'GET' && batch) {
-      const [, id, events] = batch;
-      if (!events) return reply(res, 200, downloads.progress(id));
+      const [, id, action] = batch;
+      if (!action) return reply(res, 200, downloads.progress(id));
+      if (action === 'wait') {
+        const controller = new AbortController();
+        res.once('close', () => controller.abort());
+        const timeoutMs = searchParams.has('timeoutMs') ? Number(searchParams.get('timeoutMs')) : undefined;
+        const outcome = await downloads.waitForBatch({id, timeoutMs}, controller.signal);
+        if (!res.destroyed) reply(res, 200, outcome);
+        return;
+      }
       downloads.progress(id);
       res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' });
       const unsubscribe = downloads.subscribe(id, current => {
         if (res.destroyed || res.writableEnded) return;
         res.write(`data: ${JSON.stringify(current)}\n\n`);
-        if (current.status === 'done' || current.status === 'cancelled') res.end();
+        if (downloads.isTerminal(current.status)) res.end();
       });
       res.once('close', unsubscribe);
       return;

@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ApiError, runMedia } from './media-source.mjs';
+import { ApiError, FFMPEG, runMedia } from './media-source.mjs';
 
 const installed = new URL('../.local-tools/yt-dlp.exe', import.meta.url);
 function extractorPath() {
@@ -16,15 +16,14 @@ export function platformDownloadsEnabled() {
 function runExtractor(video, args, signal, onLine) {
   const executable = extractorPath();
   if (!executable) throw new ApiError('PLATFORM_TOOL_REQUIRED', '请配置本机 yt-dlp 后重试', 503);
-  const ffmpeg = process.env.FFMPEG_BIN;
   return runMedia(executable, [
     '--ignore-config', '--no-playlist', '--no-cache-dir', '--no-remote-components', '--no-plugin-dirs',
     '--encoding', 'utf-8', '--socket-timeout', '15', '--retries', '2', '--fragment-retries', '2',
     '--match-filters', '!is_live & !is_upcoming & !has_drm',
     ...(video.platform === 'youtube' ? ['--no-js-runtimes', '--js-runtimes', 'node:' + process.execPath] : []),
-    ...(ffmpeg && ffmpeg !== 'ffmpeg' ? ['--ffmpeg-location', ffmpeg] : []),
+    ...(FFMPEG !== 'ffmpeg' ? ['--ffmpeg-location', FFMPEG] : []),
     ...args, '--', video.url,
-  ], signal, onLine, {processTree:true, onFailure:({failure, stderr}) => {
+  ], signal, onLine, {onFailure:({failure, stderr}) => {
     if (failure) return new ApiError('PLATFORM_TOOL_REQUIRED', '无法启动 yt-dlp，请检查 YTDLP_BIN', 503);
     const status = /(?:HTTP Error|Server returned) (\d{3})/i.exec(stderr)?.[1];
     const message = status ? '平台媒体服务器返回 HTTP ' + status :
@@ -61,9 +60,10 @@ function selection({mode, quality}) {
   return 'bv' + cap + '+ba/b' + cap + low;
 }
 
-export async function stagePlatform(video, target, staging, connections, signal, onProgress) {
+export async function stagePlatform(video, target, staging, connections, signal, onProgress, headers = {}) {
   const transfers = new Map();
   await runExtractor(video, [
+    ...Object.entries(headers).flatMap(([name,value]) => ['--add-headers',name + ':' + value]),
     '--no-simulate', '--newline', '--progress', '--progress-template',
     'download:videosave=%(info.format_id)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s',
     '--concurrent-fragments', String(connections), '--windows-filenames', '--no-mtime',

@@ -1,4 +1,5 @@
 import { browserApi, isFirefox } from './browser.mjs';
+import { canSaveHls, finishHls, prepareHls, releaseHls } from './hls-download.mjs';
 import { defaults, downloadFolder, readDownloadSettings } from './settings.mjs';
 
 export const activeStates = ['queued', 'starting', 'processing', 'downloading', 'paused'];
@@ -23,9 +24,18 @@ export async function companion(connection, route, body) {
   return data;
 }
 
-export function usesCompanion(stream, settings) {
-  return ['m3u8', 'mpd', 'page'].includes(stream.kind) || settings.mode !== 'combined' ||
-    settings.format !== 'auto' || Boolean(settings.quality) || settings.subtitles;
+function needsProcessing(settings) {
+  return settings.mode !== 'combined' ||
+    settings.format !== 'auto' || settings.subtitles;
+}
+
+function browserHls(stream, settings) {
+  return stream.kind === 'm3u8' && canSaveHls && !needsProcessing(settings);
+}
+
+export function usesCompanion(stream, settings, paired = false) {
+  if (stream.kind === 'm3u8') return paired || !browserHls(stream, settings);
+  return needsProcessing(settings) || Boolean(settings.quality) || ['mpd','page'].includes(stream.kind);
 }
 
 function safeFilename(name, kind) {
@@ -55,7 +65,7 @@ async function startBrowser(job, output, connection) {
     url:connection.endpoint + output.href,
     filename:output.name,
     headers:[{name:'Authorization', value:'Bearer ' + connection.token}],
-  } : {url:job.stream.url, filename:safeFilename(job.title, job.stream.kind)};
+  } : {url:output.url || job.stream.url, filename:safeFilename(job.title, output.extension || job.stream.kind)};
   const folder = downloadFolder(job.settings.downloadFolder ?? '');
   if (folder) file.filename = folder + '/' + file.filename;
   const prompt = job.settings.conflictAction === 'prompt';
@@ -75,6 +85,16 @@ async function startNative(job, connection) {
 }
 
 async function startJob(job, connection) {
+  const nativeHls = browserHls(job.stream, job.settings);
+  const startHls = () => {
+    job.browserHls = true;
+    job.state = 'processing';
+    job.note = '正在下载 HLS 分片';
+    prepareHls(job, refresh);
+  };
+  if (nativeHls && !connection?.token) return startHls();
+  delete job.browserHls;
+  job.processed = usesCompanion(job.stream, job.settings, Boolean(connection?.token));
   if (!job.processed) {
     if (job.settings.accelerate && connection?.token) {
       const batch = await companion(connection, '/api/queue/original', {
@@ -93,9 +113,29 @@ async function startJob(job, connection) {
   const batch = await companion(connection, '/api/queue', {delivery:'browser', connections, requestId:job.attemptId, items:[{
     kind:job.stream.kind === 'page' ? 'page' : 'stream', url:job.stream.url, title:job.title, mode, audioFormat, subtitles, sourceKind, fastStart,
     format:format === 'mkv' ? 'mkv' : 'mp4', ...(quality && {quality:Number(quality)}),
-  }]});
+  }]}).catch(error => {
+    if (nativeHls && (error.message === '本机服务未响应' || error.status === 401)) return null;
+    throw error;
+  });
+  if (!batch) return startHls();
   job.batch = batch.id;
   job.state = 'processing';
+}
+
+async function transferHls(job) {
+  const transfer = prepareHls(job, refresh);
+  if (transfer.error) throw transfer.error;
+  job.percent = transfer.percent;
+  job.bytes = transfer.bytes;
+  job.speed = transfer.speed;
+  if (!transfer.url) return;
+  job.hlsUrl = transfer.url;
+  job.files = [{id:await startBrowser(job, transfer)}];
+  job.state = 'downloading';
+  job.percent = null;
+  job.speed = 0;
+  job.note = '';
+  finishHls(job);
 }
 
 async function transfer(job, connection, jobs) {
@@ -131,6 +171,7 @@ async function transfer(job, connection, jobs) {
 }
 
 function release(job, connection) {
+  if (job.browserHls) return releaseHls(job);
   if (job.batch) void companion(connection, `/api/batch/${job.batch}/files/0`, {}).catch(() => {});
 }
 
@@ -144,6 +185,7 @@ async function browserProgress(job, connection) {
   if ((files.some(file => !file) || interrupted) && !files.some(file => file?.state === 'in_progress')) {
     job.state = 'failed';
     job.note = interrupted?.error === 'USER_CANCELED' ? '浏览器已取消下载' : '浏览器下载中断';
+    if (job.browserHls && !job.canResume) await releaseHls(job);
     return;
   }
   const total = files.reduce((sum, file) => sum + Math.max(0, file?.totalBytes || 0), 0);
@@ -164,7 +206,7 @@ async function browserProgress(job, connection) {
     job.state = 'done';
     job.percent = 100;
     job.note = '';
-    release(job, connection);
+    await release(job, connection);
   } else {
     job.state = files.some(file => file?.paused) ? 'paused' : 'downloading';
   }
@@ -199,10 +241,18 @@ async function tick(state) {
   let processingDelay = 750;
   await Promise.all(jobs.filter(job => ['processing', 'downloading', 'paused'].includes(job.state)).map(async job => {
     try {
-      if (job.state === 'processing') await transfer(job, connection, jobs);
+      if (job.state === 'processing') {
+        if (job.browserHls) await transferHls(job);
+        else await transfer(job, connection, jobs);
+      }
       if (['downloading', 'paused'].includes(job.state)) await browserProgress(job, connection);
     } catch (error) {
       job.note = error.message;
+      if (job.browserHls) {
+        await releaseHls(job);
+        job.state = 'failed';
+        return;
+      }
       const serviceUnavailable = !error.status && /未响应|请先连接/.test(error.message);
       if (job.state === 'processing' && !job.processed && !job.files?.some(Boolean) &&
           (serviceUnavailable || [401, 404].includes(error.status))) {
@@ -286,7 +336,10 @@ async function mutate({action, id, streams, settings}, state, remote) {
   }
   if (action === 'clear') {
     for (let index = jobs.length - 1; index >= 0; index--) {
-      if (!activeStates.includes(jobs[index].state)) jobs.splice(index, 1);
+      if (!activeStates.includes(jobs[index].state)) {
+        if (jobs[index].browserHls) await releaseHls(jobs[index]);
+        jobs.splice(index, 1);
+      }
     }
     await persist(jobs);
   }
@@ -297,20 +350,24 @@ async function mutate({action, id, streams, settings}, state, remote) {
         throw new Error('不支持此媒体格式');
       }
       if (!/^https?:$/.test(new URL(stream.url).protocol)) throw new Error('媒体地址必须使用 HTTP(S)');
-      const processed = usesCompanion(stream, jobSettings);
+      const processed = usesCompanion(stream, jobSettings, Boolean(connection?.token));
       if (processed && !connection?.token) throw new Error('请先连接本机服务');
       jobs.unshift({id:crypto.randomUUID(), stream:{url:stream.url, kind:stream.kind},
         title:stream.title?.trim() || (stream.kind === 'page' ? '' : '视频'), settings:jobSettings, processed, state:'queued', percent:null});
     }
     const completed = jobs.filter(job => !activeStates.includes(job.state));
-    if (completed.length > 60) jobs.splice(0, jobs.length, ...jobs.filter(job => !completed.slice(60).includes(job)));
+    if (completed.length > 60) {
+      const removed = completed.slice(60);
+      await Promise.all(removed.filter(job => job.browserHls && job.hlsUrl).map(releaseHls));
+      jobs.splice(0, jobs.length, ...jobs.filter(job => !removed.includes(job)));
+    }
     await persist(jobs);
   }
   const job = jobs.find(entry => entry.id === id);
   if (job && action === 'cancel') {
     await Promise.all(job.files?.filter(Boolean).map(file => browserApi.downloads.cancel(file.id).catch(() => {})) ?? []);
     if (job.batch) await companion(connection, '/api/cancel', {id:job.batch}).catch(() => {});
-    release(job, connection);
+    await release(job, connection);
     job.state = 'cancelled';
     job.note = '';
     await persist(jobs);
@@ -322,7 +379,7 @@ async function mutate({action, id, streams, settings}, state, remote) {
       ['complete', 'in_progress'].includes(record?.state))) {
       job.files = previous.map((file, index) => ['complete', 'in_progress'].includes(records[index]?.state) ? file : null);
     } else {
-      release(job, connection);
+      await release(job, connection);
       for (const file of records) {
         if (file?.state === 'in_progress') await browserApi.downloads.cancel(file.id).catch(() => {});
       }
@@ -387,4 +444,5 @@ export function registerDownloads() {
       .then(jobs => reply({jobs}), error => reply({error:error.message}));
     return true;
   });
+  void refresh();
 }

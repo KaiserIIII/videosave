@@ -66,6 +66,32 @@ export function pickStreams(candidates) {
   return [...streams.values()].sort((a, b) => Number(adaptive.has(b.kind)) - Number(adaptive.has(a.kind)));
 }
 
+function usableDuration(stream) {
+  return Number.isFinite(stream.duration) && stream.duration > 0 ? stream.duration : 0;
+}
+
+export function longestFirst(first, second) {
+  return usableDuration(second) - usableDuration(first);
+}
+
+export function primaryCandidates(streams) {
+  const sources = streams.filter(stream => stream.currentSource !== false);
+  const players = sources.filter(stream => !['network','xhr-json'].includes(stream.discoveredBy));
+  const visible = players.filter(stream => stream.player?.visible !== false);
+  return visible.length ? visible : players.length ? players : sources;
+}
+
+export function selectPageStream(streams) {
+  const candidates = primaryCandidates(streams).sort(longestFirst);
+  const [longest, next] = candidates;
+  if (!longest) return {status:'unavailable'};
+  if (!next) return {status:'selected', url:longest.url, reason:'only-candidate'};
+  const duration = usableDuration(longest);
+  const clearLead = candidates.every(usableDuration) && duration - usableDuration(next) >= Math.max(1, duration * 0.1);
+  if (!clearLead || ['network','xhr-json'].includes(longest.discoveredBy)) return {status:'ambiguous'};
+  return {status:'selected', url:longest.url, reason:'longest-player'};
+}
+
 export function pageStreams(frames, requests) {
   const noisy = /\/(?:ad[sx]?|preroll|midroll|storyboards?|thumbnails?|sprites?|tracking|beacons?)\//i;
   const declared = new Set();
@@ -145,7 +171,13 @@ export function pageStreams(frames, requests) {
   const preferred = active.length === 1 ? active[0] : verified.length === 1 ? verified[0] : null;
   if (preferred) preferred.recommended = true;
   const priority = stream => stream.recommended ? 3 : stream.playing ? 2 : stream.mediaElement || stream.fromPlayer ? 1 : 0;
-  return representatives.sort((a, b) => priority(b) - priority(a));
+  return representatives.sort((a, b) => longestFirst(a, b) || priority(b) - priority(a));
+}
+
+const genericTitleSources = new Set([null, undefined, 'document-title', 'heading', 'media-url']);
+
+export function canUseMediaTitle(titleSource) {
+  return genericTitleSources.has(titleSource);
 }
 
 export function sourceTitle(stream) {
@@ -159,10 +191,10 @@ export function sourceTitle(stream) {
     ? '' : title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-export function scanDocument(includeContext = false) {
+export function scanDocument(includeContext = false, includeText = false) {
   // This function is executed inside the page with no module imports.
-  const clean = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
-  const meta = (attribute, name) => clean(document.querySelector(`meta[${attribute}="${name}"]`)?.content);
+  const clean = (value, limit = 300) => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, limit) : '';
+  const meta = (attribute, name, limit) => clean(document.querySelector(`meta[${attribute}="${name}"]`)?.content, limit);
   const titleFrom = values => {
     for (const [source, value] of values) {
       const title = clean(value);
@@ -227,10 +259,10 @@ export function scanDocument(includeContext = false) {
   const titleNode = document.querySelector('[itemtype$="/VideoObject"] [itemprop="name"], #viewvideo-title');
   const visible = node => (node.checkVisibility?.({checkOpacity:true, checkVisibilityCSS:true}) ??
     node.getClientRects().length > 0) && !node.closest('[hidden], [aria-hidden="true"]');
-  const visibleText = (root, selector) => {
+  const visibleText = (root, selector, limit) => {
     for (const node of root.querySelectorAll(selector)) {
       if (!visible(node) || node.closest('form, [contenteditable]')) continue;
-      const text = clean(node.innerText);
+      const text = clean(node.innerText, limit);
       if (text) return text;
     }
     return '';
@@ -252,10 +284,12 @@ export function scanDocument(includeContext = false) {
     titleSource,
     poster: normalizeUrl([pageVideo?.thumbnailUrl].flat()[0] || meta('property', 'og:image')) || null,
   };
+  const descriptionLimit = includeText ? Infinity : 300;
   const pageContext = includeContext ? {url:normalizeUrl(location.href), heading:heading || null,
-    description:clean(pageVideo?.description) || meta('property', 'og:description') || meta('name', 'description') ||
-      visibleText(document, 'main > p, main > header p, article > header p') || null,
-    titleSource, playerCount:videos.length} : undefined;
+    description:clean(pageVideo?.description, descriptionLimit) || meta('property', 'og:description', descriptionLimit) ||
+      meta('name', 'description', descriptionLimit) ||
+      visibleText(document, 'main > p, main > header p, article > header p', descriptionLimit) || null,
+    titleSource, playerCount:videos.length, untrusted:true} : undefined;
   const nearbyText = video => {
     let heading = '', description = '';
     let container = video.parentElement;
@@ -306,8 +340,27 @@ export function scanDocument(includeContext = false) {
   const pages = [...new Map([...document.querySelectorAll('a[href]')]
     .filter(a => /^https?:/.test(a.href) && a.href !== location.href && /\/(?:watch|videos?|clip)(?:[/?#]|$)/i.test(a.href))
     .map(a => [a.href, {url: a.href, title: (a.title || a.textContent.trim()).slice(0, 120)}])).values()].slice(0, 80);
+  const detailPages = includeContext ? new Map() : null;
+  if (detailPages) for (const link of document.querySelectorAll('a[href]')) {
+    if (detailPages.size >= 80) break;
+    if (link.closest('nav, [role="navigation"], footer, [role="tablist"]')) continue;
+    const url = URL.parse(link.href);
+    if (!url || url.origin !== location.origin || url.username || url.password) continue;
+    url.hash = '';
+    const detailPath = /\/(?:watch|videos?|clips?|view_video)(?:\.php)?\/([^/]+)/i.exec(url.pathname)?.[1];
+    const queryId = /\/(?:watch|view_video(?:\.php)?)\/?$/i.test(url.pathname) &&
+      ['v','id','viewkey'].some(key => url.searchParams.get(key));
+    if ((!detailPath && !queryId) || /^(?:hot|popular|latest|new|all|search|category|categories|tag|tags|trending|top|index|featured|list)$/i.test(detailPath)) continue;
+    if (url.href === normalizeUrl(location.href) || detailPages.has(url.href)) continue;
+    const title = clean(link.title || link.textContent || link.querySelector('img')?.alt, 120) ||
+      clean(link.querySelector('img')?.alt, 120);
+    if (!title) continue;
+    const duration = seconds(link.querySelector('time[datetime]')?.dateTime);
+    detailPages.set(url.href, {url:url.href, title, kind:'page', ...(duration && {duration})});
+  }
   const opaqueCount = videos.filter(video => (video.currentSrc || video.src).startsWith('blob:')).length;
-  return { pageTitle:document.title, pageMetadata, pageContext, playerCount:videos.length, candidates, pages, opaquePlayer, excludedMedia:[...excludedMedia],
+  return { pageTitle:document.title, pageMetadata, pageContext, playerCount:videos.length, candidates, pages,
+    ...(detailPages && {detailPages:[...detailPages.values()]}), opaquePlayer, excludedMedia:[...excludedMedia],
     encrypted:videos.some(video => video.mediaKeys),
     opaqueCount, opaque:opaqueCount > 0, ready:document.readyState === 'complete' };
 }

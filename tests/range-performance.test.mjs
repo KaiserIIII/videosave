@@ -18,14 +18,25 @@ test('parallel Range transfer', async t => {
   const { prefetchRanges } = await import('../tools/range-prefetch.mjs');
   const staging = await mkdtemp(fileURLToPath(new URL('../.range-test-', import.meta.url)));
   const transfers = new Set();
+  const redirectedRequests = [];
+  const retries = [];
+  const unexpectedSizeRequests = [];
+  let interrupted = false;
   let peak = 0;
-  const source = createServer((req, res) => {
+  const serve = (req, res) => {
     const mode = path.basename(req.url, '.mp4');
+    if (mode === 'redirect') {
+      const target = `http://127.0.0.1:${cdn.address().port}/cdn.mp4`;
+      return res.writeHead(302, {location:target}).end();
+    }
+    if (mode === 'cdn') redirectedRequests.push(req.headers);
+    if (mode === 'size-mismatch') unexpectedSizeRequests.push(req.headers.range);
     const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? '');
     const partial = range && mode !== 'ignore';
     const first = partial ? Number(range[1]) : 0;
     const end = partial ? Number(range[2]) + 1 : fixture.length;
     const probe = partial && end === 1;
+    if (mode === 'interrupted' && partial && !probe) retries.push([first, end]);
     res.writeHead(partial ? 206 : 200, {
       'content-length': end - first,
       etag: !probe && mode === 'changed' ? '"fixture-v2"' : etag,
@@ -33,17 +44,24 @@ test('parallel Range transfer', async t => {
     });
     if (probe) return res.end(fixture.subarray(first, end));
     if (partial && req.headers['if-range'] !== etag) return res.destroy();
-    const transfer = {res, offset: first, end};
+    const transfer = {res, offset: first, end, mode, first};
     transfers.add(transfer);
     peak = Math.max(peak, transfers.size);
     res.on('close', () => transfers.delete(transfer));
     res.flushHeaders();
-  });
+  };
+  const source = createServer(serve);
+  const cdn = createServer(serve);
   const ticker = setInterval(() => {
     let budget = bytesPerTick;
     for (const transfer of transfers) {
       const { res, offset, end } = transfer;
       if (res.writableNeedDrain || res.writableEnded || !budget) continue;
+      if (transfer.mode === 'interrupted' && !interrupted && transfer.first === 0 && offset >= bytesPerConnection * 2) {
+        interrupted = true;
+        res.destroy();
+        continue;
+      }
       const count = Math.min(end - offset, budget, bytesPerConnection);
       budget -= count;
       transfer.offset += count;
@@ -53,9 +71,17 @@ test('parallel Range transfer', async t => {
     }
   }, tickMs);
   source.listen(0, '127.0.0.1');
-  await once(source, 'listening');
+  cdn.listen(0, '127.0.0.1');
+  await Promise.all([once(source, 'listening'), once(cdn, 'listening')]);
   const url = mode => new URL(`http://127.0.0.1:${source.address().port}/${mode}.mp4`);
   try {
+    await t.test('abandons the whole-file path when the playlist covers only part of the source', async () => {
+      const file = await prefetchRanges(url('size-mismatch'), [], staging, AbortSignal.timeout(3000), () => {},
+        {expectedSize:fixture.length - 1});
+      assert.equal(file, null);
+      assert.deepEqual(unexpectedSizeRequests, ['bytes=0-0']);
+      assert.deepEqual(await readdir(staging), []);
+    });
     await t.test('uses most of the shared throughput and saves identical bytes', async () => {
       const singleStart = performance.now();
       const response = await fetch(url('single'));
@@ -73,6 +99,30 @@ test('parallel Range transfer', async t => {
       console.log(`Range single ${Math.round(singleMs)} ms, parallel ${Math.round(elapsed)} ms, ${peak} connections, ${(effectiveCeiling / elapsed * 100).toFixed(1)}% of the ceiling measured from the single transfer`);
       assert.equal(peak, 8);
       assert.ok(elapsed < singleMs / 4 && elapsed < ceilingMs * 1.6);
+      await rm(file);
+    });
+    await t.test('retries an interrupted range from the last written byte without restarting other ranges', async () => {
+      let progress = 0;
+      const file = await prefetchRanges(url('interrupted'), [], staging, AbortSignal.timeout(15000), (_, bytes) => {
+        assert.ok(bytes >= progress && bytes <= fixture.length);
+        progress = bytes;
+      });
+      assert.ok(file);
+      assert.deepEqual(await readFile(file), fixture);
+      assert.equal(progress, fixture.length);
+      const initial = retries.find(([start]) => start === 0);
+      assert.deepEqual(retries.filter(([, end]) => end === initial[1]), [initial, [bytesPerConnection * 2, initial[1]]]);
+      assert.equal(retries.length, 9);
+      console.log('Range recovery resumed at byte', bytesPerConnection * 2, 'with no repeated bytes');
+      await rm(file);
+    });
+    await t.test('accelerates a redirect to a media origin without forwarding cookies', async () => {
+      const cookies = [{name:'session',value:'source-only'}];
+      const file = await prefetchRanges(url('redirect'), cookies, staging, AbortSignal.timeout(8000), () => {});
+      assert.ok(file);
+      assert.deepEqual(await readFile(file), fixture);
+      assert.equal(redirectedRequests.length, 9);
+      assert.ok(redirectedRequests.every(headers => headers.cookie === undefined));
       await rm(file);
     });
     for (const mode of ['ignore', 'wrong', 'changed']) {
@@ -94,6 +144,8 @@ test('parallel Range transfer', async t => {
     clearInterval(ticker);
     source.closeAllConnections();
     source.close();
+    cdn.closeAllConnections();
+    cdn.close();
     await rm(staging, {recursive:true, force:true, maxRetries:5});
   }
 });

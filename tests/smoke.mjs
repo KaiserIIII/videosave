@@ -61,8 +61,8 @@ async function testMcp(endpoint) {
     await call('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'smoke',version:'1'}},1);
     send('notifications/initialized');
     const result = await call('tools/list',{},2);
-    assert.deepEqual(result.tools.map(tool=>tool.name),['probe_page','start_download','get_progress','list_downloads','open_file',
-      'get_settings','update_settings','list_batches','cancel_download']);
+    assert.deepEqual(result.tools.map(tool=>tool.name),['probe_page','start_download','get_progress','wait_for_download',
+      'list_downloads','open_file','get_settings','update_settings','list_batches','cancel_download','retry_download']);
     assert.deepEqual(result.tools[1].inputSchema.properties.concurrency, {type:'integer',minimum:1,maximum:64});
     const listing = await call('tools/call',{name:'list_downloads'},3);
     assert.equal(listing.structuredContent.items.length,2);
@@ -104,6 +104,23 @@ async function checkSettings(popup, worker) {
   await popup.send('Page.reload');
   await until(() => popup.evaluate('document.querySelector("[data-option=concurrency]")?.value === "24"').catch(() => false));
   await popup.evaluate('document.querySelector("#settings-toggle").click()');
+  const languageSelect = '[data-option=language]';
+  const selectLanguage = value => popup.evaluate(`(() => {
+    const select = document.querySelector(${JSON.stringify(languageSelect)});
+    select.value = ${JSON.stringify(value)};
+    select.dispatchEvent(new Event('change'));
+  })()`);
+  const storedLanguage = value => worker.evaluate(`chrome.storage.local.get('downloadSettings')
+    .then(({downloadSettings}) => downloadSettings?.language === ${JSON.stringify(value)})`);
+  assert.equal(await popup.evaluate(`document.querySelector("${languageSelect}").value`), 'system');
+  assert.equal(await popup.evaluate('/^zh(?:-|$)/i.test(chrome.i18n.getUILanguage()) ? "zh-CN" : "en"'),
+    await popup.evaluate('document.documentElement.lang'));
+  await selectLanguage('zh-CN');
+  await until(() => storedLanguage('zh-CN'));
+  assert.equal(await popup.evaluate('document.querySelector("#settings-toggle").textContent'), '设置');
+  await selectLanguage('en');
+  await until(() => storedLanguage('en'));
+  assert.equal(await popup.evaluate('document.querySelector("#settings-toggle").textContent'), 'Settings');
 
   const colors = new Set();
   for (const theme of ['system','light','dark','jade','amber']) {
@@ -124,6 +141,7 @@ async function checkSettings(popup, worker) {
     s?.theme==='amber' && s?.accent==='#dd8352' && s?.downloadFolder==='视频/教程' && s?.concurrency===24)`));
   await popup.send('Page.reload');
   await until(() => popup.evaluate(`document.documentElement.dataset.theme === 'amber' &&
+    document.documentElement.lang === 'en' &&
     document.querySelector('#theme-accent').value === '#dd8352' &&
     document.querySelector('#download-folder').value === '视频/教程'`).catch(() => false));
   await popup.evaluate('document.querySelector("#settings-toggle").click()');
@@ -156,6 +174,10 @@ async function checkSettings(popup, worker) {
   }
   await popup.evaluate('document.querySelector("#reset-accent").click()');
   await until(() => worker.evaluate(`chrome.storage.local.get('downloadSettings').then(({downloadSettings:s}) => s?.accent==='')`));
+  await selectLanguage('system');
+  await until(() => storedLanguage('system'));
+  assert.equal(await popup.evaluate('document.documentElement.lang'),
+    await popup.evaluate('/^zh(?:-|$)/i.test(chrome.i18n.getUILanguage()) ? "zh-CN" : "en"'));
   console.log('Edge settings: 5 themes, follows system color scheme, Chinese folder and custom accent persist, no overflow at 300 px');
 }
 
@@ -237,7 +259,7 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
       }
     })()`);
     await until(() => worker.evaluate(`chrome.storage.local.get('downloadSettings')
-      .then(({downloadSettings:s})=>s?.quality==='360' && s?.mode==='separate' && s?.concurrency===1 && s?.audioFormat==='mp3' && s?.subtitles)`, 15000));
+      .then(({downloadSettings:s})=>s?.quality==='360' && s?.mode==='separate' && s?.concurrency===1 && s?.audioFormat==='mp3' && s?.subtitles)`), 15000);
     await popup.evaluate(`(() => {
       document.querySelector('#themes input[value=light]').click();
       for (const [key, value] of Object.entries({density:'compact',connections:'12',showHost:'true'})) {
@@ -346,8 +368,58 @@ async function pairPopup(popup, endpoint) {
   await popup.evaluate('document.querySelector("#endpoint").value = '+JSON.stringify(endpoint));
   await popup.evaluate('document.querySelector("#token").value = '+JSON.stringify(token));
   await popup.evaluate('document.querySelector("#pair").requestSubmit()');
-  await until(() => popup.evaluate('document.querySelector("#connection-status").dataset.connected === "true"'));
+  await until(() => popup.evaluate('document.querySelector("#connection-status").dataset.state === "connected"'));
   console.log('Edge popup companion pairing ok');
+}
+
+async function checkPairingRecovery(popup, worker, endpoint) {
+  const state = expected => popup.evaluate(`document.querySelector('#connection-status')?.dataset.state === ${JSON.stringify(expected)}`)
+    .catch(() => false);
+  const submitPlatformLink = async expected => {
+    await popup.evaluate(`(() => {
+      document.querySelector("#manual-url").value = "https://www.youtube.com/watch?v=YE7VzlLtp-4";
+      document.querySelector("#manual").requestSubmit();
+    })()`);
+    const instruction = await until(() => popup.evaluate(`(() => {
+      const message = document.querySelector("#status").textContent;
+      return document.querySelector("#service-settings").open && message;
+    })()`), 8000);
+    assert.match(instruction, expected);
+  };
+  await until(() => state('unpaired'), 5000);
+  await submitPlatformLink(/node tools\/server\.mjs/);
+  const unused = createServer().listen(0, '127.0.0.1');
+  await once(unused, 'listening');
+  const offlineEndpoint = 'http://127.0.0.1:' + unused.address().port;
+  await new Promise((resolve, reject) => unused.close(error => error ? reject(error) : resolve()));
+  for (const [address, expected, instruction] of [
+    [offlineEndpoint, 'offline', /地址和端口|address and port/i],
+    [endpoint, 'unauthorized', /配对码|pairing code/i],
+  ]) {
+    await worker.evaluate(`chrome.storage.local.set({connection:{endpoint:${JSON.stringify(address)},token:'old-code'}})`);
+    await popup.send('Page.reload');
+    await until(() => state(expected), 8000);
+    await submitPlatformLink(instruction);
+    assert.equal(await popup.evaluate('document.querySelector("#service-status").hidden'), false);
+  }
+  const withoutExtractor = createServer((_req, res) => {
+    res.writeHead(200, {'content-type':'application/json'}).end('{"ok":true}');
+  }).listen(0, '127.0.0.1');
+  try {
+    await once(withoutExtractor, 'listening');
+    const address = 'http://127.0.0.1:' + withoutExtractor.address().port;
+    await worker.evaluate(`chrome.storage.local.set({connection:{endpoint:${JSON.stringify(address)},token:'test-code'}})`);
+    await popup.send('Page.reload');
+    await until(() => state('connected'), 8000);
+    await submitPlatformLink(/node tools\/setup-platform-downloads\.mjs/);
+  } finally {
+    withoutExtractor.closeAllConnections();
+    await new Promise(resolve => withoutExtractor.close(resolve));
+  }
+  await pairPopup(popup, endpoint);
+  await popup.send('Page.reload');
+  await until(() => state('connected'), 8000);
+  console.log('Edge platform links guide users through unpaired, offline, expired code, and missing extractor states');
 }
 
 async function testPopup(endpoint) {
@@ -363,7 +435,7 @@ async function testPopup(endpoint) {
     if (process.argv.includes('--delivery-only')) {
       try {
         await page.send('Page.navigate',{url:popupUrl});
-        await pairPopup(page, endpoint);
+        await checkPairingRecovery(page, sw, endpoint);
         await checkBrowserDelivery(page, sw, endpoint);
       } finally { page.close(); sw.close(); edge.close(); }
       return;
@@ -399,6 +471,9 @@ async function testPopup(endpoint) {
         const state = await popup.evaluate('document.body.innerText');
         throw new Error('Popup did not discover MP4: ' + state, {cause:error});
       }
+      const detectedTitle = await until(() => popup.evaluate(`[...document.querySelectorAll('#media li')]
+        .find(row => row.innerText.includes('MP4'))?.querySelector('.media-title')?.textContent === 'Sintel Trailer'`), 12_000);
+      assert.equal(detectedTitle, true);
       const videoTitle = 'Sintel 官方预告片';
       await page.evaluate(`document.querySelector('video').title = ${JSON.stringify(videoTitle)}`);
       await popup.evaluate('document.querySelector("#refresh").click()');
@@ -521,7 +596,7 @@ try {
     assert.equal((await fetch(endpoint+'/api/health')).status,401);
     assert.equal((await fetch(endpoint+'/api/health',{headers:{origin:'https://example.org'}})).status,403);
     assert.equal((await api('/api/health')).ok,true);
-    const probed = await api('/api/probe',{url:pageUrl});
+    const probed = await api('/api/probe',{url:pageUrl,includeFrames:true});
     assert.ok(probed.streams.some(row=>row.kind==='webm' && row.width>0),JSON.stringify(probed));
     assert.ok(probed.streams.some(row=>row.kind==='webm' && row.size>0 && !row.sizeEstimated),JSON.stringify(probed));
     const previewUrl = endpoint + '/api/preview';

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>视频快存</title>
+  <title data-i18n>视频快存</title>
   <link rel="stylesheet" href="popup.css">
   <script type="module" src="popup.mjs"></script>
 </head>
@@ -11,86 +11,87 @@
   <header class="masthead">
     <div class="brand">
       <img class="mark" src="icons/icon-32.png" width="30" height="30" alt="">
-      <h1>视频快存</h1>
+      <h1 data-i18n>视频快存</h1>
     </div>
-    <button id="connection-status" class="connection" type="button"><i></i>本机服务</button>
+    <button id="connection-status" class="connection" type="button"><i></i><span id="connection-label">连接服务</span></button>
   </header>
-  <nav class="navigation" aria-label="面板导航">
-    <button type="button" id="videos-toggle" data-panel="videos" aria-current="page">视频 <span id="media-count" hidden></span></button>
-    <button type="button" id="downloads-toggle" data-panel="downloads">下载 <span id="active-count" hidden></span></button>
-    <button type="button" id="settings-toggle" data-panel="settings">设置</button>
+  <nav class="navigation" aria-label="面板导航" data-i18n-aria>
+    <button type="button" id="videos-toggle" data-panel="videos" aria-current="page"><span data-i18n>视频</span> <span id="media-count" hidden></span></button>
+    <button type="button" id="downloads-toggle" data-panel="downloads"><span data-i18n="下载记录">下载</span> <span id="active-count" hidden></span></button>
+    <button type="button" id="settings-toggle" data-panel="settings" data-i18n>设置</button>
   </nav>
   <main>
     <section id="videos" aria-labelledby="page-title">
       <div class="section-header">
         <div><p class="site" id="site"></p><h2 id="page-title">正在扫描…</h2></div>
-        <button id="refresh" class="quiet" type="button"><span class="refresh-icon" aria-hidden="true">↻</span> 扫描</button>
+        <button id="refresh" class="quiet" type="button"><span class="refresh-icon" aria-hidden="true">↻</span> <span data-i18n>扫描</span></button>
       </div>
       <div class="bulk" id="bulk" hidden>
-        <label><input id="all" type="checkbox"> 全选</label>
+        <label><input id="all" type="checkbox"> <span data-i18n>全选</span></label>
         <button id="queue-selected" type="button" disabled>下载所选</button>
       </div>
       <p id="hint" class="empty" hidden></p>
-      <ul id="media" class="media" aria-label="检测到的视频"></ul>
+      <ul id="media" class="media" aria-label="检测到的视频" data-i18n-aria></ul>
       <details class="manual">
-        <summary>粘贴媒体链接</summary>
+        <summary data-i18n>粘贴媒体链接</summary>
         <form id="manual" class="input-row">
-          <input id="manual-url" type="url" placeholder="https://…" aria-label="媒体或网页链接" required>
+          <input id="manual-url" type="url" placeholder="https://…" aria-label="媒体或网页链接" data-i18n-aria required>
           <button type="submit">下载</button>
         </form>
       </details>
     </section>
     <section id="downloads" hidden aria-labelledby="download-heading">
       <div class="section-header">
-        <h2 id="download-heading">下载队列</h2>
-        <div class="actions"><button id="clear" class="quiet" type="button" hidden>清空记录</button>
-          <button id="folder" class="quiet" type="button">打开目录 ↗</button></div>
+        <h2 id="download-heading" data-i18n>下载队列</h2>
+        <div class="actions"><button id="clear" class="quiet" type="button" data-i18n hidden>清空记录</button>
+          <button id="folder" class="quiet" type="button" data-i18n>打开目录 ↗</button></div>
       </div>
-      <p class="empty" id="queue-empty">暂无下载</p>
-      <ul id="queue" class="queue" aria-label="下载任务"></ul>
+      <p class="empty" id="queue-empty" data-i18n>暂无下载</p>
+      <ul id="queue" class="queue" aria-label="下载任务" data-i18n-aria></ul>
     </section>
-    <section id="settings" hidden aria-label="设置">
+    <section id="settings" hidden aria-label="设置" data-i18n-aria>
       <div class="option-card">
-        <h2>下载</h2>
+        <h2 data-i18n="下载记录">下载</h2>
         <div id="settings-options" class="option-grid"></div>
-        <label class="folder-field">下载子文件夹
+        <label class="folder-field"><span data-i18n>下载子文件夹</span>
           <input id="download-folder" type="text" maxlength="100" placeholder="浏览器默认下载目录"
-                 autocomplete="off" spellcheck="false" aria-label="浏览器下载目录下的子文件夹">
+                 autocomplete="off" spellcheck="false" aria-label="浏览器下载目录下的子文件夹" data-i18n-aria>
         </label>
         <div class="save-tools">
-          <label class="check-row"><input id="save-as" type="checkbox"><span>每次询问保存位置</span></label>
-          <button type="button" class="text-button" id="browser-download-settings">更改默认目录 ↗</button>
+          <label class="check-row"><input id="save-as" type="checkbox"><span data-i18n>每次询问保存位置</span></label>
+          <button type="button" class="text-button" id="browser-download-settings" data-i18n>更改默认目录 ↗</button>
         </div>
       </div>
       <div class="option-card settings-more">
         <details class="settings-block">
-          <summary>传输与文件格式</summary>
+          <summary data-i18n>传输与文件格式</summary>
           <div id="transfer-options" class="option-grid"></div>
         </details>
         <details class="settings-block">
-          <summary>视频列表与预览</summary>
+          <summary data-i18n>视频列表与预览</summary>
           <div id="detection-options" class="option-grid"></div>
         </details>
         <details class="settings-block" id="appearance-settings">
-          <summary>外观</summary>
-          <div id="themes" role="group" aria-label="界面主题"></div>
+          <summary data-i18n>外观</summary>
+          <div id="themes" role="group" aria-label="界面主题" data-i18n-aria></div>
           <div class="accent-row">
-            <label for="theme-accent">强调色</label>
+            <label for="theme-accent" data-i18n>强调色</label>
             <input type="color" id="theme-accent">
-            <button type="button" class="quiet" id="reset-accent" hidden>恢复主题颜色</button>
+            <button type="button" class="quiet" id="reset-accent" data-i18n hidden>恢复主题颜色</button>
           </div>
           <div id="interface-options" class="option-grid"></div>
         </details>
         <details class="settings-block" id="service-settings">
-          <summary>本机下载服务</summary>
+          <summary data-i18n>本机下载服务</summary>
+          <p id="service-status" class="details" role="status" hidden></p>
           <form id="pair">
-            <label>地址<input id="endpoint" type="url" placeholder="http://127.0.0.1:8765" required></label>
-            <label>配对码<input id="token" type="password" autocomplete="off" spellcheck="false" required></label>
-            <button type="submit">连接服务</button>
+            <label><span data-i18n>地址</span><input id="endpoint" type="url" placeholder="http://127.0.0.1:8765" required></label>
+            <label><span data-i18n>配对码</span><input id="token" type="password" autocomplete="off" spellcheck="false" required></label>
+            <button type="submit" data-i18n>连接服务</button>
           </form>
           <div class="save-tools">
-            <label class="check-row"><input id="settings-sync" type="checkbox"><span>允许本机服务覆盖对应的浏览器设置</span></label>
-            <button type="button" id="sync-now" class="text-button" disabled>立即同步</button>
+            <label class="check-row"><input id="settings-sync" type="checkbox"><span data-i18n>允许本机服务覆盖对应的浏览器设置</span></label>
+            <button type="button" id="sync-now" class="text-button" data-i18n disabled>立即同步</button>
           </div>
         </details>
       </div>
@@ -98,12 +99,12 @@
   </main>
   <footer>
     <p id="status" role="status" aria-live="polite"></p>
-    <button id="history" type="button" class="text-button">浏览器下载记录 ↗</button>
+    <button id="history" type="button" class="text-button" data-i18n>浏览器下载记录 ↗</button>
   </footer>
   <dialog id="preview-dialog" aria-labelledby="preview-title">
     <div class="preview-head">
       <h2 id="preview-title"></h2>
-      <form method="dialog"><button class="quiet close-preview" aria-label="关闭预览" type="submit">×</button></form>
+      <form method="dialog"><button class="quiet close-preview" aria-label="关闭预览" data-i18n-aria type="submit">×</button></form>
     </div>
     <video id="preview-video" preload="none" playsinline muted controls></video>
     <p id="preview-status" role="status" hidden></p>

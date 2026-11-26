@@ -1,134 +1,230 @@
-import { createWriteStream } from 'node:fs';
-import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { copyFile, link, lstat, mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { pipeline } from 'node:stream/promises';
+import { setTimeout as sleep } from 'node:timers/promises';
+
+import { httpUrl, parseManifest, readManifest, selectRendition } from '../extension/hls.mjs';
+import { prefetchRanges } from './range-prefetch.mjs';
+import { ApiError } from './media-source.mjs';
 
 const segmentWorkers = 8;
-const manifestByteLimit = 128 * 1024;
-const supportedTag = /^#EXT(?:M3U|INF:[\d.]+,.*|-X-(?:VERSION:\d+|TARGETDURATION:\d+|MEDIA-SEQUENCE:\d+|PLAYLIST-TYPE:VOD|INDEPENDENT-SEGMENTS|ENDLIST))$/;
+const segmentConnectMs = 12_000;
+const segmentIdleMs = 8_000;
+const tailDelayMs = 2_000;
+const queuedBackupDelayMs = 4_000;
+const strongEtag = /^"[\x21\x23-\x7e\x80-\xff]*"$/;
+const transientStatuses = new Set([408, 500, 502, 503, 504]);
+const rateLimits = new Map();
 
-function httpUrl(value, base) {
-  const url = URL.parse(value, base);
-  return url && /^https?:$/.test(url.protocol) && !url.username && !url.password ? url : null;
+function rateLimited(retryAfterSec) {
+  return new ApiError('RATE_LIMITED','媒体服务器要求降低请求频率',429,{status:429,retryAfterSec});
 }
 
-async function request(url, origin, cookies, signal) {
-  const deadline = AbortSignal.any([signal, AbortSignal.timeout(30000)]);
+function checkHlsProtection(content) {
+  for (const line of content.split(/\r?\n/)) {
+    const attributes = /^\s*#EXT-X-(?:SESSION-)?KEY:(.*)$/.exec(line)?.[1];
+    if (attributes && (/(?:^|,)\s*METHOD=SAMPLE-AES(?:-CTR)?\s*(?:,|$)/i.test(attributes) ||
+        /(?:^|,)\s*KEYFORMAT="(?:com\.(?:apple\.streamingkeydelivery|widevine|microsoft\.playready)[^"]*|urn:uuid:(?:edef8ba9|9a04f079)[^"]*)"/i.test(attributes))) {
+      throw new ApiError('DRM','媒体清单标记为 DRM 保护',422);
+    }
+  }
+}
+
+export async function checkManifestProtection(source, cookies, signal, {kind,quality,headers}) {
+  const cookie = cookies.map(({name,value}) => name + '=' + value).join('; ');
+  const budget = AbortSignal.any([signal,AbortSignal.timeout(5000)]);
+  const inspect = async url => {
+    const {url:resolved,response} = await request(url,source.origin,cookie,budget,undefined,headers);
+    const content = await readManifest(response.body);
+    if (kind === 'mpd') {
+      const drm = /<ContentProtection\b[^>]*\bschemeIdUri\s*=\s*["'](?:urn:uuid:(?:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed|9a04f079-9840-4286-ab92-e65be0885f95)|urn:mpeg:dash:mp4protection:2011)["']/i;
+      if (drm.test(content)) throw new ApiError('DRM','媒体清单标记为 DRM 保护',422);
+    } else checkHlsProtection(content);
+    return {resolved,content};
+  };
+  try {
+    const {resolved,content} = await inspect(source);
+    const rendition = kind === 'm3u8' && selectRendition(content,resolved,quality);
+    if (rendition) await Promise.all([inspect(rendition.video),rendition.audio && inspect(rendition.audio)]);
+  } catch (error) {
+    signal.throwIfAborted();
+    if (error instanceof ApiError) throw error;
+  }
+}
+
+async function copyCompletedPart(source, target, temporary) {
+  try {
+    await link(source,target);
+  } catch (error) {
+    if (!['ENOTSUP','ENOSYS','EPERM','EOPNOTSUPP'].includes(error.code)) throw error;
+    await copyFile(source,temporary);
+    await rename(temporary,target);
+  }
+}
+
+async function request(url, origin, cookies, signal, range, headers) {
   for (let hop = 0; hop < 5; hop++) {
+    const host = url.host;
+    const until = rateLimits.get(host);
+    if (until > Date.now()) throw rateLimited(Math.ceil((until - Date.now()) / 1000));
+    if (until !== undefined) rateLimits.delete(host);
+    const ranged = range && (!range.url || range.url === url.href);
     const response = await fetch(url, {
       redirect: 'manual',
-      headers: cookies && url.origin === origin ? { cookie: cookies } : undefined,
-      signal: deadline,
+      headers: {
+        ...headers,
+        'accept-encoding':'identity',
+        ...(cookies && url.origin === origin && {cookie:cookies}),
+        ...(ranged && {range:`bytes=${range.start}-${range.end}`, ...(range.etag && {'if-range':range.etag})}),
+      },
+      signal,
+    }).catch(error => {
+      throw Object.assign(new Error('HLS connection interrupted', {cause:error}), {retryable:true});
     });
-    if (response.status === 200 && response.body) return {url, body:response.body};
+    if (response.body && (response.status === 200 || ranged && response.status === 206)) return {url, response};
     await response.body?.cancel();
     const location = response.headers.get('location');
-    if (![301,302,303,307,308].includes(response.status) || !location) break;
+    if (![301,302,303,307,308].includes(response.status) || !location) {
+      if (response.status === 429) {
+        const value = response.headers.get('retry-after');
+        const seconds = /^\d+$/.test(value ?? '') ? Number(value) : Math.ceil((Date.parse(value) - Date.now()) / 1000);
+        const retryAfterSec = Number.isSafeInteger(seconds) ? Math.max(0,seconds) : 5;
+        const retryAt = Math.max(rateLimits.get(host) ?? 0,Date.now() + retryAfterSec * 1000);
+        if (!rateLimits.has(host) && rateLimits.size >= 256) rateLimits.delete(rateLimits.keys().next().value);
+        rateLimits.set(host,retryAt);
+        throw rateLimited(Math.ceil((retryAt - Date.now()) / 1000));
+      }
+      const restart = ranged && response.status === 416;
+      throw Object.assign(new Error('HLS response unavailable for parallel download'), {
+        status:response.status,
+        retryable:restart || transientStatuses.has(response.status), restart,
+      });
+    }
     url = httpUrl(location, url);
     if (!url) break;
   }
   throw new Error('HLS response unavailable for parallel download');
 }
 
-async function readManifest(body) {
-  let bytes = 0;
-  const chunks = [];
-  // Leaving a for-await loop early cancels the response body.
+async function readKey(body) {
+  const key = Buffer.alloc(16);
+  let size = 0;
   for await (const chunk of body) {
-    bytes += chunk.byteLength;
-    if (bytes > manifestByteLimit) return '';
-    chunks.push(chunk);
+    if (size + chunk.byteLength > key.length) throw new Error('Invalid HLS AES-128 key length');
+    key.set(chunk, size);
+    size += chunk.byteLength;
   }
-  return Buffer.concat(chunks).toString('utf8');
+  if (size !== key.length) throw new Error('Invalid HLS AES-128 key length');
+  return key;
 }
 
-function manifestLines(text) {
-  return text.trim().split(/\r?\n/).map(line => line.trim()).filter(line => line && (!line.startsWith('#') || line.startsWith('#EXT')));
-}
-
-function selectRendition(text, source, quality) {
-  const [header, ...lines] = manifestLines(text);
-  if (header !== '#EXTM3U') return null;
-  const variants = [];
-  const audio = [];
-  let pending;
-  for (const line of lines) {
-    if (pending) {
-      const url = !line.startsWith('#') && httpUrl(line, source);
-      if (!url) return null;
-      variants.push({...pending, url});
-      pending = null;
-    } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
-      const attributes = line.slice(line.indexOf(':') + 1);
-      if (/(?:^|,)(?:VIDEO|SUBTITLES|CLOSED-CAPTIONS)=(?!NONE(?:,|$))/.test(attributes)) return null;
-      const bandwidth = Number(/(?:^|,)BANDWIDTH=(\d+)/.exec(attributes)?.[1]);
-      const height = Number(/(?:^|,)RESOLUTION=\d+x(\d+)/.exec(attributes)?.[1]);
-      if (!bandwidth || !height) return null;
-      pending = {height, bandwidth, audioGroup:attribute(attributes,'AUDIO')};
-    } else if (line.startsWith('#EXT-X-MEDIA:')) {
-      const attributes = line.slice(line.indexOf(':') + 1);
-      const group = attribute(attributes, 'GROUP-ID');
-      const uri = attribute(attributes, 'URI');
-      if (!/(?:^|,)TYPE=AUDIO(?:,|$)/.test(attributes) || !group || !uri) return null;
-      const url = httpUrl(uri, source);
-      if (!url) return null;
-      audio.push({url,group,preferred:/(?:^|,)DEFAULT=YES(?:,|$)/.test(attributes)});
-    } else if (!/^#EXT-X-(?:VERSION:\d+|INDEPENDENT-SEGMENTS)$/.test(line)) {
-      return null;
-    }
+export async function hlsQualities(source, cookies, signal, headers) {
+  const cookieHeader = cookies.map(({name,value}) => name + '=' + value).join('; ');
+  try {
+    const {url,response} = await request(source, source.origin, cookieHeader, AbortSignal.any([signal,AbortSignal.timeout(5000)]),undefined,headers);
+    const [header,...lines] = (await readManifest(response.body)).trim().split(/\r?\n/).map(line => line.trim());
+    if (header !== '#EXTM3U') return [];
+    return lines.flatMap((line,index) => {
+      if (!line.startsWith('#EXT-X-STREAM-INF:')) return [];
+      const next = lines[index + 1];
+      const variant = next && !next.startsWith('#') && httpUrl(next,url);
+      const height = Number(/(?:[:,])RESOLUTION=\d+x(\d+)/.exec(line)?.[1]);
+      const bitrate = Number(/(?:[:,])BANDWIDTH=(\d+)/.exec(line)?.[1]);
+      return variant && height && bitrate ? [{height,bitrate,url:variant.href}] : [];
+    }).sort((a,b) => b.height - a.height || b.bitrate - a.bitrate);
+  } catch {
+    signal.throwIfAborted();
+    return [];
   }
-  if (pending || !variants.length) return null;
-  variants.sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth);
-  const lowest = variants.find(variant => variant.height === variants.at(-1).height);
-  const variant = variants.find(variant => !quality || variant.height <= quality) ?? lowest;
-  const group = audio.filter(track => track.group === variant.audioGroup);
-  const sound = group.find(track => track.preferred) ?? group[0];
-  if (variant.audioGroup && !sound) return null;
-  return {video:variant.url, audio:sound?.url, bandwidth:variant.bandwidth};
 }
 
-function attribute(attributes, key) {
-  return new RegExp(`(?:^|,)${key}="([^"]+)"`).exec(attributes)?.[1];
-}
-
-function parseManifest(text, source, prefix) {
-  const lines = manifestLines(text);
-  if (lines[0] !== '#EXTM3U' || lines.at(-1) !== '#EXT-X-ENDLIST') return null;
-  const segments = [];
-  const playlist = [];
-  let needsSegment = false;
-  let initFilename;
-  let mediaCount = 0;
-  for (const line of lines) {
-    if (line.startsWith('#')) {
-      const map = /^#EXT-X-MAP:URI="([^"]+)"$/.exec(line);
-      if (map) {
-        const url = httpUrl(map[1], source);
-        if (!url || needsSegment) return null;
-        initFilename = `${prefix}-init-${segments.length}.mp4`;
-        segments.push({url, filename:initFilename});
-        playlist.push(`#EXT-X-MAP:URI="${initFilename}"`);
-        continue;
+async function downloadSegment(url, destination, origin, cookies, signal, onBytes, slice, headers, attempts = 3) {
+  let offset = 0;
+  let resume;
+  for (let attempt = 0; ; attempt++) {
+    signal.throwIfAborted();
+    const controller = new AbortController();
+    const requestSignal = AbortSignal.any([signal, controller.signal]);
+    const abortStalled = () => controller.abort(new Error('HLS segment stopped responding'));
+    let timeout = setTimeout(abortStalled, segmentConnectMs);
+    let reader;
+    let output;
+    try {
+      const range = resume && offset > 0 && offset < resume.size
+        ? {url:resume.url, start:(slice?.start ?? 0) + offset, end:slice?.end ?? resume.size - 1, etag:resume.etag}
+        : slice;
+      const {url: finalUrl, response} = await request(url, origin, cookies, requestSignal, range, headers);
+      clearTimeout(timeout);
+      reader = response.body.getReader();
+      const encoding = response.headers.get('content-encoding')?.toLowerCase() ?? 'identity';
+      const length = response.headers.get('content-length');
+      const etag = response.headers.get('etag');
+      let expected;
+      if (response.status === 200) {
+        if (slice) {
+          throw Object.assign(new Error('HLS segment range unavailable'), {retryable:Boolean(range.etag), restart:true});
+        }
+        offset = 0;
+        const size = Number(length);
+        resume = encoding === 'identity' && Number.isSafeInteger(size) && size > 0 && strongEtag.test(etag) &&
+          response.headers.get('accept-ranges')?.toLowerCase() === 'bytes' ? {url:finalUrl.href, size, total:size, etag} : undefined;
+        expected = resume?.size;
+      } else {
+        const contentRange = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(response.headers.get('content-range'));
+        const total = Number(contentRange?.[3]);
+        if (encoding !== 'identity' || !Number.isSafeInteger(total) || total <= range.end ||
+            Number(contentRange[1]) !== range.start || Number(contentRange[2]) !== range.end ||
+            (range.etag && (etag !== range.etag || total !== resume.total)) ||
+            (length !== null && Number(length) !== range.end - range.start + 1)) {
+          throw Object.assign(new Error('Unexpected HLS segment range'), {retryable:true, restart:true});
+        }
+        slice?.validate(total, strongEtag.test(etag) ? etag : null);
+        expected = range.end - (slice?.start ?? 0) + 1;
+        resume = strongEtag.test(etag) ? {url:finalUrl.href, size:expected, total, etag} : undefined;
       }
-      if (/^#EXT-X-BITRATE:\d+$/.test(line)) continue;
-      if (!supportedTag.test(line) || needsSegment) return null;
-      needsSegment = line.startsWith('#EXTINF:');
-      playlist.push(line);
-      continue;
+      const totalBytes = encoding === 'identity' && length !== null ? (expected ?? Number(length)) : expected;
+      output = await open(destination, offset ? 'r+' : 'w');
+      timeout = setTimeout(abortStalled, segmentIdleMs);
+      while (true) {
+        const {done, value} = await reader.read().catch(error => {
+          throw Object.assign(new Error('HLS segment interrupted', {cause:error}), {retryable:true});
+        });
+        if (done) break;
+        timeout.refresh();
+        if (expected !== undefined && offset + value.byteLength > expected) {
+          throw Object.assign(new Error('HLS segment exceeded its declared size'), {retryable:true, restart:true});
+        }
+        signal.throwIfAborted();
+        const {bytesWritten} = await output.write(value, 0, value.byteLength, offset);
+        if (bytesWritten !== value.byteLength) throw new Error('Could not write the complete HLS segment chunk');
+        offset += bytesWritten;
+        onBytes(offset, totalBytes);
+      }
+      if (!offset || expected !== undefined && offset !== expected) {
+        throw Object.assign(new Error('Incomplete HLS segment'), {retryable:true});
+      }
+      return;
+    } catch (error) {
+      signal.throwIfAborted();
+      // A temporarily missing segment can recover without restarting the whole playlist.
+      if (!(error.retryable || error.status === 404) || attempt + 1 >= attempts) throw error;
+      if (error.restart || !resume || offset >= resume.size) {
+        resume = undefined;
+        offset = 0;
+      }
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
+      await reader?.cancel().catch(() => {});
+      await output?.close();
     }
-    const url = httpUrl(line, source);
-    if (!needsSegment || !url || !initFilename && !/\.ts$/i.test(url.pathname)) return null;
-    const filename = `${prefix}-${segments.length}.${initFilename ? 'm4s' : 'ts'}`;
-    segments.push({ url, filename });
-    playlist.push(filename);
-    mediaCount++;
-    needsSegment = false;
+    await sleep(150 * (attempt + 1), undefined, {signal});
   }
-  if (mediaCount < 2 || needsSegment) return null;
-  return { segments, playlist: playlist.join('\n') + '\n' };
 }
 
-export async function prefetchHls(source, cookies, staging, signal, onProgress, { quality, sourceKind, connections = segmentWorkers } = {}) {
+export async function prefetchHls(source, cookies, staging, signal, onProgress, {
+  quality, sourceKind, connections = segmentWorkers, recovery, headers, onFallback,
+} = {}) {
   if (sourceKind !== 'm3u8' && !/\.m3u8$/i.test(source.pathname)) return null;
   const cookieHeader = cookies.map(({ name, value }) => name + '=' + value).join('; ');
   const controller = new AbortController();
@@ -136,46 +232,219 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
   const directory = path.join(staging, 'segments');
   let directoryCreated = false;
   try {
-    const read = async url => {
-      const response = await request(url, source.origin, cookieHeader,
-        AbortSignal.any([transferSignal, AbortSignal.timeout(5000)]));
-      return {url:response.url, text:await readManifest(response.body)};
+    const read = async (url, readBody = readManifest) => {
+      for (let attempt = 0; ; attempt++) {
+        const deadline = AbortSignal.timeout(5000);
+        try {
+          const resource = await request(url, source.origin, cookieHeader, AbortSignal.any([transferSignal, deadline]),undefined,headers);
+          return {url:resource.url, content:await readBody(resource.response.body)};
+        } catch (error) {
+          transferSignal.throwIfAborted();
+          if (attempt || !(error.retryable || deadline.aborted || error instanceof TypeError)) throw error;
+          await sleep(150, undefined, {signal:transferSignal});
+        }
+      }
     };
     const first = await read(source);
-    const rendition = selectRendition(first.text, first.url, quality);
+    checkHlsProtection(first.content);
+    const rendition = selectRendition(first.content, first.url, quality);
     const [selected, sound] = rendition ? await Promise.all([read(rendition.video), rendition.audio && read(rendition.audio)]) : [first];
-    const video = parseManifest(selected.text, selected.url, 'video');
-    const audio = sound && parseManifest(sound.text, sound.url, 'audio');
-    if (!video || sound && !audio) return null;
+    if (rendition) checkHlsProtection(selected.content);
+    if (sound) checkHlsProtection(sound.content);
+    const video = parseManifest(selected.content, selected.url, 'video', {byteRanges:true,aes128:true});
+    const audio = sound && parseManifest(sound.content, sound.url, 'audio', {byteRanges:true,aes128:true});
+    if (!video || sound && !audio) {
+      onFallback?.({reason:'unsupported-hls-playlist'});
+      return null;
+    }
     const segments = video.segments.concat(audio?.segments || []);
     await mkdir(directory);
     directoryCreated = true;
+
+    const runWorkers = async (count, work) => {
+      const results = await Promise.allSettled(Array.from({length:count}, async () => {
+        try { await work(); }
+        catch (error) { controller.abort(error); throw error; }
+      }));
+      if (results.some(result => result.status === 'rejected')) throw transferSignal.reason;
+    };
+    const keys = video.keys.concat(audio?.keys || []);
+    const keyHashes = new Map();
+    if (keys.length) {
+      let nextKey = 0;
+      await runWorkers(Math.min(connections, keys.length), async () => {
+        while (nextKey < keys.length) {
+          const {url, filename} = keys[nextKey++];
+          const {content} = await read(url, readKey);
+          await writeFile(path.join(directory, filename), content, {mode:0o600,flag:'wx',signal:transferSignal});
+          keyHashes.set(filename,createHash('sha256').update(content).digest('hex'));
+        }
+      });
+    }
+    const firstPart = segments[0];
+    const sharedFile = !audio && firstPart.filename.endsWith('.mp4') &&
+      segments.every((part, index) => part.range && part.url.href === firstPart.url.href &&
+        part.range.start === (index === 0 ? 0 : segments[index - 1].range.end + 1) &&
+        (index === 0 || part.filename.endsWith('.m4s')));
+    if (sharedFile) {
+      // Only use the complete file when the manifest covers every byte in playback order.
+      const expectedSize = segments.at(-1).range.end + 1;
+      const scopedCookies = firstPart.url.origin === source.origin ? cookies : [];
+      const file = await prefetchRanges(firstPart.url, scopedCookies, directory, transferSignal, onProgress,
+        {connections,expectedSize,recovery,headers});
+      if (file) return file;
+    }
+    // A ranged representation needs validators shared across all parts of that representation.
+    let checkpoint;
+    if (recovery && segments.every(segment => !segment.range)) {
+      const identity = [selected.url.href,selected.content,sound?.url.href,sound?.content,keys.map(({filename}) => keyHashes.get(filename))];
+      const digest = createHash('sha256').update(JSON.stringify(identity)).digest('hex');
+      checkpoint = path.join(recovery,'segments-' + digest);
+      await mkdir(checkpoint,{recursive:true,mode:0o700});
+      if (!(await lstat(checkpoint)).isDirectory()) throw new Error('Invalid HLS checkpoint directory');
+    }
     let next = 0;
     let finished = 0;
     let received = 0;
-    const download = async () => {
-      try {
-        while (next < segments.length) {
-          const { url, filename } = segments[next++];
-          const segment = await request(url, source.origin, cookieHeader, transferSignal);
-          const output = createWriteStream(path.join(directory, filename));
-          await pipeline(segment.body, async function* (chunks) {
-            for await (const chunk of chunks) {
-              received += chunk.byteLength;
-              onProgress(null, received);
-              yield chunk;
-            }
-          }, output, { signal: transferSignal });
-          if (!output.bytesWritten) throw new Error('Empty HLS segment');
-          onProgress(++finished / segments.length, received);
+    const workers = Math.min(connections, segments.length);
+    const active = new Set();
+    const representations = new Map();
+    let backupTimer;
+    let backupDue;
+    let backupInFlight = false;
+    let nextBackupCheck = 0;
+    let lastQueuedBackup = -Infinity;
+
+    function scheduleBackup(checkNow = false) {
+      if (transferSignal.aborted || backupInFlight || !active.size) return;
+      const atTail = next === segments.length && active.size < workers;
+      const hasBacklog = next < segments.length && active.size === workers && workers >= 4;
+      if (!atTail && !hasBacklog) return;
+      const candidates = [...active].filter(segment => !segment.backup);
+      if (!candidates.length) return;
+      const now = performance.now();
+      const delay = atTail ? tailDelayMs : queuedBackupDelayMs;
+      const last = atTail && active.size === 1;
+      if (last) candidates[0].tailSince ??= candidates[0].lastProgress;
+      const earliest = Math.min(...candidates.map(segment => atTail
+        ? segment.tailSince ?? segment.lastProgress : segment.startedAt));
+      const due = Math.max(nextBackupCheck, (atTail ? earliest : Math.max(earliest, lastQueuedBackup)) + delay);
+      if (!checkNow || now < due) {
+        if (!backupTimer || due < backupDue) {
+          clearTimeout(backupTimer);
+          backupDue = due;
+          backupTimer = setTimeout(() => {
+            backupTimer = undefined;
+            scheduleBackup(true);
+          }, Math.max(1, Math.ceil(due - now)));
         }
-      } catch (error) {
-        controller.abort(error);
-        throw error;
+        return;
       }
-    };
-    const results = await Promise.allSettled(Array.from({ length: Math.min(connections, segments.length) }, download));
-    if (results.some(result => result.status === 'rejected')) throw transferSignal.reason;
+      const bestRate = hasBacklog ? Math.max(0, ...candidates.map(segment =>
+        now - segment.startedAt >= tailDelayMs ? segment.bytes / (now - segment.startedAt) : 0)) : 0;
+      let candidate;
+      let worst = 0;
+      for (const segment of candidates) {
+        const elapsed = now - segment.startedAt;
+        const idle = now - segment.lastProgress;
+        const rate = segment.bytes / elapsed;
+        // If every connection is progressing at a similar pace, another request would compete for the same bandwidth.
+        const lagging = rate > 0 && rate * 3 < bestRate && segment.total > segment.bytes;
+        const remaining = lagging ? (segment.total - segment.bytes) / rate : 0;
+        const score = atTail ? now - (segment.tailSince ?? segment.lastProgress)
+          : elapsed >= delay ? Math.max(idle, remaining) : 0;
+        if (score >= delay && score > worst) { candidate = segment; worst = score; }
+      }
+      if (!candidate) {
+        nextBackupCheck = now + 250;
+        scheduleBackup();
+        return;
+      }
+      if (!atTail) lastQueuedBackup = now;
+      // Race one request at a time and keep both response bodies separate.
+      backupInFlight = true;
+      candidate.backup = downloadSegment(candidate.url, candidate.destination + '.backup', source.origin, cookieHeader,
+        candidate.backupSignal, candidate.report, candidate.range, headers, 1).then(() => {
+        candidate.primary.abort();
+        return true;
+      }, () => false).finally(() => {
+        backupInFlight = false;
+        scheduleBackup();
+      });
+    }
+
+    async function transferSegment({url, filename, range:segmentRange}) {
+      const destination = path.join(directory, filename);
+      const checkpointFile = checkpoint && path.join(checkpoint,filename);
+      if (checkpointFile) {
+        const saved = await lstat(checkpointFile).catch(error => {
+          if (error.code !== 'ENOENT') throw error;
+        });
+        if (saved?.isFile() && saved.size > 0) {
+          await copyCompletedPart(checkpointFile,destination,destination + '.restore');
+          received += saved.size;
+          return;
+        }
+      }
+      const primary = new AbortController();
+      const backup = new AbortController();
+      const range = segmentRange && {...segmentRange, validate(total, etag) {
+        const previous = representations.get(url.href);
+        if (previous && (previous.total !== total || previous.etag !== etag)) {
+          throw new Error('HLS byte ranges disagree on the source file');
+        }
+        if (!previous) representations.set(url.href, {total, etag});
+      }};
+      let highWater = 0;
+      const report = offset => {
+        if (offset <= highWater) return;
+        received += offset - highWater;
+        highWater = offset;
+        onProgress(null, received);
+      };
+      const startedAt = performance.now();
+      const segment = {url, destination, range, primary, backupSignal:AbortSignal.any([transferSignal, backup.signal]),
+        report, startedAt, lastProgress:startedAt, bytes:0, total:0};
+      active.add(segment);
+      scheduleBackup();
+      try {
+        await downloadSegment(url, destination, source.origin, cookieHeader,
+          AbortSignal.any([transferSignal, primary.signal]), (offset, total) => {
+            segment.lastProgress = performance.now();
+            segment.bytes = offset;
+            segment.total = total;
+            report(offset);
+          }, range, headers);
+      } catch (error) {
+        if (!await segment.backup) throw error;
+        transferSignal.throwIfAborted();
+        await rename(destination + '.backup', destination);
+      } finally {
+        active.delete(segment);
+        if (segment.backup) {
+          backup.abort();
+          await segment.backup;
+          await rm(destination + '.backup', {force:true, maxRetries:5});
+        }
+      }
+      if (checkpointFile) {
+        transferSignal.throwIfAborted();
+        // Only publish a fully written and closed file into the checkpoint.
+        await copyCompletedPart(destination,checkpointFile,destination + '.checkpoint');
+      }
+    }
+
+    try {
+      await runWorkers(workers, async () => {
+        while (next < segments.length) {
+          await transferSegment(segments[next++]);
+          onProgress(++finished / segments.length, received);
+          scheduleBackup();
+        }
+      });
+    } finally {
+      clearTimeout(backupTimer);
+    }
     const filename = path.join(directory, 'download.m3u8');
     if (audio) {
       await Promise.all([writeFile(path.join(directory,'video.m3u8'),video.playlist),
@@ -190,6 +459,9 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
     controller.abort(error);
     if (directoryCreated) await rm(directory, { recursive: true, force: true, maxRetries: 5 });
     signal.throwIfAborted();
+    if (error instanceof ApiError) throw error;
+    onFallback?.(Number.isInteger(error?.status) ? {reason:'hls-http-error',status:error.status}
+      : {reason:'hls-transfer-failed'});
     return null;
   }
 }

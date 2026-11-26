@@ -6,15 +6,54 @@ import { once } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { classify, mediaResponseSize, pageStreams, pickStreams, sourceTitle } from '../extension/media.mjs';
+import { classify, mediaResponseSize, pageStreams, pickStreams, selectPageStream, sourceTitle } from '../extension/media.mjs';
 import { downloadFolder, readDownloadSettings } from '../extension/settings.mjs';
+import { queryMp4Metadata } from '../extension/media-metadata.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const testOutput = await mkdtemp(fileURLToPath(new URL('../.media-test-', import.meta.url)));
 process.env.OUT_DIR = testOutput;
 process.env.MEDIA_TOOLKIT_SETTINGS = path.join(testOutput, 'settings.sqlite');
 test.after(() => rm(testOutput, {recursive:true,force:true,maxRetries:5}));
-const { queue, queueOriginal, cancel, progress } = await import('../tools/media-downloads.mjs');
+const { queue, queueOriginal, cancel, progress, waitForBatch } = await import('../tools/media-downloads.mjs');
+
+test('reads an MP4 title at the end of a file without fetching the video payload', async () => {
+  const atom = (type, ...parts) => {
+    const header = Buffer.alloc(8);
+    header.writeUInt32BE(8 + parts.reduce((size, part) => size + part.length, 0));
+    header.write(type, 4, 'latin1');
+    return Buffer.concat([header, ...parts]);
+  };
+  const title = atom('data', Buffer.from([0,0,0,1,0,0,0,0]), Buffer.from('远山 · Festival Cut'));
+  const moov = atom('moov', atom('udta', atom('meta', Buffer.alloc(4), atom('ilst', atom('\u00a9nam', title)))));
+  const body = Buffer.concat([atom('ftyp', Buffer.from('isom')), atom('mdat', Buffer.alloc(1024 * 1024)), moov]);
+  const requests = [];
+  const server = createServer((request, response) => {
+    const match = /^bytes=(\d+)-(\d+)$/.exec(request.headers.range);
+    if (!match || request.url === '/no-range') {
+      response.writeHead(200, {'content-length':body.length}).flushHeaders();
+      return;
+    }
+    const start = Number(match[1]);
+    const end = Math.min(Number(match[2]), body.length - 1);
+    requests.push([start,end]);
+    response.writeHead(206, {'content-range':`bytes ${start}-${end}/${body.length}`});
+    response.end(body.subarray(start, end + 1));
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    assert.deepEqual(await queryMp4Metadata(base + '/video.mp4'), {title:'远山 · Festival Cut', size:body.length});
+    assert.equal(requests.length, 2);
+    assert.ok(requests[0][1] < 16 * 1024);
+    assert.equal(requests[1][0], body.length - moov.length);
+    assert.equal(await queryMp4Metadata(base + '/no-range'), null);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
+});
 
 test('discovers extensionless DASH and video, ignores segments and unrelated responses', () => {
   assert.equal(classify('https://cdn.example/manifest?id=1', 'application/dash+xml'), 'mpd');
@@ -88,6 +127,23 @@ test('recommends a uniquely active player without treating separate videos as al
   assert.equal(results().some(row=>row.recommended), false);
   assert.deepEqual(results(true).filter(row=>row.recommended).map(row=>row.url), [film]);
 });
+test('orders separate players by duration and places unknown durations last', () => {
+  const candidates = [
+    {url:'https://cdn.example/clip.mp4', mediaElement:true, playerIndex:0, playing:true, duration:5},
+    {url:'https://cdn.example/unknown.mp4', mediaElement:true, playerIndex:1},
+    {url:'https://cdn.example/film.mp4', mediaElement:true, playerIndex:2, duration:120},
+  ];
+  assert.deepEqual(pageStreams([{frameId:0,result:{playerCount:3,candidates}}], []).map(row => row.url),
+    [candidates[2].url, candidates[0].url, candidates[1].url]);
+});
+test('keeps automatic selection ambiguous for similar or unknown player durations', () => {
+  const movie = {url:'https://cdn.example/film.mp4', duration:120, discoveredBy:'player'};
+  const other = {url:'https://cdn.example/other.mp4', duration:114, discoveredBy:'player', recommended:true};
+  const alternate = {url:'https://cdn.example/film-hd.mp4', duration:120, discoveredBy:'player', currentSource:false};
+  assert.deepEqual(selectPageStream([movie, other, alternate]), {status:'ambiguous'});
+  assert.deepEqual(selectPageStream([movie, {...other, duration:null}]), {status:'ambiguous'});
+  assert.deepEqual(selectPageStream([movie, alternate]), {status:'selected',url:movie.url,reason:'only-candidate'});
+});
 test('uses a master playlist for an opaque player and hides its observed renditions', () => {
   const frames = [{frameId:0,result:{candidates:[],opaquePlayer:{title:'电影名称',duration:80}}}];
   const result = pageStreams(frames, ['master.m3u8','720p/index.m3u8','1080p/index.m3u8'].map(path =>
@@ -136,6 +192,7 @@ test('a cancelled batch can be queued again with the same options', async () => 
   const retry = queue(input);
   assert.notEqual(retry.id, first.id);
   cancel(retry.id);
+  assert.equal((await waitForBatch({id:retry.id})).status, 'cancelled');
 });
 
 test('rejects unsupported media options and invalid download concurrency', () => {
@@ -221,5 +278,6 @@ test('runs 24 default companion downloads and accepts a 64-task batch', async ()
     created.forEach(cancel);
     server.closeAllConnections();
     await new Promise(resolve => server.close(resolve));
+    await Promise.all(created.map(id => waitForBatch({id,timeoutMs:5_000})));
   }
 });

@@ -1,11 +1,17 @@
 export const defaultConcurrency = 24;
 export const maxConcurrency = 64;
+export const interfaceLanguages = ['system', 'zh-CN', 'en'];
 
 export const defaults = {mode:'combined', quality:'', format:'auto', audioFormat:'m4a', subtitles:false,
   concurrency:defaultConcurrency, concurrencyVersion:2, connections:8, accelerate:true, saveAs:false,
   downloadFolder:'', fastStart:true, naming:'title', theme:'system', accent:'', density:'comfortable',
   autoScan:true, showHost:false, showSize:true, sizeLookup:true, preview:'click', previewSeconds:6,
-  showThumbnails:true, startPanel:'videos', conflictAction:'uniquify'};
+  showThumbnails:true, startPanel:'videos', conflictAction:'uniquify', language:'system'};
+
+export function interfaceLanguage(language, browserLanguage) {
+  if (language === 'zh-CN' || language === 'en') return language;
+  return /^zh(?:-|$)/i.test(browserLanguage) ? 'zh-CN' : 'en';
+}
 
 export function validConcurrency(value) {
   return Number.isInteger(value) && value >= 1 && value <= maxConcurrency;
@@ -32,5 +38,6 @@ export function readDownloadSettings(saved) {
     settings.concurrency = defaultConcurrency;
   }
   settings.concurrencyVersion = defaults.concurrencyVersion;
+  if (!interfaceLanguages.includes(settings.language)) settings.language = defaults.language;
   return settings;
 }

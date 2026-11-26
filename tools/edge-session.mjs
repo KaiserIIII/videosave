@@ -32,8 +32,8 @@ export async function connectCdp(url, signal) {
   ws.addEventListener('close', () => signal?.removeEventListener('abort', close));
   signal?.addEventListener('abort', close, { once: true });
   ws.addEventListener('message', ({ data }) => {
-    const { id, error, result, method, params } = JSON.parse(data);
-    if (method) for (const handler of subscriptions.get(method) ?? []) handler(params);
+    const { id, error, result, method, params, sessionId } = JSON.parse(data);
+    if (method) for (const handler of subscriptions.get(`${sessionId ?? ''} ${method}`) ?? []) handler(params);
     pending.get(id)?.(error && new Error(error.message), result);
   });
   try {
@@ -53,7 +53,7 @@ export async function connectCdp(url, signal) {
     close();
     throw error;
   }
-  const send = (method, params = {}) => new Promise((resolve, reject) => {
+  const send = (method, params, sessionId) => new Promise((resolve, reject) => {
     if (ws.readyState !== WebSocket.OPEN) return reject(new Error('Edge 调试连接已关闭'));
     const id = ++nextId;
     const finish = (error, result) => {
@@ -64,27 +64,29 @@ export async function connectCdp(url, signal) {
     };
     const timeout = setTimeout(() => finish(new Error(`Edge 调试请求超时（${method}）`)), 8000);
     pending.set(id, finish);
-    ws.send(JSON.stringify({ id, method, params }));
+    ws.send(JSON.stringify({ id, method, params, sessionId }));
   });
-  return {
-    send, close,
+  const session = sessionId => ({
+    send: (method, params = {}) => send(method, params, sessionId),
     on(method, handler) {
-      if (!subscriptions.has(method)) subscriptions.set(method, new Set());
-      subscriptions.get(method).add(handler);
+      const key = `${sessionId ?? ''} ${method}`;
+      if (!subscriptions.has(key)) subscriptions.set(key, new Set());
+      subscriptions.get(key).add(handler);
     },
-    async evaluate(expression) {
-      const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+    async evaluate(expression, contextId) {
+      const result = await send('Runtime.evaluate', { expression, contextId, awaitPromise: true, returnByValue: true }, sessionId);
       if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
       return result.result.value;
     },
-  };
+  });
+  return {...session(), session, close};
 }
 
 export function withEdge(args, run, signal, options) {
   return withChromium(args, run, signal, {...options, executable:process.env.EDGE_BIN || edgeDefault});
 }
 
-export async function withChromium(args, run, signal, {downloadsDirectory, executable = chromiumExecutable()} = {}) {
+export async function withChromium(args, run, signal, {downloadsDirectory, executable = chromiumExecutable(), headed = false} = {}) {
   signal?.throwIfAborted();
   const profile = await mkdtemp(path.join(os.tmpdir(), 'media-toolkit-edge-'));
   if (downloadsDirectory) {
@@ -94,11 +96,11 @@ export async function withChromium(args, run, signal, {downloadsDirectory, execu
       JSON.stringify({download:{default_directory:downloadsDirectory, prompt_for_download:false}}));
   }
   const edge = spawn(executable, [
-    '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-gpu',
+    ...(headed ? [] : ['--headless=new']), '--no-first-run', '--no-default-browser-check', '--disable-gpu',
     '--mute-audio', '--disable-background-networking', '--disable-component-update',
     '--disable-sync', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
     `--user-data-dir=${profile}`, ...args, 'about:blank',
-  ], { stdio: 'ignore', windowsHide: true });
+  ], { stdio: 'ignore', windowsHide: !headed });
   let startupError;
   edge.once('error', error => { startupError = error; });
   try {

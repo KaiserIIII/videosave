@@ -1,8 +1,9 @@
 import { existsSync, mkdirSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { defaults, downloadFolder, maxConcurrency } from '../extension/settings.mjs';
+import { defaults, downloadFolder, interfaceLanguages, maxConcurrency } from '../extension/settings.mjs';
 import { ApiError } from './media-source.mjs';
 
 const choice = (...values) => ({enum:values});
@@ -20,6 +21,7 @@ const profiles = {
     accelerate:bool, saveAs:bool, naming:choice('title','source'),
     conflictAction:choice('uniquify','prompt'), theme:choice('system','light','dark','jade','amber'),
     accent:{type:'string',pattern:'^(?:#[0-9a-fA-F]{6})?$'}, density:choice('comfortable','compact'),
+    language:choice(...interfaceLanguages),
     autoScan:bool, showHost:bool, showSize:bool, sizeLookup:bool, showThumbnails:bool,
     preview:choice('click','hover','off'), previewSeconds:choice(3,6,10), startPanel:choice('videos','downloads')},
 };
@@ -30,7 +32,7 @@ export const settingsPatchSchema = {anyOf:Object.values(profiles).map(fields => 
     .map(([key, schema]) => [key, {anyOf:[schema, {type:'null'}]}]))}))};
 
 const stateDirectory = process.env.LOCALAPPDATA || path.join(os.homedir(), '.config');
-const settingsFile = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || path.join(stateDirectory, 'VideoSave', 'settings.sqlite'));
+export const settingsFile = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || path.join(stateDirectory, 'VideoSave', 'settings.sqlite'));
 function withDatabase(run) {
   mkdirSync(path.dirname(settingsFile), {recursive:true});
   const connection = new DatabaseSync(settingsFile, {timeout:5000});
@@ -45,6 +47,17 @@ function withDatabase(run) {
 function fieldsFor(scope) {
   if (typeof scope !== 'string' || !Object.hasOwn(profiles, scope)) throw new ApiError('INVALID_SETTINGS', 'Unknown settings scope');
   return profiles[scope];
+}
+
+export function localPairingCode({create = false} = {}) {
+  if (!create && !existsSync(settingsFile)) return;
+  return withDatabase(connection => {
+    if (create) {
+      connection.exec('CREATE TABLE IF NOT EXISTS companion_pairing (id INTEGER PRIMARY KEY CHECK(id=1), code TEXT NOT NULL)');
+      connection.prepare('INSERT OR IGNORE INTO companion_pairing VALUES (1,?)').run(randomBytes(24).toString('base64url'));
+    } else if (!connection.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='companion_pairing'").get()) return;
+    return connection.prepare('SELECT code FROM companion_pairing WHERE id=1').get()?.code;
+  });
 }
 
 function localDirectory(value) {
