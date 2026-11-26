@@ -13,9 +13,10 @@ import { connectCdp, withEdge } from '../tools/edge-session.mjs';
 const project = fileURLToPath(new URL('..', import.meta.url));
 const out = await mkdtemp(path.join(project, '.smoke-'));
 const browserOut = await mkdtemp(path.join(project, '.browser-smoke-'));
-const env = {...process.env, PORT:'0', MEDIA_TOOLKIT_TOKEN:'local-smoke-test', OUT_DIR:out};
-const start = file => spawn(process.execPath, [path.join(project, 'tools', file)], {
-  env, windowsHide:true, stdio:['pipe','pipe','inherit'],
+const env = {...process.env, PORT:'0', MEDIA_TOOLKIT_TOKEN:'local-smoke-test', OUT_DIR:out,
+  MEDIA_TOOLKIT_SETTINGS:path.join(browserOut, 'settings.sqlite'), MEDIA_TOOLKIT_URL:''};
+const start = (file, environment = {}) => spawn(process.execPath, [path.join(project, 'tools', file)], {
+  env:{...env, ...environment}, windowsHide:true, stdio:['pipe','pipe','inherit'],
 });
 const token = env.MEDIA_TOOLKIT_TOKEN;
 const pageUrl = 'https://interactive-examples.mdn.mozilla.net/pages/tabbed/video.html';
@@ -44,8 +45,8 @@ function inspectFile(filename) {
   return {...video,duration:Number(data.format.duration)};
 }
 
-async function testMcp() {
-  const proc = start('mcp-server.mjs');
+async function testMcp(endpoint) {
+  const proc = start('mcp-server.mjs', {MEDIA_TOOLKIT_URL:endpoint});
   const exited = once(proc, 'close');
   const lines = createInterface({input:proc.stdout})[Symbol.asyncIterator]();
   const send = (method, params, id) => proc.stdin.write(JSON.stringify({jsonrpc:'2.0',method,params,id})+'\n');
@@ -60,10 +61,15 @@ async function testMcp() {
     await call('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'smoke',version:'1'}},1);
     send('notifications/initialized');
     const result = await call('tools/list',{},2);
-    assert.deepEqual(result.tools.map(tool=>tool.name),['probe_page','start_download','get_progress','list_downloads','open_file']);
-    assert.deepEqual(result.tools[1].inputSchema.properties.concurrency, {type:'integer',minimum:1,maximum:64,default:24});
+    assert.deepEqual(result.tools.map(tool=>tool.name),['probe_page','start_download','get_progress','list_downloads','open_file',
+      'get_settings','update_settings','list_batches','cancel_download']);
+    assert.deepEqual(result.tools[1].inputSchema.properties.concurrency, {type:'integer',minimum:1,maximum:64});
     const listing = await call('tools/call',{name:'list_downloads'},3);
     assert.equal(listing.structuredContent.items.length,2);
+    const updated = await call('tools/call',{name:'update_settings',arguments:{scope:'browser',settings:{theme:'jade',previewSeconds:3}}},4);
+    assert.deepEqual(updated.structuredContent.settings,{previewSeconds:3,theme:'jade'});
+    const batches = await call('tools/call',{name:'list_batches'},5);
+    assert.ok(batches.structuredContent.items.some(batch => batch.completed === 2));
     console.log('MCP',result.tools.map(tool=>tool.name).join(', '));
   } finally { proc.stdin.end(); await exited; }
 }
@@ -439,6 +445,13 @@ async function testPopup(endpoint) {
       console.log('Edge popup real page', displayed.title, '0:52', inspectFile(downloaded.filename));
       assert.equal(sizeLabel, ((await stat(downloaded.filename)).size / (1024 ** 2)).toFixed(1) + ' MB');
       await pairPopup(popup, endpoint);
+      if (process.env.SMOKE_CHECK_SYNC) {
+        assert.equal(await popup.evaluate('document.querySelector("#settings-sync").checked'), false);
+        await popup.evaluate('document.querySelector("#settings-sync").click()');
+        await until(() => popup.evaluate('document.documentElement.dataset.theme === "jade" && document.querySelector("[data-option=previewSeconds]").value === "3"'));
+        await popup.evaluate('document.querySelector("#settings-sync").click()');
+        console.log('Paired extension applied browser preferences set through MCP');
+      }
       await checkBrowserDelivery(popup, sw, endpoint);
       await popup.evaluate('document.querySelector("#videos-toggle").click()');
       await page.evaluate(`(() => {
@@ -533,11 +546,12 @@ try {
       console.log(item.title,inspectFile(item.file));
     }
     assert.equal((await api('/api/recent')).items.length,2);
-    await testMcp();
+    await testMcp(endpoint);
+    process.env.SMOKE_CHECK_SYNC = '1';
     await testPopup(endpoint);
     assert.equal((await readdir(out)).length,3);
     assert.equal((await readdir(path.join(browserOut,'视频','教程'))).length,6);
-    assert.equal((await readdir(browserOut)).length,3);
+    assert.equal((await readdir(browserOut)).filter(name => name !== 'settings.sqlite').length,3);
   }
 } finally {
   if (server.exitCode === null) server.kill();

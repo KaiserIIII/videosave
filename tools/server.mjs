@@ -5,7 +5,7 @@ import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream';
 import * as downloads from './media-downloads.mjs';
 
-const { ApiError, VERSION, OUT_DIR } = downloads;
+const { ApiError, VERSION } = downloads;
 const port = Number(process.env.PORT ?? 8765);
 const pairingCode = process.env.MEDIA_TOOLKIT_TOKEN || randomBytes(24).toString('base64url');
 const expected = Buffer.from('Bearer ' + pairingCode);
@@ -84,11 +84,21 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     if (!authorized(req)) throw new ApiError('UNAUTHORIZED', '配对码无效', 401);
-    const { pathname } = new URL(req.url, 'http://127.0.0.1');
+    const { pathname, searchParams } = new URL(req.url, 'http://127.0.0.1');
     const route = req.method + ' ' + pathname;
     switch (route) {
       case 'GET /api/health':
-        return reply(res, 200, { ok: true, version: VERSION, outDir: OUT_DIR });
+        return reply(res, 200, { ok: true, version: VERSION, outDir: downloads.getSettings().settings.outDir });
+      case 'GET /api/settings':
+        return reply(res, 200, downloads.getSettings());
+      case 'POST /api/settings':
+        return reply(res, 200, downloads.updateSettings({settings:(await body(req)).settings}));
+      case 'GET /api/browser-settings':
+        return reply(res, 200, downloads.getSettings({scope:'browser'}));
+      case 'POST /api/browser-settings':
+        return reply(res, 200, downloads.updateSettings({scope:'browser',settings:(await body(req)).settings}));
+      case 'GET /api/batches':
+        return reply(res, 200, downloads.listBatches({limit:searchParams.has('limit') ? Number(searchParams.get('limit')) : undefined}));
       case 'POST /api/probe':
         return reply(res, 200, await downloads.probe(await body(req)));
       case 'POST /api/preview': {
@@ -151,5 +161,5 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 server.listen(port, '127.0.0.1', () => {
   console.log('本机服务 http://127.0.0.1:' + server.address().port);
   if (!process.env.MEDIA_TOOLKIT_TOKEN) console.log('本次配对码 ' + pairingCode);
-  console.log('下载目录 ' + OUT_DIR);
+  console.log('下载目录 ' + downloads.getSettings().settings.outDir);
 });

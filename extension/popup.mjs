@@ -1,4 +1,4 @@
-import { browserApi, downloadsPage, downloadSettingsPage } from './browser.mjs';
+import { browserApi, downloadsPage, downloadSettingsPage, isAndroid, nativeDownloads } from './browser.mjs';
 import { classify, isPlaylist, pageStreams, scanDocument, sourceTitle } from './media.mjs';
 import { activeStates, companion, endpointDefault, usesCompanion } from './downloads.mjs';
 import { defaults, downloadFolder, maxConcurrency, readDownloadSettings } from './settings.mjs';
@@ -6,6 +6,8 @@ import { canQuerySize, preparePreview, queryMediaSize } from './preview.mjs';
 
 const $ = id => document.getElementById(id);
 const storage = browserApi.storage.local;
+document.documentElement.dataset.mobile = String(isAndroid || !nativeDownloads);
+document.documentElement.dataset.directOnly = String(!nativeDownloads);
 const acceptedEndpoint = /^http:\/\/127\.0\.0\.1(?::[0-9]+)?$/;
 const statusNames = {queued:'排队中', starting:'正在启动', processing:'本机处理中',
   downloading:'下载中', paused:'已暂停', done:'已完成', failed:'下载失败', cancelled:'已取消'};
@@ -145,6 +147,10 @@ function optionsInto(parent, keys, values, changed) {
     parent.append(field);
   }
   syncControls();
+  parent.addEventListener('settings-sync', () => {
+    for (const [key, control] of Object.entries(controls)) control.value = String(values[key]);
+    syncControls();
+  });
   return values;
 }
 
@@ -161,6 +167,12 @@ async function request(action, args = {}) {
 }
 
 async function enqueue(items) {
+  if (!nativeDownloads) {
+    if (items.length !== 1 || isPlaylist(items[0].kind)) throw new Error('手机版可打开单个直链。分片流请使用桌面版。');
+    await browserApi.tabs.create({url:items[0].url});
+    status('在新标签页长按视频，选择浏览器的保存选项。');
+    return;
+  }
   if (!connection.token && items.some(stream => usesCompanion(stream, {...preferences, ...stream.options}))) {
     showServiceSettings();
     throw new Error('当前选项需要连接本机服务');
@@ -180,7 +192,7 @@ function downloadTitle(stream) {
 }
 
 function updateBulk() {
-  $('bulk').hidden = streams.length < 2;
+  $('bulk').hidden = !nativeDownloads || streams.length < 2;
   $('media-count').hidden = !streams.length;
   $('media-count').textContent = streams.length;
   $('all').checked = streams.length > 0 && streams.every(stream => selected.has(stream.url));
@@ -375,8 +387,9 @@ function renderMedia(stream) {
   });
   optionsToggle.setAttribute('aria-label', '打开 ' + label.textContent + ' 的下载选项');
   optionsToggle.setAttribute('aria-expanded', 'false');
-  const download = button('下载', 'download-button', async () => enqueue([stream]));
-  download.setAttribute('aria-label', '下载 ' + label.textContent);
+  const downloadLabel = nativeDownloads ? '下载' : '打开视频';
+  const download = button(downloadLabel, 'download-button', async () => enqueue([stream]));
+  download.setAttribute('aria-label', downloadLabel + ' ' + label.textContent);
 
   const rename = element('label', '', '文件名');
   const name = element('input');
@@ -385,7 +398,8 @@ function renderMedia(stream) {
   name.maxLength = 150;
   rename.append(name);
   const grid = element('div', 'option-grid');
-  const options = optionsInto(grid, ['mode', 'quality', 'format', 'audioFormat', 'subtitles'], {...preferences}, () => {});
+  const options = nativeDownloads ? optionsInto(grid, ['mode', 'quality', 'format', 'audioFormat', 'subtitles'],
+    {...preferences}, () => {}) : {};
   let chosen = stream;
   if (stream.alternates?.length) {
     const sources = [stream, ...stream.alternates];
@@ -402,10 +416,13 @@ function renderMedia(stream) {
   configActions.append(button('复制链接', 'quiet', async () => {
     await navigator.clipboard.writeText(chosen.url);
     status('链接已复制');
-  }), button('下载', '', () => enqueue([{...chosen, customTitle:name.value.trim(), options}])));
-  config.append(rename, grid, configActions);
+  }), button(downloadLabel, '', () => enqueue([{...chosen, customTitle:name.value.trim(), options}])));
+  if (nativeDownloads) config.append(rename);
+  if (nativeDownloads || stream.alternates?.length) config.append(grid);
+  config.append(configActions);
   actions.append(optionsToggle, download);
   const select = element('div','select-media');
+  if (!nativeDownloads) select.hidden = true;
   select.append(checkbox);
   row.append(select, preview, summary, actions, config);
   return row;
@@ -429,6 +446,10 @@ async function refresh(retries = 4) {
     const requests = (await browserApi.storage.session.get(key))[key] || [];
     const encrypted = observations.some(row => row.encrypted);
     streams = encrypted ? [] : pageStreams(frames, requests);
+    if (!nativeDownloads) streams = streams.flatMap(stream => {
+      const [direct, ...alternates] = [stream, ...(stream.alternates ?? [])].filter(source => !isPlaylist(source.kind));
+      return direct ? [{...direct, alternates}] : [];
+    });
     const snapshot = JSON.stringify(streams);
     if (snapshot !== lastStreams && !openedOptions && !hoverPreview) {
       for (const url of selected) {
@@ -440,7 +461,8 @@ async function refresh(retries = 4) {
     }
     const hint = $('hint');
     hint.hidden = streams.length > 0;
-    hint.textContent = encrypted ? '播放器启用了 DRM' : observations.some(row => row.opaque)
+    hint.textContent = encrypted ? '播放器启用了 DRM' : !nativeDownloads
+      ? '还没有找到直链视频。播放后可以再扫描。分片流需要桌面版。' : observations.some(row => row.opaque)
       ? '播放一段视频后再扫描，查找分片清单。'
       : '还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。';
     void queryMissingSizes();
@@ -592,6 +614,7 @@ $('pair').addEventListener('submit', guarded(async event => {
   await storage.set({connection:next});
   connection = next;
   connectionLabel();
+  if ($('settings-sync').checked) await request('sync-settings');
   status('本机服务已连接');
 }));
 $('manual').addEventListener('submit', guarded(async event => {
@@ -606,7 +629,7 @@ $('manual').addEventListener('submit', guarded(async event => {
 }));
 
 await guarded(async () => {
-  if (!(await browserApi.tabs.getCurrent())) {
+  if (!isAndroid && browserApi.windows?.getCurrent && !(await browserApi.tabs.getCurrent())) {
     const browser = await browserApi.windows.getCurrent();
     const width = Math.min(screen.availWidth, browser.width ?? screen.availWidth);
     const height = Math.min(screen.availHeight, browser.height ?? screen.availHeight);
@@ -628,7 +651,7 @@ await guarded(async () => {
     window.addEventListener('resize', fitWidth);
     fitWidth();
   }
-  const saved = await storage.get(['connection','downloadSettings','downloadJobs']);
+  const saved = await storage.get(['connection','downloadSettings','downloadJobs','settingsSync']);
   connection = saved.connection ?? connection;
   preferences = readDownloadSettings(saved.downloadSettings);
   const root = document.documentElement;
@@ -661,11 +684,29 @@ await guarded(async () => {
   const saveOptions = async options => {
     preferences = {...options};
     applyAppearance();
-    await request('settings', {settings:preferences});
+    if (nativeDownloads) await request('settings', {settings:preferences});
+    else await storage.set({downloadSettings:preferences});
     if (!openedOptions) $('media').replaceChildren(...streams.map(renderMedia));
     void queryMissingSizes();
   };
   const values = {...preferences};
+  const syncToggle = $('settings-sync');
+  const syncNow = $('sync-now');
+  syncToggle.checked = Boolean(saved.settingsSync);
+  syncNow.disabled = !syncToggle.checked;
+  const pullSettings = () => {
+    if (nativeDownloads && syncToggle.checked && connection.token) return request('sync-settings');
+  };
+  syncToggle.addEventListener('change', guarded(async () => {
+    await storage.set({settingsSync:syncToggle.checked});
+    syncNow.disabled = !syncToggle.checked;
+    await pullSettings();
+  }));
+  syncNow.addEventListener('click', guarded(async () => {
+    if (!connection.token) throw new Error('请先连接本机服务');
+    await pullSettings();
+    status('浏览器设置已同步');
+  }));
   for (const [theme, name] of Object.entries(themes)) {
     const label = element('label', 'theme-choice');
     label.dataset.preview = theme;
@@ -718,9 +759,35 @@ await guarded(async () => {
   }));
   storage.onChanged.addListener(changes => {
     if (changes.downloadJobs) updateJobs(changes.downloadJobs.newValue ?? []);
+    if (changes.downloadSettings) {
+      preferences = readDownloadSettings(changes.downloadSettings.newValue);
+      Object.assign(values, preferences);
+      applyAppearance();
+      $('save-as').checked = preferences.saveAs;
+      folderInput.value = preferences.downloadFolder;
+      for (const input of $('themes').querySelectorAll('input')) input.checked = input.value === preferences.theme;
+      for (const id of ['settings-options','transfer-options','interface-options','detection-options']) {
+        $(id).dispatchEvent(new Event('settings-sync'));
+      }
+      lastStreams = undefined;
+      if (tab) void guarded(refresh)();
+    }
   });
+  if (!nativeDownloads) {
+    $('connection-status').hidden = true;
+    $('downloads-toggle').hidden = true;
+    $('settings-options').closest('.option-card').hidden = true;
+    $('transfer-options').closest('details').hidden = true;
+    $('interface-options').querySelector('[data-option="startPanel"]').closest('label').hidden = true;
+    $('service-settings').hidden = true;
+    $('manual').querySelector('button').textContent = '打开视频';
+  }
   updateJobs(saved.downloadJobs ?? []);
+  await pullSettings()?.catch(() => {});
+  if (nativeDownloads && syncToggle.checked) {
+    preferences = readDownloadSettings((await storage.get('downloadSettings')).downloadSettings);
+  }
   [tab] = await browserApi.tabs.query({active:true,currentWindow:true});
-  if (preferences.startPanel === 'downloads') showPanel('downloads');
+  if (nativeDownloads && preferences.startPanel === 'downloads') showPanel('downloads');
   await refresh();
 })()

@@ -1,0 +1,113 @@
+import { existsSync, mkdirSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { defaults, downloadFolder, maxConcurrency } from '../extension/settings.mjs';
+import { ApiError } from './media-source.mjs';
+
+const choice = (...values) => ({enum:values});
+const integer = (minimum, maximum) => ({type:'integer', minimum, maximum});
+const bool = {type:'boolean'};
+const transfer = {
+  mode:choice('combined','video','audio','separate'), audioFormat:choice('m4a','mp3'),
+  subtitles:bool, fastStart:bool, connections:choice(4,8,12), concurrency:integer(1,maxConcurrency),
+};
+const profiles = {
+  download:{...transfer, outDir:{type:'string', minLength:1, description:'Absolute local directory'},
+    quality:integer(144,4320), format:choice('mp4','mkv')},
+  browser:{...transfer, quality:choice('', '240','360','480','720','1080','1440','2160','4320'),
+    format:choice('auto','mp4','mkv'), downloadFolder:{type:'string',maxLength:100},
+    accelerate:bool, saveAs:bool, naming:choice('title','source'),
+    conflictAction:choice('uniquify','prompt'), theme:choice('system','light','dark','jade','amber'),
+    accent:{type:'string',pattern:'^(?:#[0-9a-fA-F]{6})?$'}, density:choice('comfortable','compact'),
+    autoScan:bool, showHost:bool, showSize:bool, sizeLookup:bool, showThumbnails:bool,
+    preview:choice('click','hover','off'), previewSeconds:choice(3,6,10), startPanel:choice('videos','downloads')},
+};
+
+export const settingsScope = choice('download','browser');
+export const settingsPatchSchema = {anyOf:Object.values(profiles).map(fields => ({type:'object',
+  additionalProperties:false, properties:Object.fromEntries(Object.entries(fields)
+    .map(([key, schema]) => [key, {anyOf:[schema, {type:'null'}]}]))}))};
+
+const stateDirectory = process.env.LOCALAPPDATA || path.join(os.homedir(), '.config');
+const settingsFile = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || path.join(stateDirectory, 'VideoSave', 'settings.sqlite'));
+function withDatabase(run) {
+  mkdirSync(path.dirname(settingsFile), {recursive:true});
+  const connection = new DatabaseSync(settingsFile, {timeout:5000});
+  try {
+    connection.exec(`CREATE TABLE IF NOT EXISTS preferences (
+      scope TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (scope,name)
+    )`);
+    return run(connection);
+  } finally { connection.close(); }
+}
+
+function fieldsFor(scope) {
+  if (typeof scope !== 'string' || !Object.hasOwn(profiles, scope)) throw new ApiError('INVALID_SETTINGS', 'Unknown settings scope');
+  return profiles[scope];
+}
+
+function localDirectory(value) {
+  if (value !== value.trim() || /[\x00-\x1f]/.test(value) || !path.isAbsolute(value) ||
+      process.platform === 'win32' && !/^[a-z]:[\\/]/i.test(value)) {
+    throw new ApiError('INVALID_SETTINGS', 'outDir must be an absolute local directory');
+  }
+  const directory = path.resolve(value);
+  const root = path.parse(directory).root;
+  if (directory === root) throw new ApiError('INVALID_SETTINGS', 'outDir must be a directory below the filesystem root');
+  if (process.platform === 'win32') {
+    try { downloadFolder(directory.slice(root.length), 4096); }
+    catch { throw new ApiError('INVALID_SETTINGS', 'outDir contains an invalid directory name'); }
+  }
+  return directory;
+}
+
+function validate(name, value, rule) {
+  const valid = rule.enum ? rule.enum.includes(value) : rule.type === 'integer'
+    ? Number.isInteger(value) && value >= rule.minimum && value <= rule.maximum
+    : rule.type === 'boolean' ? typeof value === 'boolean'
+    : typeof value === 'string' && value.length >= (rule.minLength ?? 0) &&
+      value.length <= (rule.maxLength ?? 4096) && (!rule.pattern || new RegExp(rule.pattern).test(value));
+  if (!valid) throw new ApiError('INVALID_SETTINGS', `Invalid value for ${name}`);
+  if (name === 'outDir') return localDirectory(value);
+  if (name === 'downloadFolder') {
+    try { return downloadFolder(value); }
+    catch { throw new ApiError('INVALID_SETTINGS', 'downloadFolder must be relative to the browser download directory'); }
+  }
+  return value;
+}
+
+function read(connection, scope, fields) {
+  return Object.fromEntries(connection.prepare('SELECT name,value FROM preferences WHERE scope=? ORDER BY name').all(scope)
+    .filter(({name}) => Object.hasOwn(fields,name)).map(({name,value}) => [name, JSON.parse(value)]));
+}
+
+export function readPreferences(scope) {
+  const fields = fieldsFor(scope);
+  return existsSync(settingsFile) ? withDatabase(connection => read(connection, scope, fields)) : {};
+}
+
+export function writePreferences(scope, patch) {
+  const fields = fieldsFor(scope);
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch) || !Object.keys(patch).length) {
+    throw new ApiError('INVALID_SETTINGS', 'settings must contain at least one field');
+  }
+  const changes = Object.entries(patch).map(([name, value]) => {
+    if (!Object.hasOwn(fields,name)) throw new ApiError('INVALID_SETTINGS', `Unknown setting ${name}`);
+    return [name, value === null ? (scope === 'browser' ? defaults[name] : null) : validate(name,value,fields[name])];
+  });
+  return withDatabase(connection => {
+    const remove = connection.prepare('DELETE FROM preferences WHERE scope=? AND name=?');
+    const set = connection.prepare('INSERT INTO preferences VALUES (?,?,?) ON CONFLICT(scope,name) DO UPDATE SET value=excluded.value');
+    connection.exec('BEGIN IMMEDIATE');
+    try {
+      for (const [name,value] of changes) {
+        if (value === null) remove.run(scope,name);
+        else set.run(scope,name,JSON.stringify(value));
+      }
+      const settings = read(connection, scope, fields);
+      connection.exec('COMMIT');
+      return settings;
+    } catch (error) { connection.exec('ROLLBACK'); throw error; }
+  });
+}

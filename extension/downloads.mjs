@@ -1,5 +1,5 @@
 import { browserApi, isFirefox } from './browser.mjs';
-import { downloadFolder, readDownloadSettings } from './settings.mjs';
+import { defaults, downloadFolder, readDownloadSettings } from './settings.mjs';
 
 export const activeStates = ['queued', 'starting', 'processing', 'downloading', 'paused'];
 export const endpointDefault = 'http://127.0.0.1:8765';
@@ -41,8 +41,9 @@ function serial(work) {
 }
 
 async function readState() {
-  const saved = await storage.get(['downloadJobs', 'downloadSettings', 'connection']);
-  return {jobs:saved.downloadJobs ?? [], settings:readDownloadSettings(saved.downloadSettings), connection:saved.connection};
+  const saved = await storage.get(['downloadJobs', 'downloadSettings', 'connection', 'settingsSync']);
+  return {jobs:saved.downloadJobs ?? [], settings:readDownloadSettings(saved.downloadSettings), connection:saved.connection,
+    settingsSync:saved.settingsSync};
 }
 
 async function persist(jobs) {
@@ -265,12 +266,22 @@ async function tick(state) {
   return jobs;
 }
 
-async function mutate({action, id, streams, settings}, state) {
+async function mutate({action, id, streams, settings}, state, remote) {
   const {jobs, connection} = state;
   if (action === 'settings') {
     const next = readDownloadSettings(settings);
     state.settings = {...next, downloadFolder:downloadFolder(next.downloadFolder)};
     await storage.set({downloadSettings:state.settings});
+  }
+  if (action === 'sync-settings') {
+    if (remote && state.settingsSync && connection?.token &&
+        Object.entries(remote).some(([key,value]) => Object.hasOwn(defaults,key) && !Object.is(value,state.settings[key]))) {
+      const patch = Object.fromEntries(Object.entries(remote).filter(([key]) => key !== 'concurrencyVersion' && Object.hasOwn(defaults,key)));
+      state.settings = readDownloadSettings({...state.settings, ...patch});
+      state.settings.downloadFolder = downloadFolder(state.settings.downloadFolder);
+      await storage.set({downloadSettings:state.settings});
+    }
+    return jobs;
   }
   if (action === 'clear') {
     for (let index = jobs.length - 1; index >= 0; index--) {
@@ -360,7 +371,18 @@ export function registerDownloads() {
   });
   browserApi.runtime.onMessage.addListener((message, sender, reply) => {
     if (message?.scope !== 'media-downloads' || sender.id !== browserApi.runtime.id || sender.tab && !sender.url?.startsWith(browserApi.runtime.getURL(''))) return;
-    serial(async () => mutate(message, await readState()))
+    const handle = async () => {
+      if (message.action !== 'sync-settings') return serial(async () => mutate(message, await readState()));
+      const {settingsSync,connection} = await readState();
+      if (!settingsSync || !connection?.token) return (await readState()).jobs;
+      const {settings} = await companion(connection, '/api/browser-settings');
+      return serial(async () => {
+        const state = await readState();
+        if (state.connection?.endpoint !== connection.endpoint || state.connection?.token !== connection.token) return state.jobs;
+        return mutate(message, state, settings);
+      });
+    };
+    handle()
       .then(jobs => reply({jobs}), error => reply({error:error.message}));
     return true;
   });

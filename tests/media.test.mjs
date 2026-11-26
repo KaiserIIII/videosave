@@ -3,10 +3,18 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import { classify, mediaResponseSize, pageStreams, pickStreams, sourceTitle } from '../extension/media.mjs';
 import { downloadFolder, readDownloadSettings } from '../extension/settings.mjs';
-import { queue, queueOriginal, cancel, progress } from '../tools/media-downloads.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
+
+const testOutput = await mkdtemp(fileURLToPath(new URL('../.media-test-', import.meta.url)));
+process.env.OUT_DIR = testOutput;
+process.env.MEDIA_TOOLKIT_SETTINGS = path.join(testOutput, 'settings.sqlite');
+test.after(() => rm(testOutput, {recursive:true,force:true,maxRetries:5}));
+const { queue, queueOriginal, cancel, progress } = await import('../tools/media-downloads.mjs');
 
 test('discovers extensionless DASH and video, ignores segments and unrelated responses', () => {
   assert.equal(classify('https://cdn.example/manifest?id=1', 'application/dash+xml'), 'mpd');

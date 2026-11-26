@@ -8,9 +8,10 @@ import { defaultConcurrency, maxConcurrency, validConcurrency } from '../extensi
 import { prefetchHls } from './hls-prefetch.mjs';
 import { prefetchRanges } from './range-prefetch.mjs';
 import { ApiError, FFMPEG, discover, mediaInput, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
+import { readPreferences, writePreferences } from './preferences.mjs';
 
 export { ApiError };
-export const VERSION = '0.6.2';
+export const VERSION = '0.7.0';
 
 function defaultDownloads() {
   try {
@@ -23,6 +24,18 @@ function defaultDownloads() {
 }
 
 export const OUT_DIR = path.resolve(process.env.OUT_DIR || defaultDownloads());
+const defaultOutput = {outDir:OUT_DIR, format:'mp4', mode:'combined', quality:null, audioFormat:'m4a',
+  subtitles:false, fastStart:true, concurrency:defaultConcurrency, connections:8};
+
+export function getSettings({scope = 'download'} = {}) {
+  const saved = readPreferences(scope);
+  return {scope, settings:scope === 'download' ? {...defaultOutput, ...saved} : saved};
+}
+
+export function updateSettings({scope = 'download', settings} = {}) {
+  const saved = writePreferences(scope, settings);
+  return {scope, settings:scope === 'download' ? {...defaultOutput, ...saved} : saved};
+}
 
 const session = new AbortController();
 const workQueue = [];
@@ -145,6 +158,17 @@ export function progress(id) {
   return snapshot(lookup(id));
 }
 
+export function listBatches({limit = 20} = {}) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ApiError('INVALID_LIMIT', 'limit must be 1–100');
+  const items = [];
+  for (const batch of batches.values()) {
+    items.push({id:batch.id, status:batch.status, delivery:batch.delivery, createdAt:batch.createdAt,
+      total:batch.items.length, completed:batch.items.filter(item => item.status === 'done').length,
+      failed:batch.items.filter(item => item.status === 'error').length});
+  }
+  return {items:items.slice(-limit).reverse()};
+}
+
 export function subscribe(id, notify) {
   const batch = lookup(id);
   if (batch.status === 'running' || batch.status === 'cancelling') batch.listeners.add(notify);
@@ -163,7 +187,7 @@ export function cancel(id) {
   return { ok: true };
 }
 
-function getTargets(values) {
+function getTargets(values, defaults) {
   if (!Array.isArray(values) || !values.length) {
     throw new ApiError('INVALID_ITEMS', '请添加至少一个媒体目标');
   }
@@ -191,9 +215,10 @@ function getTargets(values) {
     if (value.fastStart !== undefined && typeof value.fastStart !== 'boolean') {
       throw new ApiError('INVALID_FAST_START', '快速播放选项应为布尔值');
     }
-    return { kind: value.kind, url: mediaUrl(value.url).href, format: value.format ?? 'mp4',
-      mode: value.mode ?? 'combined', quality: value.quality ?? null, audioFormat: value.audioFormat ?? 'm4a',
-      subtitles: value.subtitles ?? false, sourceKind:value.sourceKind, fastStart:value.fastStart ?? true,
+    return { kind: value.kind, url: mediaUrl(value.url).href, format: value.format ?? defaults.format,
+      mode: value.mode ?? defaults.mode, quality: value.quality === undefined ? defaults.quality : value.quality,
+      audioFormat: value.audioFormat ?? defaults.audioFormat, subtitles: value.subtitles ?? defaults.subtitles,
+      sourceKind:value.sourceKind, fastStart:value.fastStart ?? defaults.fastStart,
       title: value.title?.trim().slice(0, 160) || '' };
   });
 }
@@ -215,12 +240,15 @@ export function queueOriginal({ url, title, extension, connections, requestId } 
   return queue({items:[{kind:'stream', url, title}], connections, delivery:'browser', requestId}, extension.toLowerCase());
 }
 
-export function queue({ items, maxSec, cookie, concurrency = defaultConcurrency, connections = 8, delivery = 'local', requestId } = {},
+export function queue({ items, maxSec, cookie, concurrency, connections, delivery = 'local', requestId } = {},
   originalExtension) {
-  const targets = getTargets(items);
+  if (delivery !== 'local' && delivery !== 'browser') throw new ApiError('INVALID_DELIVERY', '无效的保存方式');
+  const defaults = delivery === 'local' ? getSettings().settings : defaultOutput;
+  const targets = getTargets(items, defaults);
+  if (concurrency === undefined) concurrency = defaults.concurrency;
+  if (connections === undefined) connections = defaults.connections;
   if (!validConcurrency(concurrency)) throw new ApiError('INVALID_CONCURRENCY', '并发数应为 1 至 ' + maxConcurrency + ' 的整数');
   if (![4,8,12].includes(connections)) throw new ApiError('INVALID_CONNECTIONS', '单任务连接数应为 4、8 或 12');
-  if (delivery !== 'local' && delivery !== 'browser') throw new ApiError('INVALID_DELIVERY', '无效的保存方式');
   if (requestId !== undefined && (delivery !== 'browser' || typeof requestId !== 'string' ||
       !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(requestId))) {
     throw new ApiError('INVALID_REQUEST_ID', '浏览器任务编号无效');
@@ -228,7 +256,7 @@ export function queue({ items, maxSec, cookie, concurrency = defaultConcurrency,
   const limit = durationLimit(maxSec);
   const cookies = parseCookies(cookie);
   const key = createHash('sha256').update(JSON.stringify([targets, limit, cookies, concurrency, connections, delivery,
-    originalExtension, requestId])).digest('hex');
+    originalExtension, requestId, defaults.outDir])).digest('hex');
   const existing = batches.get(batchKeys.get(key));
   if (existing?.status === 'running') return { id: existing.id, total: targets.length };
 
@@ -236,6 +264,7 @@ export function queue({ items, maxSec, cookie, concurrency = defaultConcurrency,
   const batch = {
     id, status: 'running', controller: new AbortController(), log: [], listeners: new Set(),
     concurrency, connections, running: 0, delivery, originalExtension, files: new Map(),
+    outDir:defaults.outDir, createdAt:new Date().toISOString(),
     items: targets.map(({ kind, title }, idx) => ({ idx, kind, title, status: 'queued', percent: 0, file: null, error: null })),
   };
   batches.set(id, batch);
@@ -262,9 +291,9 @@ function filename(title) {
     .trim().slice(0, 70).replace(/[. ]+$/, '').replace(/^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?=\.|$)/i, '_$1') || 'video';
 }
 
-async function save(source, name, extension) {
+async function save(directory, source, name, extension) {
   for (let index = 1; ; index += 1) {
-    const target = path.join(OUT_DIR, `${name}${index === 1 ? '' : `_${index}`}.${extension}`);
+    const target = path.join(directory, `${name}${index === 1 ? '' : `_${index}`}.${extension}`);
     try {
       try { await link(source, target); } catch (error) {
         if (!['ENOTSUP', 'ENOSYS', 'EPERM'].includes(error.code)) throw error;
@@ -362,7 +391,7 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     item.title ||= stream.title || found.pageTitle || '';
   }
   const scopedCookies = source.origin === input.origin ? cookies : [];
-  const directory = batch.delivery === 'browser' ? os.tmpdir() : OUT_DIR;
+  const directory = batch.delivery === 'browser' ? os.tmpdir() : batch.outDir;
   await mkdir(directory, { recursive: true });
   const staging = await mkdtemp(path.join(directory, '.media-toolkit-'));
   let held = false;
@@ -456,7 +485,7 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     } else {
       for (const output of outputs) {
         signal.throwIfAborted();
-        const file = await save(output.file, output.name, output.extension);
+        const file = await save(directory, output.file, output.name, output.extension);
         saved.push({ file, name: path.basename(file) });
       }
       signal.throwIfAborted();
@@ -475,31 +504,33 @@ async function runItem(batch, item, target, limit, cookies, signal) {
 }
 
 export async function recent() {
-  const entries = await readdir(OUT_DIR, { withFileTypes: true }).catch(error => {
+  const {outDir} = getSettings().settings;
+  const entries = await readdir(outDir, { withFileTypes: true }).catch(error => {
     if (error.code === 'ENOENT') return [];
     throw error;
   });
   const items = [];
   for (const entry of entries) {
     if (!entry.isFile() || !/\.(mp4|mkv|m4a|mp3)$/i.test(entry.name)) continue;
-    const info = await stat(path.join(OUT_DIR, entry.name)).catch(error => {
+    const info = await stat(path.join(outDir, entry.name)).catch(error => {
       if (error.code !== 'ENOENT') throw error;
     });
     if (info?.isFile()) items.push({ name: entry.name, size: info.size, mtime: info.mtimeMs });
   }
-  return { dir: OUT_DIR, items: items.sort((a, b) => b.mtime - a.mtime).slice(0, 20) };
+  return { dir: outDir, items: items.sort((a, b) => b.mtime - a.mtime).slice(0, 20) };
 }
 
 export async function openDownload(file) {
-  await mkdir(OUT_DIR, { recursive: true });
-  const directory = await realpath(OUT_DIR);
+  const {outDir} = getSettings().settings;
+  await mkdir(outDir, { recursive: true });
+  const directory = await realpath(outDir);
   let args = [directory];
   if (file !== undefined) {
     if (typeof file !== 'string' || !file || !/\.(mp4|mkv|m4a|mp3)$/i.test(file) || /[\x00-\x1f,]/.test(file)) {
       throw new ApiError('INVALID_FILE', '请选择下载目录中的媒体文件');
     }
-    const requested = path.resolve(OUT_DIR, file);
-    if (path.relative(OUT_DIR, path.dirname(requested))) throw new ApiError('INVALID_FILE', '文件应在下载目录中');
+    const requested = path.resolve(outDir, file);
+    if (path.relative(outDir, path.dirname(requested))) throw new ApiError('INVALID_FILE', '文件应在下载目录中');
     const actual = await realpath(requested).catch(error => {
       if (error.code === 'ENOENT') throw new ApiError('FILE_NOT_FOUND', '找不到下载文件', 404);
       throw error;

@@ -1,9 +1,9 @@
-import { browserApi } from './browser.mjs';
+import { browserApi, nativeDownloads } from './browser.mjs';
 
 import { classify, mediaResponseSize } from './media.mjs';
 import { registerDownloads } from './downloads.mjs';
 
-registerDownloads();
+if (nativeDownloads) registerDownloads();
 
 const storage = browserApi.storage.session;
 const writes = new Map();

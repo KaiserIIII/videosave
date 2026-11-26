@@ -11,12 +11,12 @@ export function validConcurrency(value) {
   return Number.isInteger(value) && value >= 1 && value <= maxConcurrency;
 }
 
-export function downloadFolder(value) {
+export function downloadFolder(value, maxLength = 100) {
   const fieldError = '请输入浏览器下载目录下的文件夹，例如 视频/教程';
   if (typeof value !== 'string') throw new Error(fieldError);
   const folder = value.trim().replace(/\\/g, '/');
   if (!folder) return '';
-  if (folder.length > 100 || folder.split('/').some(part => !part || part.startsWith(' ') ||
+  if (folder.length > maxLength || folder.split('/').some(part => !part || part.startsWith(' ') ||
     /[<>:"|?*\x00-\x1f]|[. ]$/.test(part) ||
     /^(?:CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?=\.|$)/i.test(part))) {
     throw new Error(fieldError);

@@ -12,6 +12,7 @@ test('finite HLS transfer', async t => {
   const folder = await mkdtemp(fileURLToPath(new URL('../.hls-test-', import.meta.url)));
   const outputDir = process.env.OUT_DIR;
   process.env.OUT_DIR = folder;
+  process.env.MEDIA_TOOLKIT_SETTINGS = path.join(folder, 'settings.sqlite');
   const { queue, progress, cancel } = await import('../tools/media-downloads.mjs');
   const requests = new Map();
   let active = 0;

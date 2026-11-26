@@ -394,6 +394,10 @@ footer {
   .option-grid { grid-template-columns:minmax(0,1fr) }
   .section-header,footer { flex-wrap:wrap }
 }
+:root[data-direct-only=true] .media li { grid-template-columns:48px minmax(0,1fr) }
+:root[data-direct-only=true] .media li>.actions { grid-column:1/-1;justify-content:flex-end }
+:root[data-mobile=true] body { inline-size:100vw;max-block-size:100dvh }
+:root[data-mobile=true] button { min-block-size:40px }
 @media(prefers-reduced-motion:reduce) {
   *,*::before,*::after { animation-duration:0s !important;transition-duration:0s !important }
 }

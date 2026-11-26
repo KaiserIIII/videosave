@@ -2,12 +2,16 @@
 {
   "manifest_version": 3,
   "name": "视频快存 (VideoSave)",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "发现、预览和保存网页视频。支持本机高速下载与 AI 调用。",
   "permissions": ["activeTab", "alarms", "downloads", "scripting", "storage", "webRequest"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "background.mjs", "scripts": ["background.mjs"], "type": "module" },
-  "browser_specific_settings": { "gecko": { "id": "videosave@local.extension", "strict_min_version": "136.0" } },
+  "browser_specific_settings": {
+    "gecko": { "id": "videosave@local.extension", "strict_min_version": "136.0",
+      "data_collection_permissions": { "required": ["none"] } },
+    "gecko_android": { "strict_min_version": "136.0" }
+  },
   "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
   "action": {
     "default_popup": "popup.html",
