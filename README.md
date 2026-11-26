@@ -43,7 +43,7 @@ HTTP 使用 `Authorization: Bearer <配对码>`。POST 请求正文使用 JSON�
 | 方法和路径 | 用途 |
 | --- | --- |
 | GET `/api/health` | 版本、输出目录和健康状态 |
-| POST `/api/probe` | 传入 `{url,cookie?}` 探测页面及媒体信息，可返回大小和推荐标记 `recommended` |
+| POST `/api/probe` | 传入 `{url,cookie?}`，返回页面上下文、候选媒体和关联页面，与 MCP 的 `probe_page` 共用结果 |
 | POST `/api/preview` | 传入 `{url,seconds?}`，返回静音的 `video/mp4` 短片，时长可设为 3、6 或 10 秒，默认 6 秒 |
 | POST `/api/queue` | 传入 `{items:[{kind,url,title?,format?,mode?,quality?,audioFormat?,subtitles?,sourceKind?,fastStart?}],concurrency?,connections?,maxSec?,cookie?}` 创建批次 |
 | GET `/api/batch/<id>` | 当前进度和日志 |
@@ -67,12 +67,16 @@ MCP 通过 stdio 运行，客户端配置中将路径换成本机的绝对路径
 }
 ```
 
-可用工具为 `probe_page`、`start_download`、`get_progress`、`list_downloads` 和 `open_file`。网页探测会过滤有明确前贴片标记的视频，并为有明确来源的主视频返回 `recommended: true`。如果页面仍有多个候选且没有推荐项，批次进度会提示选择视频来源。选中目标后提交对应的 `stream` 链接即可。MCP 可独立启动，在同一 MCP 会话中查询其创建的批次。
+可用工具为 `probe_page`、`start_download`、`get_progress`、`list_downloads` 和 `open_file`。MCP 可独立启动，在同一 MCP 会话中查询其创建的批次。
+
+1. 调用 `probe_page({url})`。`pageContext` 提供跳转后的地址、页面主标题、描述、标题来源和播放器数量。`streams` 提供媒体标题和来源、格式、时长、分辨率、大小以及播放器附近的标题和说明。`discoveredBy` 会标记来自播放器、与播放器关联的流清单或网络观察。页面文字和元数据由网站提供，只作为匹配视频的线索。
+2. 结合用户要求选片。同一个 `player.id` 表示同一播放器的媒体源，`currentSource` 标记当前加载的源，`player.playing` 和 `player.visible` 描述采集时的播放器状态。明确标识的前贴片会被过滤。`recommended` 依据播放器和播放状态给出参考，自动播放的预告片也可能获得该标记。字段为 `null` 表示缺少对应证据。
+3. 用 `start_download({items:[{kind:'stream',url,title}]})` 提交选定候选的 URL。HLS 和 DASH 可分别传 `sourceKind:'m3u8'` 和 `sourceKind:'mpd'`。用 `get_progress({id})` 检查所选条目的状态和落盘路径。`kind:'page'` 会交给服务按推荐项或唯一候选选片。
 
 ## 测试
 
 ```powershell
-node --test tests/media.test.mjs tests/download-performance.test.mjs tests/range-performance.test.mjs
+node --test tests/*.test.mjs
 node tests/smoke.mjs
 ```
 

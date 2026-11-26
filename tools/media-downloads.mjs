@@ -10,7 +10,7 @@ import { prefetchRanges } from './range-prefetch.mjs';
 import { ApiError, FFMPEG, discover, mediaInput, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
 
 export { ApiError };
-export const VERSION = '0.6.0';
+export const VERSION = '0.6.1';
 
 function defaultDownloads() {
   try {

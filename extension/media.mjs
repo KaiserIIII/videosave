@@ -76,7 +76,7 @@ export function pageStreams(frames, requests) {
       for (const stream of playlists) if (stream.url !== master.url && !stream.mediaElement) covered.add(`${frameId} ${stream.url}`);
     }
     const playlist = playlists.length === 1 ? playlists[0] : samePlaylistFamily ? master : null;
-    if (playlist) inferred.push({...playlist, ...result.opaquePlayer, fromPlayer:true});
+    if (playlist) inferred.push({...playlist, ...result.opaquePlayer, frameId, fromPlayer:true});
     return candidates;
   });
   const eligible = url => !rejected.has(url.href) && (!excluded.has(url.href) || declared.has(url.href));
@@ -112,8 +112,15 @@ export function pageStreams(frames, requests) {
   });
   if (representatives.length === 1 && playerCount <= 1 && metadata) {
     const [stream] = representatives;
-    if (stream.frameId !== 0 && !stream.namedByPlayer && metadata.videoTitle) stream.title = metadata.videoTitle;
-    stream.title ||= metadata.videoTitle || sourceTitle(stream) || metadata.title;
+    if (metadata.videoTitle && (!stream.title || stream.frameId !== 0 && !stream.namedByPlayer)) {
+      stream.title = metadata.videoTitle;
+      stream.titleSource = metadata.titleSource;
+    }
+    if (!stream.title) {
+      const name = sourceTitle(stream);
+      stream.title = name || metadata.title;
+      stream.titleSource = name ? 'media-url' : metadata.titleSource;
+    }
     stream.poster ||= metadata.poster;
   }
   const verified = representatives.filter(stream => stream.mediaElement || stream.fromPlayer);
@@ -135,10 +142,17 @@ export function sourceTitle(stream) {
     ? '' : title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-export function scanDocument() {
+export function scanDocument(includeContext = false) {
   // This function is executed inside the page with no module imports.
   const clean = value => typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, 300) : '';
   const meta = (attribute, name) => clean(document.querySelector(`meta[${attribute}="${name}"]`)?.content);
+  const titleFrom = values => {
+    for (const [source, value] of values) {
+      const title = clean(value);
+      if (title) return [source, title];
+    }
+    return [null, ''];
+  };
   const normalizeUrl = value => {
     const url = typeof value === 'string' && URL.parse(value, document.baseURI);
     if (!url) return '';
@@ -194,13 +208,47 @@ export function scanDocument() {
   const sessionTitle = clean(navigator.mediaSession?.metadata?.title);
   const pageVideo = structured.length === 1 ? structured[0] : null;
   const titleNode = document.querySelector('[itemtype$="/VideoObject"] [itemprop="name"], #viewvideo-title');
-  const videoTitle = clean(pageVideo?.name) || clean(titleNode?.getAttribute('content') || titleNode?.textContent) || sessionTitle ||
-    (/^video(?:\.|$)/.test(meta('property','og:type')) ? meta('property','og:title') : '');
+  const visible = node => (node.checkVisibility?.({checkOpacity:true, checkVisibilityCSS:true}) ??
+    node.getClientRects().length > 0) && !node.closest('[hidden], [aria-hidden="true"]');
+  const visibleText = (root, selector) => {
+    for (const node of root.querySelectorAll(selector)) {
+      if (!visible(node) || node.closest('form, [contenteditable]')) continue;
+      const text = clean(node.innerText);
+      if (text) return text;
+    }
+    return '';
+  };
+  const heading = includeContext ? visibleText(document, 'h1, [role="heading"][aria-level="1"]')
+    : clean(document.querySelector('main h1, article h1, h1')?.textContent);
+  const ogTitle = meta('property', 'og:title');
+  const [videoTitleSource, videoTitle] = titleFrom([
+    ['video-object', pageVideo?.name], ['video-markup', titleNode?.getAttribute('content') || titleNode?.textContent],
+    ['media-session', sessionTitle], ['open-graph', /^video(?:\.|$)/.test(meta('property','og:type')) ? ogTitle : ''],
+  ]);
+  const [titleSource, pageTitle] = titleFrom([
+    [videoTitleSource, videoTitle], ['open-graph', ogTitle], ['twitter-card', meta('name', 'twitter:title')],
+    ['heading', heading], ['document-title', document.title],
+  ]);
   const pageMetadata = {
     videoTitle,
-    title: videoTitle || meta('property', 'og:title') || meta('name', 'twitter:title') ||
-      clean(document.querySelector('main h1, article h1, h1')?.textContent) || clean(document.title),
+    title: pageTitle,
+    titleSource,
     poster: normalizeUrl([pageVideo?.thumbnailUrl].flat()[0] || meta('property', 'og:image')) || null,
+  };
+  const pageContext = includeContext ? {url:normalizeUrl(location.href), heading:heading || null,
+    description:clean(pageVideo?.description) || meta('property', 'og:description') || meta('name', 'description') ||
+      visibleText(document, 'main > p, main > header p, article > header p') || null,
+    titleSource, playerCount:videos.length} : undefined;
+  const nearbyText = video => {
+    let heading = '', description = '';
+    let container = video.parentElement;
+    for (let depth = 0; container && depth < 4 && container !== document.body; depth++, container = container.parentElement) {
+      if (container.querySelectorAll('video').length !== 1) break;
+      heading ||= visibleText(container, 'h1, h2, h3, h4, h5, h6');
+      description ||= visibleText(container, 'figcaption, [itemprop="description"], p');
+      if (heading && description || container.matches('article, aside, figure, section')) break;
+    }
+    return {heading:heading || null, description:description || null};
   };
   let opaquePlayer = null;
   const candidates = [
@@ -216,17 +264,24 @@ export function scanDocument() {
       const label = (video.getAttribute('aria-labelledby') || '').split(/\s+/).map(id =>
         document.getElementById(id)?.textContent).filter(Boolean).join(' ');
       const generic = /^(?:player|video|media|播放器|视频)(?:[ ._-]*\d+)?$/i;
-      const playerTitle = [info?.name, video.getAttribute('title'), label, video === primary ? sessionTitle : '',
-        video.getAttribute('aria-label')].map(clean).find(value => value && !generic.test(value));
-      const title = playerTitle || (video === primary && !generic.test(pageMetadata.title) ? pageMetadata.title : '') || null;
+      const context = includeContext ? nearbyText(video) : null;
+      const [playerTitleSource, playerTitle] = titleFrom([
+        ['video-object', info?.name], ['player-title', video.getAttribute('title')], ['player-label', label],
+        ['media-session', video === primary ? sessionTitle : ''], ['player-label', video.getAttribute('aria-label')],
+        ['player-heading', context?.heading],
+      ].filter(([, value]) => !generic.test(clean(value))));
+      const usePageTitle = video === primary && !generic.test(pageTitle);
+      const title = playerTitle || (usePageTitle ? pageTitle : '') || null;
       const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : seconds(clean(info?.duration));
-      const metadata = { title, duration, width: video.videoWidth || null, height: video.videoHeight || null,
+      const metadata = { title, titleSource:playerTitleSource || (title && titleSource),
+        duration, width: video.videoWidth || null, height: video.videoHeight || null,
         poster: normalizeUrl(video.poster || (video === primary ? pageMetadata.poster : '')) || null,
-        playing: !video.paused && !video.ended, namedByPlayer:Boolean(playerTitle) };
+        playing: !video.paused && !video.ended, namedByPlayer:Boolean(playerTitle), playerIndex,
+        ...(context && {playerContext:{...context, description:clean(info?.description) || context.description, visible:visible(video)}}) };
       if (opaque && video === primary) opaquePlayer = metadata;
       return [...new Map([{ url: video.src }, { url: source }, ...sources]
         .filter(item => item.url).map(item => [item.url, item])).values()]
-        .map(item => ({ ...item, mediaElement:true, playerIndex, currentSource:item.url === source, ...metadata }));
+        .map(item => ({ ...item, mediaElement:true, currentSource:item.url === source, ...metadata }));
     }),
     ...performance.getEntriesByType('resource').filter(resource =>
       ['video','fetch','xmlhttprequest'].includes(resource.initiatorType)).map(resource => ({url:resource.name})),
@@ -235,7 +290,7 @@ export function scanDocument() {
     .filter(a => /^https?:/.test(a.href) && a.href !== location.href && /\/(?:watch|videos?|clip)(?:[/?#]|$)/i.test(a.href))
     .map(a => [a.href, {url: a.href, title: (a.title || a.textContent.trim()).slice(0, 120)}])).values()].slice(0, 80);
   const opaqueCount = videos.filter(video => (video.currentSrc || video.src).startsWith('blob:')).length;
-  return { pageTitle:document.title, pageMetadata, playerCount:videos.length, candidates, pages, opaquePlayer, excludedMedia:[...excludedMedia],
+  return { pageTitle:document.title, pageMetadata, pageContext, playerCount:videos.length, candidates, pages, opaquePlayer, excludedMedia:[...excludedMedia],
     encrypted:videos.some(video => video.mediaKeys),
     opaqueCount, opaque:opaqueCount > 0, ready:document.readyState === 'complete' };
 }

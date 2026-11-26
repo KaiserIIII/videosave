@@ -60,7 +60,7 @@ export async function discover(url, cookies, signal) {
       let found;
       do {
         await sleep(300, undefined, { signal });
-        found = await page.evaluate(`(${scanDocument})()`).catch(error => {
+        found = await page.evaluate(`(${scanDocument})(true)`).catch(error => {
           if (signal.aborted || !/context.*(destroyed|find)/i.test(error.message) &&
               !/Cannot find context/i.test(error.message)) throw error;
         });
@@ -71,10 +71,19 @@ export async function discover(url, cookies, signal) {
       const streams = found?.encrypted ? [] : pageStreams(found ? [{frameId:0,result:found}] : [], observed);
       return {
         pageTitle: found?.pageMetadata?.title || found?.pageTitle || null,
-        streams: streams.flatMap(stream => [stream,...(stream.alternates ?? [])]).slice(0, 24)
-          .map(({url,kind,title,filename,duration,width,height,size,recommended}) =>
-          ({url,kind,title:title || sourceTitle({url,filename}) || undefined,duration,width,height,size:size ?? null,
-            ...(recommended && {recommended:true})})),
+        pageContext: found?.pageContext ?? null,
+        streams: [...streams, ...streams.flatMap(stream => stream.alternates ?? [])].slice(0, 24).map(stream => {
+          const {url,kind,duration,width,height,size,recommended,currentSource,playerContext} = stream;
+          const title = stream.title || sourceTitle(stream) || undefined;
+          return {url, kind, title, titleSource:stream.titleSource ?? (title ? 'media-url' : null),
+            duration:currentSource === false ? null : duration ?? null,
+            width:currentSource === false ? null : width ?? null,
+            height:currentSource === false ? null : height ?? null, size:size ?? null,
+            discoveredBy:stream.fromPlayer ? 'player-playlist' : stream.mediaElement ? 'player' : 'network',
+            currentSource:currentSource ?? null,
+            player:playerContext ? {id:`${stream.frameId}:${stream.playerIndex}`, ...playerContext, playing:stream.playing} : null,
+            ...(recommended && {recommended:true})};
+        }),
         pages: found?.pages || [],
       };
     } finally { page.close(); }
