@@ -19,6 +19,21 @@
 
 在视频页面打开扩展。列表为空时先播放，再点「扫描」。也可以粘贴媒体直链。Android 实验模式会把直链打开到新标签页，保存入口由 Firefox 提供。桌面队列和 Windows 本机服务使用桌面安装方式。当前没有手机版 Chrome 或 Safari 安装包。
 
+### Bilibili 和 YouTube
+
+要保存有下载权限的公开视频，在 Windows x64 上进入解压后的 VideoSave 目录，运行以下命令。
+
+```powershell
+node tools/setup-platform-downloads.mjs
+node tools/server.mjs
+```
+
+安装脚本会校验固定版本的 [yt-dlp](https://github.com/yt-dlp/yt-dlp)，保存到当前项目的 `.local-tools`。已有自己的 yt-dlp 时，可以在启动本机服务或独立 MCP 前把 `YTDLP_BIN` 设为它的路径。YouTube 解析使用现有的 Node.js。
+
+配对桌面扩展后，打开视频页并扫描，或者直接粘贴视频页链接。画质上限、音视频分离和输出格式仍在下载选项里设置。该入口支持公开、无 DRM 的单条视频，能够显示网页给出的标题和播放时长。目前这个入口只提供封面，动态预览与精确文件大小暂不可用。
+
+AI 调用 `probe_page` 时可从 `downloadTargets` 获取视频页地址、标题、时长和可用画质。把该地址与 `kind: "page"` 一起交给 `start_download` 即可下载。HTTP 的 `/api/probe` 和 `/api/queue` 使用相同字段。
+
 ## 功能
 
 - 查看片名、时长、分辨率和大小。点击封面静音预览，展开菜单可更换媒体源、改名或复制链接。

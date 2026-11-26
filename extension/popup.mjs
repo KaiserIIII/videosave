@@ -1,5 +1,5 @@
 import { browserApi, downloadsPage, downloadSettingsPage, isAndroid, nativeDownloads } from './browser.mjs';
-import { classify, isPlaylist, pageStreams, scanDocument, sourceTitle } from './media.mjs';
+import { classify, isPlaylist, pageStreams, platformVideo, scanDocument, sourceTitle } from './media.mjs';
 import { activeStates, companion, endpointDefault, usesCompanion } from './downloads.mjs';
 import { defaults, downloadFolder, maxConcurrency, readDownloadSettings } from './settings.mjs';
 import { canQuerySize, preparePreview, queryMediaSize } from './preview.mjs';
@@ -39,6 +39,14 @@ const themes = {system:'跟随系统',light:'浅色',dark:'深色',jade:'竹青'
 let panel = 'videos';
 let preferences = {...defaults};
 let connection = {endpoint:endpointDefault, token:''};
+let platformAvailability;
+
+function checkPlatformAvailability() {
+  if (!connection.token) return false;
+  platformAvailability ??= companion(connection, '/api/health').then(health => Boolean(health.platformDownloads),
+    () => { platformAvailability = undefined; return false; });
+  return platformAvailability;
+}
 let tab;
 let pageTitle = '';
 let streams = [];
@@ -187,6 +195,7 @@ async function enqueue(items) {
 
 function downloadTitle(stream) {
   if (stream.customTitle) return stream.customTitle;
+  if (stream.kind === 'page') return stream.title || '';
   const filename = sourceTitle(stream);
   return (preferences.naming === 'source' && filename) || stream.title || filename || (streams.length <= 1 && pageTitle) || '未命名视频';
 }
@@ -339,7 +348,7 @@ function renderMedia(stream) {
   const label = element('strong', 'media-title', stream.title || sourceTitle(stream) || '未命名视频');
   label.title = label.textContent;
   const details = element('small', 'details', [
-    ({m3u8:'HLS', mpd:'DASH'}[stream.kind] || stream.kind.toUpperCase()),
+    ({m3u8:'HLS', mpd:'DASH', page:'本机解析'}[stream.kind] || stream.kind.toUpperCase()),
     stream.duration && durationLabel(stream.duration), stream.width && stream.height && (stream.width + '×' + stream.height),
     preferences.showHost && new URL(stream.url).hostname,
   ].filter(Boolean).join(' · '));
@@ -355,10 +364,11 @@ function renderMedia(stream) {
     else selected.delete(stream.url);
     updateBulk();
   });
-  const preview = preferences.preview === 'off' ? element('div', 'preview')
+  const canPreview = preferences.preview !== 'off' && stream.kind !== 'page';
+  const preview = !canPreview ? element('div', 'preview')
     : button('', 'preview preview-trigger', () => openPreview(stream, label.textContent));
   preview.append(element('span', 'play-icon'));
-  if (preferences.preview !== 'off') preview.setAttribute('aria-label', '预览 ' + label.textContent);
+  if (canPreview) preview.setAttribute('aria-label', '预览 ' + label.textContent);
   else preview.setAttribute('aria-hidden', 'true');
   if (preferences.showThumbnails && stream.poster && /^https?:$/.test(URL.parse(stream.poster)?.protocol || '')) {
     const image = element('img');
@@ -368,7 +378,7 @@ function renderMedia(stream) {
     image.addEventListener('error', () => image.remove(), {once:true});
     preview.append(image);
   }
-  if (preferences.preview === 'hover') {
+  if (canPreview && preferences.preview === 'hover') {
     preview.addEventListener('pointerenter', event => { if (event.pointerType === 'mouse') scheduleHoverPreview(preview, stream); });
     preview.addEventListener('pointerleave', () => stopHoverPreview(preview));
   }
@@ -395,6 +405,7 @@ function renderMedia(stream) {
   const name = element('input');
   name.type = 'text';
   name.value = downloadTitle(stream);
+  if (stream.kind === 'page') name.placeholder = '使用平台的视频标题';
   name.maxLength = 150;
   rename.append(name);
   const grid = element('div', 'option-grid');
@@ -446,6 +457,12 @@ async function refresh(retries = 4) {
     const requests = (await browserApi.storage.session.get(key))[key] || [];
     const encrypted = observations.some(row => row.encrypted);
     streams = encrypted ? [] : pageStreams(frames, requests);
+    const platform = nativeDownloads && !encrypted ? platformVideo(tab.url) : null;
+    if (platform && !streams.length && await checkPlatformAvailability()) {
+      streams = [{...platform, ...top?.opaquePlayer, kind:'page',
+        title:top?.pageMetadata?.title || pageTitle || null,
+        poster:top?.opaquePlayer?.poster || top?.pageMetadata?.poster}];
+    }
     if (!nativeDownloads) streams = streams.flatMap(stream => {
       const [direct, ...alternates] = [stream, ...(stream.alternates ?? [])].filter(source => !isPlaylist(source.kind));
       return direct ? [{...direct, alternates}] : [];
@@ -461,7 +478,9 @@ async function refresh(retries = 4) {
     }
     const hint = $('hint');
     hint.hidden = streams.length > 0;
-    hint.textContent = encrypted ? '播放器启用了 DRM' : !nativeDownloads
+    hint.textContent = encrypted ? '播放器启用了 DRM' : platform && !streams.length
+      ? '此视频需要配对已配置 yt-dlp 的本机服务。'
+      : !nativeDownloads
       ? '还没有找到直链视频。播放后可以再扫描。分片流需要桌面版。' : observations.some(row => row.opaque)
       ? '播放一段视频后再扫描，查找分片清单。'
       : '还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。';
@@ -610,16 +629,24 @@ $('pair').addEventListener('submit', guarded(async event => {
   const endpoint = $('endpoint').value.replace(/\/$/, '');
   if (!acceptedEndpoint.test(endpoint) || !URL.canParse(endpoint)) throw new Error('请输入 127.0.0.1 的本机 HTTP 地址');
   const next = {endpoint, token:$('token').value.trim()};
-  await companion(next, '/api/health');
+  const health = await companion(next, '/api/health');
   await storage.set({connection:next});
   connection = next;
+  platformAvailability = Boolean(health.platformDownloads);
   connectionLabel();
   if ($('settings-sync').checked) await request('sync-settings');
+  await refresh();
   status('本机服务已连接');
 }));
 $('manual').addEventListener('submit', guarded(async event => {
   event.preventDefault();
   const url = $('manual-url').value.trim();
+  const platform = platformVideo(url);
+  if (platform) {
+    if (!nativeDownloads) throw new Error('此网页视频需要桌面版和本机服务');
+    if (!await checkPlatformAvailability()) throw new Error('请配对已配置 yt-dlp 的本机服务');
+    return enqueue([{...platform, kind:'page', title:''}]);
+  }
   const kind = classify(url, '', true);
   if (!kind) throw new Error('请输入 HTTP(S) 媒体地址');
   const filename = new URL(url).pathname.split('/').at(-1);

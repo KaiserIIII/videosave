@@ -2,6 +2,23 @@
 const adaptive = new Set(['m3u8', 'mpd']);
 const formats = new Set(['mp4', 'webm', 'mkv', 'mov', 'm4v', 'ogv', 'avi', 'm3u8', 'mpd']);
 
+export function platformVideo(value) {
+  const url = URL.parse(value);
+  if (!url || !['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.port) return null;
+  if (['www.bilibili.com', 'm.bilibili.com', 'bilibili.com'].includes(url.hostname)) {
+    const match = /^\/video\/(BV[A-Za-z0-9]{10}|av[1-9]\d*)\/?$/.exec(url.pathname);
+    if (!match) return null;
+    const part = url.searchParams.get('p');
+    return {platform:'bilibili', url:'https://www.bilibili.com/video/' + match[1] + '/' +
+      (/^[1-9]\d{0,5}$/.test(part) ? '?p=' + part : '')};
+  }
+  const youtube = ['www.youtube.com', 'm.youtube.com', 'youtube.com'].includes(url.hostname);
+  const id = youtube && url.pathname === '/watch' ? url.searchParams.get('v')
+    : youtube ? /^\/(?:shorts|embed)\/([\w-]{11})\/?$/.exec(url.pathname)?.[1]
+    : url.hostname === 'youtu.be' ? /^\/([\w-]{11})\/?$/.exec(url.pathname)?.[1] : undefined;
+  return /^[\w-]{11}$/.test(id) ? {platform:'youtube',url:'https://www.youtube.com/watch?v=' + id} : null;
+}
+
 export function mediaResponseSize(kind, status, header) {
   if (!kind || adaptive.has(kind)) return undefined;
   const encoding = header('content-encoding');

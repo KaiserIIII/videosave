@@ -2,7 +2,7 @@
 {
   "manifest_version": 3,
   "name": "视频快存 (VideoSave)",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "发现、预览和保存网页视频。支持本机高速下载与 AI 调用。",
   "permissions": ["activeTab", "alarms", "downloads", "scripting", "storage", "webRequest"],
   "host_permissions": ["http://*/*", "https://*/*"],

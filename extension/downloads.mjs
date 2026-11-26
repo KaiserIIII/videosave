@@ -24,7 +24,7 @@ export async function companion(connection, route, body) {
 }
 
 export function usesCompanion(stream, settings) {
-  return ['m3u8', 'mpd'].includes(stream.kind) || settings.mode !== 'combined' ||
+  return ['m3u8', 'mpd', 'page'].includes(stream.kind) || settings.mode !== 'combined' ||
     settings.format !== 'auto' || Boolean(settings.quality) || settings.subtitles;
 }
 
@@ -91,7 +91,7 @@ async function startJob(job, connection) {
   const {mode, quality, audioFormat, format, subtitles, connections, fastStart} = job.settings;
   const sourceKind = ['m3u8','mpd'].includes(job.stream.kind) ? job.stream.kind : undefined;
   const batch = await companion(connection, '/api/queue', {delivery:'browser', connections, requestId:job.attemptId, items:[{
-    kind:'stream', url:job.stream.url, title:job.title, mode, audioFormat, subtitles, sourceKind, fastStart,
+    kind:job.stream.kind === 'page' ? 'page' : 'stream', url:job.stream.url, title:job.title, mode, audioFormat, subtitles, sourceKind, fastStart,
     format:format === 'mkv' ? 'mkv' : 'mp4', ...(quality && {quality:Number(quality)}),
   }]});
   job.batch = batch.id;
@@ -102,6 +102,7 @@ async function transfer(job, connection, jobs) {
   const batch = await companion(connection, '/api/batch/' + job.batch);
   delete job.unreachableSince;
   const item = batch.items[0];
+  if (job.stream.kind === 'page' && item.title) job.title = item.title;
   job.percent = item.percent;
   job.bytes = item.bytes || 0;
   job.totalBytes = item.totalBytes || 0;
@@ -292,14 +293,14 @@ async function mutate({action, id, streams, settings}, state, remote) {
   if (action === 'enqueue') {
     for (const stream of streams) {
       const jobSettings = {...state.settings, ...stream.options};
-      if (!/^(?:mp4|webm|mkv|mov|m4v|ogv|avi|m3u8|mpd)$/.test(stream.kind)) {
+      if (!/^(?:mp4|webm|mkv|mov|m4v|ogv|avi|m3u8|mpd|page)$/.test(stream.kind)) {
         throw new Error('不支持此媒体格式');
       }
       if (!/^https?:$/.test(new URL(stream.url).protocol)) throw new Error('媒体地址必须使用 HTTP(S)');
       const processed = usesCompanion(stream, jobSettings);
       if (processed && !connection?.token) throw new Error('请先连接本机服务');
       jobs.unshift({id:crypto.randomUUID(), stream:{url:stream.url, kind:stream.kind},
-        title:stream.title?.trim() || '视频', settings:jobSettings, processed, state:'queued', percent:null});
+        title:stream.title?.trim() || (stream.kind === 'page' ? '' : '视频'), settings:jobSettings, processed, state:'queued', percent:null});
     }
     const completed = jobs.filter(job => !activeStates.includes(job.state));
     if (completed.length > 60) jobs.splice(0, jobs.length, ...jobs.filter(job => !completed.slice(60).includes(job)));

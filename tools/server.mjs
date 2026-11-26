@@ -88,7 +88,8 @@ const server = http.createServer(async (req, res) => {
     const route = req.method + ' ' + pathname;
     switch (route) {
       case 'GET /api/health':
-        return reply(res, 200, { ok: true, version: VERSION, outDir: downloads.getSettings().settings.outDir });
+        return reply(res, 200, { ok: true, version: VERSION, outDir: downloads.getSettings().settings.outDir,
+          ...(downloads.platformDownloadsEnabled() && {platformDownloads:true}) });
       case 'GET /api/settings':
         return reply(res, 200, downloads.getSettings());
       case 'POST /api/settings':

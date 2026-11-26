@@ -1,4 +1,6 @@
 .smoke-*
 .popup-smoke.png
 .env
+.local-tools/
+.platform-research-*/
 *.log

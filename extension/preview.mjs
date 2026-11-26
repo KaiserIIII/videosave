@@ -1,7 +1,7 @@
 import { isPlaylist, mediaResponseSize, classify } from './media.mjs';
 
 export function canQuerySize(stream) {
-  return !isPlaylist(stream.kind) || stream.kind === 'm3u8' && stream.duration > 0;
+  return stream.kind !== 'page' && (!isPlaylist(stream.kind) || stream.kind === 'm3u8' && stream.duration > 0);
 }
 
 async function estimateHlsSize(stream, signal) {

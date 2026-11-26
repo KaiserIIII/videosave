@@ -98,10 +98,25 @@ function inputArgs(url, cookies = []) {
   ];
 }
 
-export async function runMedia(bin, args, signal, onLine) {
+export async function runMedia(bin, args, signal, onLine, {processTree = false, onFailure} = {}) {
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
-    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, signal });
+    const grouped = processTree && process.platform !== 'win32';
+    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+      ...(processTree ? {detached:grouped} : {signal}) });
+    const stop = () => {
+      if (!proc.pid) return;
+      if (grouped) {
+        try { process.kill(-proc.pid, 'SIGKILL'); } catch {}
+      } else {
+        const killer = spawn('taskkill.exe', ['/PID', String(proc.pid), '/T', '/F'], {windowsHide:true, stdio:'ignore'});
+        killer.once('error', () => proc.kill());
+      }
+    };
+    if (processTree) {
+      signal.addEventListener('abort', stop, {once:true});
+      if (signal.aborted) stop();
+    }
     let stdout = '', stderr = '', pending = '', failure;
     proc.stdout.setEncoding('utf8').on('data', chunk => {
       if (!onLine) { stdout = (stdout + chunk).slice(-65536); return; }
@@ -112,7 +127,10 @@ export async function runMedia(bin, args, signal, onLine) {
     proc.stderr.setEncoding('utf8').on('data', chunk => { stderr = (stderr + chunk).slice(-8192); });
     proc.on('error', error => { failure = error; });
     proc.on('close', code => {
+      if (processTree) signal.removeEventListener('abort', stop);
       if (signal.aborted) return reject(signal.reason);
+      if ((failure || code !== 0) && onFailure) return reject(onFailure({failure,stderr}));
+      if (onLine && pending.trim()) onLine(pending.trim());
       if (failure) return reject(new ApiError('TOOL_UNAVAILABLE', `无法启动 ${bin}`, 503));
       if (code !== 0) {
         const httpStatus = /(?:HTTP error|Server returned) (\d{3})/i.exec(stderr)?.[1];

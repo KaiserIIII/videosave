@@ -39,6 +39,19 @@ node tools/server.mjs
 
 The service listens on `127.0.0.1:8765`. Enter its address and pairing code under **Settings → Local download service**. The service works on the same machine as the browser. HTTP and MCP page inspection use a temporary Chromium profile. Use `BROWSER_BIN` to select Edge, Chrome, or Brave. `EDGE_BIN`, `FFMPEG_BIN`, and `FFPROBE_BIN` are also supported.
 
+### Bilibili and YouTube
+
+For public videos you have permission to save, enable the optional [yt-dlp](https://github.com/yt-dlp/yt-dlp) extractor. From the extracted VideoSave directory on Windows x64, run:
+
+```powershell
+node tools/setup-platform-downloads.mjs
+node tools/server.mjs
+```
+
+The installer verifies a pinned release and stores it in `.local-tools`. To use your own executable, set `YTDLP_BIN` to its path before starting the companion or standalone MCP server. YouTube extraction uses the existing Node.js runtime.
+
+Pair the desktop extension with the companion and open a video page, or paste the page URL into the extension. Choose the quality cap and audio/video options as usual. Platform downloads support public, non-DRM single videos. The panel shows the page title and playback duration when available. Preview and exact file size are unavailable for the page-based entry.
+
 | Environment variable | Purpose |
 | --- | --- |
 | `PORT` | Change the local HTTP port. |
@@ -65,8 +78,8 @@ This configuration runs MCP independently. To use the same live batch queue as H
 
 | MCP tool | What it does |
 | --- | --- |
-| `probe_page` | Return page context, media candidates, and linked pages. Candidates are sorted from longest to shortest, with unknown durations last. |
-| `start_download` | Queue a selected stream or a page. Pass the candidate’s URL with `kind: "stream"` to select it explicitly. |
+| `probe_page` | Return page context, media candidates, and linked pages. Direct streams are sorted from longest to shortest, with unknown durations last. Supported platform pages return `downloadTargets` with the page URL, title, duration, and available qualities. |
+| `start_download` | Queue a stream with `kind: "stream"` or pass a platform target’s URL with `kind: "page"`. |
 | `get_progress` / `list_batches` | Inspect one batch or list recent batches in the current process or connected service. |
 | `cancel_download` | Cancel queued and active work in a batch. |
 | `get_settings` / `update_settings` | Read or patch persistent download defaults and browser overrides. |

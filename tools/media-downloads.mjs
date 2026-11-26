@@ -5,13 +5,15 @@ import { constants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { defaultConcurrency, maxConcurrency, validConcurrency } from '../extension/settings.mjs';
+import { platformVideo } from '../extension/media.mjs';
 import { prefetchHls } from './hls-prefetch.mjs';
 import { prefetchRanges } from './range-prefetch.mjs';
 import { ApiError, FFMPEG, discover, mediaInput, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
 import { readPreferences, writePreferences } from './preferences.mjs';
+import { platformDownloadsEnabled, probePlatform, stagePlatform } from './platform-downloads.mjs';
 
-export { ApiError };
-export const VERSION = '0.7.0';
+export { ApiError, platformDownloadsEnabled };
+export const VERSION = '0.8.0';
 
 function defaultDownloads() {
   try {
@@ -89,6 +91,11 @@ export async function probe({ url: value, cookie } = {}) {
   const url = mediaUrl(value);
   const cookies = parseCookies(cookie);
   return schedule(session.signal, async () => {
+    const platform = platformVideo(url);
+    if (platform && platformDownloadsEnabled()) {
+      const target = await probePlatform(platform, session.signal);
+      return {pageTitle:target.title, pageContext:{url:target.url}, streams:[], pages:[], downloadTargets:[target]};
+    }
     const result = await discover(url, cookies, session.signal).catch(error => {
       if (error instanceof ApiError) throw error;
       throw new ApiError('PAGE_FAILED', '隔离浏览器探测失败', 502);
@@ -378,11 +385,16 @@ async function runItem(batch, item, target, limit, cookies, signal) {
   item.status = 'resolving';
   publish(batch, `[${item.idx + 1}] 正在解析`);
   const input = mediaUrl(target.url);
+  const supportedPage = target.kind === 'page' ? platformVideo(input) : null;
+  const platform = platformDownloadsEnabled() ? supportedPage : null;
   let source = input;
   let sourceKind = target.sourceKind;
-  if (target.kind === 'page') {
+  if (target.kind === 'page' && !platform) {
     const found = await discover(input, cookies, signal);
-    if (!found.streams.length) throw new ApiError('NO_MEDIA', '页面里没有找到可下载的媒体', 422);
+    if (!found.streams.length) {
+      if (supportedPage) throw new ApiError('PLATFORM_TOOL_REQUIRED', '请配置本机 yt-dlp 后重试', 503);
+      throw new ApiError('NO_MEDIA', '页面里没有找到可下载的媒体', 422);
+    }
     const stream = found.streams.find(candidate => candidate.recommended) ??
       (found.streams.length === 1 ? found.streams[0] : null);
     if (!stream) throw new ApiError('AMBIGUOUS_MEDIA', '页面中有多个视频，请选择明确的视频来源', 422);
@@ -417,8 +429,10 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     };
     const direct = batch.originalExtension || !sourceKind && directMedia.test(path.extname(source.pathname).slice(1));
     const prefetch = direct ? prefetchRanges : prefetchHls;
-    const staged = !limit && await prefetch(source, scopedCookies, staging, signal, downloadProgress,
+    const staged = platform ? await stagePlatform(platform, target, staging, batch.connections, signal, downloadProgress)
+      : !limit && await prefetch(source, scopedCookies, staging, signal, downloadProgress,
       {quality:target.quality, sourceKind, connections:batch.connections});
+    if (platform) item.title ||= target.title;
     signal.throwIfAborted();
     delete item.speed;
     if (batch.originalExtension) {
@@ -442,7 +456,7 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     }
     let media = staged || source;
     let info = await probeStream(media, scopedCookies, signal, true);
-    if (staged && direct && !info.tracks?.length) {
+    if (staged && !platform && direct && !info.tracks?.length) {
       media = source;
       item.percent = 0;
       publish(batch, '改用原地址读取媒体格式');
@@ -478,7 +492,7 @@ async function runItem(batch, item, target, limit, cookies, signal) {
       updateProgress(Math.min(99, Math.floor(media === staged ? 90 + fraction * 10 : fraction * 100)));
     });
     signal.throwIfAborted();
-    if (staged) await rm(direct ? staged : path.dirname(staged), { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
+    if (staged) await rm(direct || platform ? staged : path.dirname(staged), { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
     if (batch.delivery === 'browser') {
       await holdBrowserFiles(batch, item, staging, outputs.map(({file}) => ({file})), signal);
       held = true;
