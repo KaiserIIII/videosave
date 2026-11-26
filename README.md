@@ -1,6 +1,6 @@
 # VideoSave
 
-[简体中文](README.zh-CN.md) · [Download](https://github.com/KaiserIIII/open-media-toolkit/releases/latest) · [MIT License](LICENSE)
+[简体中文](README.zh-CN.md) · [Download](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT License](LICENSE)
 
 Find the video playing in your browser, preview it, and save it to Downloads. VideoSave is free and open source. On Windows, the optional companion adds HLS/DASH downloads, format conversion, and an MCP interface for AI clients.
 

@@ -1,6 +1,6 @@
 # 视频快存 · VideoSave
 
-[English](README.md) · [下载最新版](https://github.com/KaiserIIII/open-media-toolkit/releases/latest) · [MIT 许可证](LICENSE)
+[English](README.md) · [下载最新版](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT 许可证](LICENSE)
 
 扫描当前网页上的视频，确认画质和时长，再保存到浏览器的下载目录。视频快存免费开源。Windows 本机服务另外提供 HLS/DASH 下载、格式转换，以及供 AI 调用的 MCP 接口。
 
