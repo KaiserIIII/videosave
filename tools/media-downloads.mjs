@@ -4,12 +4,13 @@ import { copyFile, link, mkdir, mkdtemp, readdir, realpath, rm, stat } from 'nod
 import { constants } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { defaultConcurrency, maxConcurrency, validConcurrency } from '../extension/settings.mjs';
 import { prefetchHls } from './hls-prefetch.mjs';
 import { prefetchRanges } from './range-prefetch.mjs';
 import { ApiError, FFMPEG, discover, mediaInput, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
 
 export { ApiError };
-export const VERSION = '0.3.0';
+export const VERSION = '0.4.0';
 
 function defaultDownloads() {
   try {
@@ -25,21 +26,28 @@ export const OUT_DIR = path.resolve(process.env.OUT_DIR || defaultDownloads());
 
 const session = new AbortController();
 const workQueue = [];
-let running = 0;
+let runningDownloads = 0;
+let runningProbes = 0;
 const batches = new Map();
 const batchKeys = new Map();
 
 function pump() {
-  while (running < 2 && workQueue.length) {
-    const next = workQueue.findIndex(job => job.signal.aborted || !job.batch || job.batch.running < job.batch.concurrency);
+  while (workQueue.length) {
+    const next = workQueue.findIndex(job => job.signal.aborted || (job.batch
+      ? runningDownloads < maxConcurrency && job.batch.running < job.batch.concurrency
+      : runningProbes < 2));
     if (next < 0) return;
     const [{ signal, run, resolve, reject, batch }] = workQueue.splice(next, 1);
     if (signal.aborted) { reject(signal.reason); continue; }
-    running += 1;
-    if (batch) batch.running += 1;
+    if (batch) {
+      runningDownloads += 1;
+      batch.running += 1;
+    } else runningProbes += 1;
     Promise.resolve().then(run).then(resolve, reject).finally(() => {
-      running -= 1;
-      if (batch) batch.running -= 1;
+      if (batch) {
+        runningDownloads -= 1;
+        batch.running -= 1;
+      } else runningProbes -= 1;
       pump();
     });
   }
@@ -166,21 +174,27 @@ function durationLimit(value) {
 
 const directMedia = /^(?:mp4|webm|mkv|mov|m4v|ogv|avi)$/i;
 
-export function queueOriginal({ url, title, extension, connections } = {}) {
+export function queueOriginal({ url, title, extension, connections, requestId } = {}) {
   if (typeof extension !== 'string' || !directMedia.test(extension)) {
     throw new ApiError('INVALID_FORMAT', '需要一个直链视频格式');
   }
-  return queue({items:[{kind:'stream', url, title}], connections, delivery:'browser'}, extension.toLowerCase());
+  return queue({items:[{kind:'stream', url, title}], connections, delivery:'browser', requestId}, extension.toLowerCase());
 }
 
-export function queue({ items, maxSec, cookie, concurrency = 2, connections = 8, delivery = 'local' } = {}, originalExtension) {
+export function queue({ items, maxSec, cookie, concurrency = defaultConcurrency, connections = 8, delivery = 'local', requestId } = {},
+  originalExtension) {
   const targets = getTargets(items);
-  if (concurrency !== 1 && concurrency !== 2) throw new ApiError('INVALID_CONCURRENCY', '并发数应为 1 或 2');
+  if (!validConcurrency(concurrency)) throw new ApiError('INVALID_CONCURRENCY', '并发数应为 1 至 ' + maxConcurrency + ' 的整数');
   if (![4,8,12].includes(connections)) throw new ApiError('INVALID_CONNECTIONS', '单任务连接数应为 4、8 或 12');
   if (delivery !== 'local' && delivery !== 'browser') throw new ApiError('INVALID_DELIVERY', '无效的保存方式');
+  if (requestId !== undefined && (delivery !== 'browser' || typeof requestId !== 'string' ||
+      !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(requestId))) {
+    throw new ApiError('INVALID_REQUEST_ID', '浏览器任务编号无效');
+  }
   const limit = durationLimit(maxSec);
   const cookies = parseCookies(cookie);
-  const key = createHash('sha256').update(JSON.stringify([targets, limit, cookies, concurrency, connections, delivery, originalExtension])).digest('hex');
+  const key = createHash('sha256').update(JSON.stringify([targets, limit, cookies, concurrency, connections, delivery,
+    originalExtension, requestId])).digest('hex');
   const existing = batches.get(batchKeys.get(key));
   if (existing?.status === 'running') return { id: existing.id, total: targets.length };
 

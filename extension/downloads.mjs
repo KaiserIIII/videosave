@@ -1,6 +1,5 @@
-export const defaults = {mode:'combined', quality:'', format:'auto', audioFormat:'m4a', subtitles:false,
-  concurrency:2, connections:8, accelerate:true, saveAs:false, fastStart:true,
-  naming:'title', theme:'system', density:'comfortable', autoScan:true, showHost:false};
+import { downloadFolder, readDownloadSettings } from './settings.mjs';
+
 export const activeStates = ['queued', 'starting', 'processing', 'downloading', 'paused'];
 export const endpointDefault = 'http://127.0.0.1:8765';
 
@@ -8,6 +7,7 @@ const storage = chrome.storage.local;
 const alarm = 'media-download-queue';
 let processingTimer;
 let actions = Promise.resolve();
+let refreshQueued = false;
 
 export async function companion(connection, route, body) {
   if (!connection?.token) throw new Error('请先连接本机服务');
@@ -41,7 +41,7 @@ function serial(work) {
 
 async function readState() {
   const saved = await storage.get(['downloadJobs', 'downloadSettings', 'connection']);
-  return {jobs:saved.downloadJobs ?? [], settings:{...defaults, ...saved.downloadSettings}, connection:saved.connection};
+  return {jobs:saved.downloadJobs ?? [], settings:readDownloadSettings(saved.downloadSettings), connection:saved.connection};
 }
 
 async function persist(jobs) {
@@ -54,6 +54,8 @@ async function startBrowser(job, output, connection) {
     filename:output.name,
     headers:[{name:'Authorization', value:'Bearer ' + connection.token}],
   } : {url:job.stream.url, filename:safeFilename(job.title, job.stream.kind)};
+  const folder = downloadFolder(job.settings.downloadFolder ?? '');
+  if (folder) file.filename = folder + '/' + file.filename;
   return chrome.downloads.download({...file, ...(job.settings.saveAs && {saveAs:true}), conflictAction:'uniquify'});
 }
 
@@ -72,7 +74,7 @@ async function startJob(job, connection) {
   if (!job.processed) {
     if (job.settings.accelerate && connection?.token) {
       const batch = await companion(connection, '/api/queue/original', {
-        url:job.stream.url, title:job.title, extension:job.stream.kind, connections:job.settings.connections,
+        url:job.stream.url, title:job.title, extension:job.stream.kind, connections:job.settings.connections, requestId:job.attemptId,
       }).catch(() => null);
       if (batch?.id) {
         job.batch = batch.id;
@@ -84,7 +86,7 @@ async function startJob(job, connection) {
   }
   const {mode, quality, audioFormat, format, subtitles, connections, fastStart} = job.settings;
   const sourceKind = ['m3u8','mpd'].includes(job.stream.kind) ? job.stream.kind : undefined;
-  const batch = await companion(connection, '/api/queue', {delivery:'browser', connections, items:[{
+  const batch = await companion(connection, '/api/queue', {delivery:'browser', connections, requestId:job.attemptId, items:[{
     kind:'stream', url:job.stream.url, title:job.title, mode, audioFormat, subtitles, sourceKind, fastStart,
     format:format === 'mkv' ? 'mkv' : 'mp4', ...(quality && {quality:Number(quality)}),
   }]});
@@ -164,7 +166,12 @@ async function browserProgress(job, connection) {
 }
 
 function refresh() {
-  return serial(async () => tick(await readState())).catch(() => {});
+  if (refreshQueued) return;
+  refreshQueued = true;
+  void serial(async () => {
+    refreshQueued = false;
+    await tick(await readState());
+  }).catch(() => {});
 }
 
 function updateProcessingTimer(jobs, delay) {
@@ -185,7 +192,7 @@ async function tick(state) {
   const {jobs, settings, connection} = state;
   const before = JSON.stringify(jobs);
   let processingDelay = 750;
-  for (const job of jobs) {
+  await Promise.all(jobs.filter(job => ['processing', 'downloading', 'paused'].includes(job.state)).map(async job => {
     try {
       if (job.state === 'processing') await transfer(job, connection, jobs);
       if (['downloading', 'paused'].includes(job.state)) await browserProgress(job, connection);
@@ -198,42 +205,52 @@ async function tick(state) {
           job.unreachableSince ??= Date.now();
           if (Date.now() - job.unreachableSince < 15000) {
             processingDelay = 4000;
-            continue;
+            return;
           }
         }
-        try { await startNative(job, connection); continue; }
-        catch (fallbackError) { job.note = fallbackError.message; job.state = 'failed'; continue; }
+        try { await startNative(job, connection); }
+        catch (fallbackError) { job.note = fallbackError.message; job.state = 'failed'; }
+        return;
       }
       if (job.state === 'processing' && serviceUnavailable) {
         processingDelay = 4000;
-        continue;
+        return;
       }
       if (error.status === 404) job.expired = true;
       job.state = 'failed';
     }
-  }
+  }));
   // Persist the current state before assigning more browser downloads.
   if (JSON.stringify(jobs) !== before) await persist(jobs);
-  let inFlight = jobs.filter(job => ['starting', 'processing', 'downloading', 'paused'].includes(job.state)).length;
-  for (const job of jobs.filter(job => job.state === 'queued').reverse()) {
-    if (inFlight >= settings.concurrency) break;
-    job.state = 'starting';
-    await persist(jobs);
-    try {
-      if (job.resumePending) {
-        await resumeFiles(job);
-        job.resumePending = false;
-        job.state = 'downloading';
-      } else if (job.batch) {
-        job.state = 'processing';
-      } else {
-        await startJob(job, connection);
-      }
-      inFlight++;
-    } catch (error) {
-      job.state = 'failed';
-      job.note = error.message;
+  const inFlight = jobs.filter(job => ['starting', 'processing', 'downloading', 'paused'].includes(job.state)).length;
+  let available = Math.max(0, settings.concurrency - inFlight);
+  const queued = jobs.filter(job => job.state === 'queued').reverse();
+  while (available > 0 && queued.length) {
+    const starting = queued.splice(0, available);
+    for (const job of starting) {
+      job.state = 'starting';
+      if (!job.batch && !job.resumePending) job.attemptId = crypto.randomUUID();
     }
+    await persist(jobs);
+    const started = await Promise.all(starting.map(async job => {
+      try {
+        if (job.resumePending) {
+          await resumeFiles(job);
+          job.resumePending = false;
+          job.state = 'downloading';
+        } else if (job.batch) {
+          job.state = 'processing';
+        } else {
+          await startJob(job, connection);
+        }
+        return 1;
+      } catch (error) {
+        job.state = 'failed';
+        job.note = error.message;
+        return 0;
+      }
+    }));
+    available -= started.reduce((total, count) => total + count, 0);
     await persist(jobs);
   }
   updateProcessingTimer(jobs, processingDelay);
@@ -248,7 +265,8 @@ async function tick(state) {
 async function mutate({action, id, streams, settings}, state) {
   const {jobs, connection} = state;
   if (action === 'settings') {
-    state.settings = {...defaults, ...settings};
+    const next = readDownloadSettings(settings);
+    state.settings = {...next, downloadFolder:downloadFolder(next.downloadFolder)};
     await storage.set({downloadSettings:state.settings});
   }
   if (action === 'clear') {

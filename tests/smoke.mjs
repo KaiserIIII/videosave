@@ -61,6 +61,7 @@ async function testMcp() {
     send('notifications/initialized');
     const result = await call('tools/list',{},2);
     assert.deepEqual(result.tools.map(tool=>tool.name),['probe_page','start_download','get_progress','list_downloads','open_file']);
+    assert.deepEqual(result.tools[1].inputSchema.properties.concurrency, {type:'integer',minimum:1,maximum:24,default:10});
     const listing = await call('tools/call',{name:'list_downloads'},3);
     assert.equal(listing.structuredContent.items.length,2);
     console.log('MCP',result.tools.map(tool=>tool.name).join(', '));
@@ -91,7 +92,68 @@ async function checkPopupLayout(popup) {
   }
 }
 
+async function checkSettings(popup, worker) {
+  assert.equal(await popup.evaluate('document.querySelector("[data-option=concurrency]").value'), '10');
+  await worker.evaluate('chrome.storage.local.set({downloadSettings:{concurrency:2}})');
+  await popup.send('Page.reload');
+  await until(() => popup.evaluate('document.querySelector("[data-option=concurrency]")?.value === "10"').catch(() => false));
+  await popup.evaluate('document.querySelector("#settings-toggle").click()');
+
+  const colors = new Set();
+  for (const theme of ['system','light','dark','jade','amber']) {
+    await popup.evaluate('document.querySelector("#themes input[value=' + theme + ']").click()');
+    await until(() => popup.evaluate('document.documentElement.dataset.theme === ' + JSON.stringify(theme)));
+    if (theme !== 'system') colors.add(await popup.evaluate('getComputedStyle(document.body).backgroundColor'));
+  }
+  assert.equal(colors.size, 4);
+  await popup.evaluate(String.raw`(() => {
+    const folder = document.querySelector('#download-folder');
+    folder.value = '视频\\教程';
+    folder.dispatchEvent(new Event('change'));
+    const accent = document.querySelector('#theme-accent');
+    accent.value = '#dd8352';
+    accent.dispatchEvent(new Event('change'));
+  })()`);
+  await until(() => worker.evaluate(`chrome.storage.local.get('downloadSettings').then(({downloadSettings:s}) =>
+    s?.theme==='amber' && s?.accent==='#dd8352' && s?.downloadFolder==='视频/教程' && s?.concurrency===10)`));
+  await popup.send('Page.reload');
+  await until(() => popup.evaluate(`document.documentElement.dataset.theme === 'amber' &&
+    document.querySelector('#theme-accent').value === '#dd8352' &&
+    document.querySelector('#download-folder').value === '视频/教程'`).catch(() => false));
+  await popup.evaluate('document.querySelector("#settings-toggle").click()');
+  const measure = 'getComputedStyle(document.body).backgroundColor';
+  await popup.evaluate('document.querySelector("#themes input[value=system]").click()');
+  await popup.send('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'dark'}]});
+  const dark = await popup.evaluate(measure);
+  await popup.send('Emulation.setEmulatedMedia', {features:[{name:'prefers-color-scheme',value:'light'}]});
+  assert.notEqual(await popup.evaluate(measure), dark);
+  await popup.send('Emulation.setEmulatedMedia', {features:[]});
+
+  const metrics = {width:300,height:450,deviceScaleFactor:1,mobile:false};
+  await popup.send('Emulation.setDeviceMetricsOverride', metrics);
+  try {
+    await popup.evaluate('document.querySelector("#themes input[value=amber]").click()');
+    assert.equal(await popup.evaluate('document.documentElement.scrollWidth <= innerWidth'), true);
+    const tiles = await popup.evaluate(`[...document.querySelectorAll('.theme-choice')].map(el => ({
+      theme:el.dataset.preview, right:el.getBoundingClientRect().right, viewport:innerWidth,
+      content:el.scrollWidth, width:el.clientWidth
+    }))`);
+    assert.ok(tiles.every(tile => tile.right <= tile.viewport && tile.content <= tile.width), JSON.stringify(tiles));
+    if (process.env.SMOKE_SETTINGS_SCREENSHOT) {
+      const shot = await popup.send('Page.captureScreenshot',{format:'png'});
+      await writeFile(process.env.SMOKE_SETTINGS_SCREENSHOT, Buffer.from(shot.data,'base64'));
+    }
+  } finally {
+    await popup.send('Emulation.clearDeviceMetricsOverride');
+  }
+  await popup.evaluate('document.querySelector("#reset-accent").click()');
+  await until(() => worker.evaluate(`chrome.storage.local.get('downloadSettings').then(({downloadSettings:s}) => s?.accent==='')`));
+  console.log('Edge settings: 5 themes, follows system color scheme, Chinese folder and custom accent persist, no overflow at 300 px');
+}
+
 async function checkBrowserDelivery(popup, worker, endpoint) {
+  await checkSettings(popup, worker);
+  const customOut = path.join(browserOut, '视频', '教程');
   const fixture = path.join(out, 'fixture.mp4');
   const caption = path.join(out, 'caption.srt');
   await writeFile(caption,'1\n00:00:00,100 --> 00:00:01,800\nA sample subtitle.\n');
@@ -107,7 +169,7 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
   let fullRequests = 0;
   let responses = 0;
   let maximum = 0;
-  const source = createServer((req, res) => {
+  const serve = (req, res) => {
     if (req.url.startsWith('/range')) {
       const range = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? '');
       if (!range) {
@@ -139,11 +201,26 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
       if (offset === media.length) res.end();
     }, 150);
     res.once('close', () => { responses--; clearInterval(timer); });
-  });
-  source.listen(0, '127.0.0.1');
-  await once(source, 'listening');
+  };
+  const servers = [createServer(serve), createServer(serve)];
+  await Promise.all(servers.map(server => {
+    server.listen(0, '127.0.0.1');
+    return once(server, 'listening');
+  }));
   try {
+    const [source] = servers;
     const url = `http://127.0.0.1:${source.address().port}/separate.mp4`;
+    const urls = Array.from({length:10}, (_, index) =>
+      `http://127.0.0.1:${servers[index % 2].address().port}/slow-burst-${index}.mp4`);
+    await popup.evaluate(`chrome.runtime.sendMessage({scope:'media-downloads',action:'enqueue',streams:
+      ${JSON.stringify(urls)}.map((url,index)=>({url,title:'十项并发 '+index,kind:'mp4',
+        options:{accelerate:false,downloadFolder:'并发验证'}}))})`);
+    await until(() => worker.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
+      downloadJobs.filter(job=>job.title.startsWith('十项并发') && job.state==='done').length===10)`));
+    assert.equal(maximum, 10);
+    assert.equal((await readdir(path.join(browserOut,'并发验证'))).length, 10);
+    maximum = 0;
+    console.log('Edge started and saved 10 concurrent downloads');
     await popup.evaluate(`(() => {
       for (const [key, value] of Object.entries({mode:'separate',quality:'360',concurrency:'1',audioFormat:'mp3',subtitles:'true'})) {
         const option = document.querySelector('#settings [data-option="'+key+'"]');
@@ -154,7 +231,8 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
     await until(() => worker.evaluate(`chrome.storage.local.get('downloadSettings')
       .then(({downloadSettings:s})=>s?.quality==='360' && s?.mode==='separate' && s?.concurrency===1 && s?.audioFormat==='mp3' && s?.subtitles)`, 15000));
     await popup.evaluate(`(() => {
-      for (const [key, value] of Object.entries({theme:'light',density:'compact',connections:'12',showHost:'true'})) {
+      document.querySelector('#themes input[value=light]').click();
+      for (const [key, value] of Object.entries({density:'compact',connections:'12',showHost:'true'})) {
         const option = document.querySelector('#settings [data-option="'+key+'"]');
         option.value = value;
         option.dispatchEvent(new Event('change'));
@@ -186,17 +264,17 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
     if (process.argv.includes('--delivery-only')) {
       assert.ok(saveTime < 10000, `Processed files took ${saveTime} ms to reach Edge downloads`);
     }
-    const listing = await readdir(browserOut);
+    const listing = await readdir(customOut);
     const files = listing.filter(file => file.startsWith('separate'));
     assert.equal(files.length,2,JSON.stringify(listing));
     assert.ok(!(await readdir(out)).some(file=>file.startsWith('separate')));
     for (const name of files) {
       const result = execFileSync(process.env.FFPROBE_BIN || 'ffprobe', ['-v','error','-of','json','-show_entries',
-        'stream=codec_type,height',path.join(browserOut,name)], {encoding:'utf8',windowsHide:true});
+        'stream=codec_type,height',path.join(customOut,name)], {encoding:'utf8',windowsHide:true});
       assert.deepEqual(JSON.parse(result).streams, name.endsWith('.mp3')
         ? [{codec_type:'audio'}] : [{codec_type:'video',height:360},{codec_type:'subtitle'}]);
     }
-    console.log('Edge browser delivery in custom default folder', files);
+    console.log('Edge browser delivery in custom subfolder', files);
     await popup.evaluate('document.querySelector("#downloads-toggle").click()');
     await popup.evaluate(`chrome.runtime.sendMessage({scope:'media-downloads',action:'enqueue',streams:[1,2].map(i=>({
       title:'队列测试 '+i,kind:'mp4',url:${JSON.stringify(new URL('.',url).href)}+'slow'+i+'.mp4',
@@ -216,7 +294,7 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
     }]})`);
     await until(() => worker.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
       downloadJobs?.[0]?.title === 'Parallel MP4' && downloadJobs[0].state === 'done' && !!downloadJobs[0].batch)`));
-    const downloaded = path.join(browserOut, 'Parallel MP4.mp4');
+    const downloaded = path.join(customOut, 'Parallel MP4.mp4');
     assert.deepEqual(await readFile(downloaded), rangeMedia);
     assert.deepEqual(inspectFile(downloaded), {width:640,height:480,duration:2});
     assert.deepEqual(requestedParts, Array(12).fill('"large-mp4"'));
@@ -242,11 +320,13 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
     }]})`);
     await until(() => worker.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
       downloadJobs?.[0]?.title === 'Native fallback' && downloadJobs[0].state === 'done' && !downloadJobs[0].batch)`));
-    assert.deepEqual(await readFile(path.join(browserOut, 'Native fallback.mp4')), media);
+    assert.deepEqual(await readFile(path.join(customOut, 'Native fallback.mp4')), media);
     console.log('Edge native fallback saved the original when the server did not support validated ranges');
   } finally {
-    source.closeAllConnections();
-    source.close();
+    for (const source of servers) {
+      source.closeAllConnections();
+      source.close();
+    }
     await rm(fixture, {force:true});
     await rm(caption, {force:true});
   }
@@ -420,7 +500,8 @@ try {
     await testMcp();
     await testPopup(endpoint);
     assert.equal((await readdir(out)).length,3);
-    assert.equal((await readdir(browserOut)).length,7);
+    assert.equal((await readdir(path.join(browserOut,'视频','教程'))).length,6);
+    assert.equal((await readdir(browserOut)).length,3);
   }
 } finally {
   if (server.exitCode === null) server.kill();

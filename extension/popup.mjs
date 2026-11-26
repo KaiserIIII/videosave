@@ -1,5 +1,6 @@
 import { classify, pageStreams, scanDocument, sourceTitle } from './media.mjs';
-import { activeStates, companion, defaults, endpointDefault, usesCompanion } from './downloads.mjs';
+import { activeStates, companion, endpointDefault, usesCompanion } from './downloads.mjs';
+import { defaultConcurrency, defaults, downloadFolder, maxConcurrency, readDownloadSettings } from './settings.mjs';
 
 const $ = id => document.getElementById(id);
 const storage = chrome.storage.local;
@@ -8,21 +9,24 @@ const statusNames = {queued:'排队中', starting:'正在启动', processing:'�
   downloading:'下载中', paused:'已暂停', done:'已完成', failed:'下载失败', cancelled:'已取消'};
 const optionSets = {
   mode:['下载内容', [['combined','音视频合并'], ['video','仅视频'], ['audio','仅音频'], ['separate','音频与视频分开']]],
-  quality:['画质', [['','原画'], ['2160','最高 2160p'], ['1440','最高 1440p'], ['1080','最高 1080p'],
-    ['720','最高 720p'], ['480','最高 480p'], ['360','最高 360p']]],
+  quality:['画质上限', [['','原画'], ['4320','4320p · 8K'], ['2160','2160p · 4K'], ['1440','1440p'],
+    ['1080','1080p'], ['720','720p'], ['480','480p'], ['360','360p'], ['240','240p']]],
   format:['视频格式', [['auto','自动 · 原格式 / MP4'], ['mp4','MP4'], ['mkv','MKV']]],
   audioFormat:['音频格式', [['m4a','M4A'], ['mp3','MP3']]],
   subtitles:['源文件内嵌字幕', [['false','不保留'], ['true','有则保留']]],
-  concurrency:['并发任务', [['1','1 个'], ['2','2 个']]],
+  concurrency:['同时下载', Array.from({length:maxConcurrency}, (_, index) => {
+    const count = index + 1;
+    return [String(count), count + (count === defaultConcurrency ? ' 项 · 默认' : ' 项')];
+  })],
   accelerate:['原画直链加速', [['true','自动 · 需本机服务'], ['false','浏览器直接下载']]],
   connections:['单任务连接数', [['4','4 · 稳定'], ['8','8 · 默认'], ['12','12 · 高速']]],
   fastStart:['MP4 / M4A 文件优化', [['true','支持边下边播'], ['false','优先完成保存']]],
   naming:['默认文件名', [['title','视频标题'], ['source','源文件名']]],
-  theme:['外观', [['system','跟随系统'], ['light','浅色'], ['dark','深色']]],
   density:['列表密度', [['comfortable','标准'], ['compact','紧凑']]],
   autoScan:['自动补扫', [['true','开启'], ['false','仅手动扫描']]],
   showHost:['视频来源域名', [['false','隐藏'], ['true','显示']]],
 };
+const themes = {system:'跟随系统',light:'浅色',dark:'深色',jade:'竹青',amber:'琥珀'};
 
 let panel = 'videos';
 let preferences = {...defaults};
@@ -32,6 +36,7 @@ let pageTitle = '';
 let streams = [];
 let lastStreams;
 let lastJobs;
+let downloadJobs = [];
 let scanning = false;
 let scanTimer;
 let pollTimer;
@@ -330,6 +335,7 @@ function renderJob(job) {
 }
 
 function updateJobs(jobs) {
+  downloadJobs = jobs;
   const active = jobs.filter(job => activeStates.includes(job.state)).length;
   $('active-count').hidden = !active;
   $('active-count').textContent = active;
@@ -387,7 +393,19 @@ $('all').addEventListener('change', () => {
 });
 $('queue-selected').addEventListener('click', guarded(() => enqueue(streams.filter(stream => selected.has(stream.url)))));
 $('history').addEventListener('click', guarded(() => chrome.tabs.create({url:'edge://downloads/'})));
-$('folder').addEventListener('click', guarded(() => chrome.downloads.showDefaultFolder()));
+$('folder').addEventListener('click', guarded(async () => {
+  if (preferences.downloadFolder && !preferences.saveAs) {
+    const ids = downloadJobs.filter(job => job.state === 'done' && job.settings.downloadFolder === preferences.downloadFolder)
+      .flatMap(job => job.files.map(file => file.id));
+    const downloads = await Promise.all(ids.map(id => chrome.downloads.search({id, exists:true, state:'complete'})));
+    const suffix = '/' + preferences.downloadFolder.toLowerCase();
+    const match = downloads.flat().find(file => file.filename.toLowerCase().replaceAll('\\', '/')
+      .split('/').slice(0, -1).join('/').endsWith(suffix));
+    if (match) return chrome.downloads.show(match.id);
+  }
+  return chrome.downloads.showDefaultFolder();
+}));
+$('edge-download-settings').addEventListener('click', guarded(() => chrome.tabs.create({url:'edge://settings/downloads'})));
 $('clear').addEventListener('click', guarded(() => request('clear')));
 $('pair').addEventListener('submit', guarded(async event => {
   event.preventDefault();
@@ -436,27 +454,91 @@ await guarded(async () => {
   }
   const saved = await storage.get(['connection','downloadSettings','downloadJobs']);
   connection = saved.connection ?? connection;
-  preferences = {...defaults, ...saved.downloadSettings};
+  preferences = readDownloadSettings(saved.downloadSettings);
+  const root = document.documentElement;
+  const accentInput = $('theme-accent');
+  const folderInput = $('download-folder');
   const applyAppearance = () => {
-    document.documentElement.dataset.theme = preferences.theme;
-    document.documentElement.dataset.density = preferences.density;
+    root.dataset.theme = preferences.theme;
+    root.dataset.density = preferences.density;
+    const accent = /^#[\da-f]{6}$/i.test(preferences.accent) ? preferences.accent : '';
+    if (accent) {
+      root.style.setProperty('--custom-accent', accent);
+      const luminance = accent.slice(1).match(/../g).reduce((total, component, index) => {
+        const channel = parseInt(component, 16) / 255;
+        return total + [0.2126, 0.7152, 0.0722][index] * (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4);
+      }, 0);
+      root.style.setProperty('--mark-ink', luminance > 0.179 ? '#000' : '#fff');
+    } else {
+      root.style.removeProperty('--custom-accent');
+      root.style.removeProperty('--mark-ink');
+    }
+    accentInput.value = accent || getComputedStyle(root).getPropertyValue('--accent').trim();
+    $('reset-accent').hidden = !accent;
   };
   applyAppearance();
   $('endpoint').value = connection.endpoint;
   $('token').value = connection.token;
   $('save-as').checked = preferences.saveAs;
+  folderInput.value = preferences.downloadFolder;
   connectionLabel();
   const saveOptions = async options => {
-    preferences = {...options, saveAs:$('save-as').checked};
+    preferences = {...options};
     applyAppearance();
     await request('settings', {settings:preferences});
     if (!openedOptions) $('media').replaceChildren(...streams.map(renderMedia));
   };
   const values = {...preferences};
+  for (const [theme, name] of Object.entries(themes)) {
+    const label = element('label', 'theme-choice');
+    label.dataset.preview = theme;
+    const input = element('input');
+    input.type = 'radio';
+    input.name = 'theme';
+    input.value = theme;
+    input.checked = values.theme === theme;
+    input.dataset.option = 'theme';
+    input.addEventListener('change', guarded(() => {
+      values.theme = theme;
+      return saveOptions(values);
+    }));
+    const swatch = element('span', 'theme-swatch');
+    swatch.setAttribute('aria-hidden', 'true');
+    label.append(input, swatch, element('span', '', name));
+    $('themes').append(label);
+  }
+  accentInput.addEventListener('change', guarded(() => {
+    values.accent = accentInput.value;
+    return saveOptions(values);
+  }));
+  $('reset-accent').addEventListener('click', guarded(() => {
+    values.accent = '';
+    return saveOptions(values);
+  }));
   optionsInto($('settings-options'), ['mode','quality','format','audioFormat','subtitles','naming'], values, saveOptions);
   optionsInto($('transfer-options'), ['concurrency','connections','accelerate','fastStart'], values, saveOptions);
-  optionsInto($('interface-options'), ['theme','density','autoScan','showHost'], values, saveOptions);
-  $('save-as').addEventListener('change', guarded(() => saveOptions(values)));
+  optionsInto($('interface-options'), ['density'], values, saveOptions);
+  optionsInto($('detection-options'), ['autoScan','showHost'], values, saveOptions);
+  folderInput.addEventListener('input', () => folderInput.setCustomValidity(''));
+  folderInput.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && !event.isComposing) folderInput.blur();
+  });
+  folderInput.addEventListener('change', guarded(() => {
+    try {
+      values.downloadFolder = downloadFolder(folderInput.value);
+      folderInput.value = values.downloadFolder;
+    } catch (error) {
+      folderInput.setCustomValidity(error.message);
+      folderInput.reportValidity();
+      throw error;
+    }
+    status('');
+    return saveOptions(values);
+  }));
+  $('save-as').addEventListener('change', guarded(() => {
+    values.saveAs = $('save-as').checked;
+    return saveOptions(values);
+  }));
   storage.onChanged.addListener(changes => {
     if (changes.downloadJobs) updateJobs(changes.downloadJobs.newValue ?? []);
   });

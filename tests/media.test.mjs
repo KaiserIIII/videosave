@@ -1,8 +1,11 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { classify, pageStreams, pickStreams, sourceTitle } from '../extension/media.mjs';
-import { queue, cancel, progress } from '../tools/media-downloads.mjs';
+import { downloadFolder, readDownloadSettings } from '../extension/settings.mjs';
+import { queue, queueOriginal, cancel, progress } from '../tools/media-downloads.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 test('discovers extensionless DASH and video, ignores segments and unrelated responses', () => {
@@ -94,9 +97,79 @@ test('a cancelled batch can be queued again with the same options', async () => 
   cancel(retry.id);
 });
 
-test('rejects unsupported media options and keeps the AI queue capped at two', () => {
+test('rejects unsupported media options and invalid download concurrency', () => {
   const video = {kind:'stream', url:'http://127.0.0.1:1/missing.mp4'};
   assert.throws(() => queue({items:[{...video, mode:'typo'}]}), {code:'INVALID_MODE'});
   assert.throws(() => queue({items:[{...video, quality:-1}]}), {code:'INVALID_QUALITY'});
-  assert.throws(() => queue({items:[video], concurrency:3}), {code:'INVALID_CONCURRENCY'});
+  for (const concurrency of [0, 25, 2.5, '10']) {
+    assert.throws(() => queue({items:[video], concurrency}), {code:'INVALID_CONCURRENCY'});
+  }
+});
+
+test('upgrades the former default and preserves explicitly configured queue limits', () => {
+  assert.equal(readDownloadSettings().concurrency, 10);
+  assert.equal(readDownloadSettings({concurrency:2}).concurrency, 10);
+  assert.equal(readDownloadSettings({concurrency:1}).concurrency, 1);
+  assert.equal(readDownloadSettings({concurrency:2, concurrencyVersion:1}).concurrency, 2);
+  assert.equal(readDownloadSettings({concurrency:24, concurrencyVersion:1}).concurrency, 24);
+});
+
+test('accepts nested download folders and rejects absolute paths and Windows device names', () => {
+  assert.equal(downloadFolder(' 视频\\教程 '), '视频/教程');
+  assert.equal(downloadFolder(''), '');
+  for (const folder of ['C:\\Downloads', '\\\\server\\share', '/', '../video', 'video//', 'video/NUL.mp4', 'video/a.']) {
+    assert.throws(() => downloadFolder(folder), /Edge 下载目录/);
+  }
+});
+
+test('runs ten companion downloads at once and cancels active work', async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const server = createServer((_req, res) => {
+    peak = Math.max(peak, ++inFlight);
+    res.once('close', () => inFlight--);
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const created = [];
+  try {
+    const items = Array.from({length:10}, (_, index) =>
+      ({kind:'stream', url:`http://127.0.0.1:${server.address().port}/${index}.mp4`}));
+    const low = queue({items, concurrency:1});
+    created.push(low.id);
+    for (let index = 0; peak === 0 && index < 100; index++) await sleep(15);
+    assert.equal(peak, 1);
+    assert.equal(progress(low.id).items.filter(item => item.status === 'queued').length, 9);
+    cancel(low.id);
+    for (let index = 0; (inFlight || progress(low.id).status !== 'cancelled') && index < 100; index++) await sleep(15);
+    assert.equal(progress(low.id).status, 'cancelled');
+    assert.equal(inFlight, 0);
+    peak = 0;
+
+    const batch = queue({items});
+    created.push(batch.id);
+    for (let index = 0; peak < 10 && index < 100; index++) await sleep(15);
+    assert.equal(peak, 10);
+    cancel(batch.id);
+    for (let index = 0; (inFlight || progress(batch.id).status !== 'cancelled') && index < 100; index++) await sleep(15);
+    assert.equal(progress(batch.id).status, 'cancelled');
+    assert.equal(inFlight, 0);
+    peak = 0;
+
+    for (let index = 0; index < 10; index++) {
+      const url = `http://127.0.0.1:${server.address().port}/${index}.mp4`;
+      created.push(queueOriginal({url, extension:'mp4'}).id);
+    }
+    for (let index = 0; peak < 10 && index < 100; index++) await sleep(15);
+    assert.equal(peak, 10);
+    created.forEach(cancel);
+    for (let index = 0; created.some(id => progress(id).status !== 'cancelled') && index < 100; index++) {
+      await sleep(15);
+    }
+    assert.ok(created.every(id => progress(id).items[0].status === 'cancelled'));
+  } finally {
+    created.forEach(cancel);
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
 });

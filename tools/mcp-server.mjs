@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { createInterface } from 'node:readline';
+import { defaultConcurrency, maxConcurrency } from '../extension/settings.mjs';
 import * as downloads from './media-downloads.mjs';
 
 const latestProtocol = '2025-11-25';
@@ -17,7 +18,8 @@ const operations = [
       subtitles: { type: 'boolean' },
       sourceKind: { enum: ['m3u8', 'mpd'] }, fastStart: { type: 'boolean' },
     }, ['kind', 'url']) },
-    maxSec: { type: 'number', exclusiveMinimum: 0 }, concurrency: { type: 'integer', minimum: 1, maximum: 2 },
+    maxSec: { type: 'number', exclusiveMinimum: 0 },
+    concurrency: { type: 'integer', minimum: 1, maximum: maxConcurrency, default: defaultConcurrency },
     connections: { enum: [4, 8, 12] }, cookie: string,
   }, ['items']), downloads.queue],
   ['get_progress', 'Read the current status and log for a batch.', object({ id: string }, ['id']),

@@ -51,17 +51,38 @@
     </section>
     <section id="settings" hidden aria-labelledby="settings-heading">
       <div class="option-card">
-        <h2 id="settings-heading">下载默认值</h2>
+        <h2 id="settings-heading">外观</h2>
+        <div id="themes" role="group" aria-label="界面主题"></div>
+        <div class="accent-row">
+          <label for="theme-accent">强调色</label>
+          <input type="color" id="theme-accent">
+          <button type="button" class="quiet" id="reset-accent" hidden>恢复主题颜色</button>
+        </div>
+        <div id="interface-options" class="option-grid"></div>
+      </div>
+      <div class="option-card settings-group">
+        <h2>保存位置</h2>
+        <label class="folder-field">下载子文件夹
+          <input id="download-folder" type="text" maxlength="100" placeholder="Edge 默认下载目录"
+                 autocomplete="off" spellcheck="false" aria-describedby="folder-help">
+        </label>
+        <p id="folder-help" class="field-help">相对于 Edge 下载目录，例如 视频/教程。留空使用默认目录。</p>
+        <div class="save-tools">
+          <label class="check-row"><input id="save-as" type="checkbox"><span>每次询问保存位置</span></label>
+          <button type="button" class="text-button" id="edge-download-settings">Edge 下载设置 ↗</button>
+        </div>
+      </div>
+      <div class="option-card settings-group">
+        <h2>下载默认值</h2>
         <div id="settings-options" class="option-grid"></div>
-        <label class="check-row"><input id="save-as" type="checkbox"><span>每次询问保存位置</span></label>
       </div>
       <div class="option-card settings-group">
         <h2>传输</h2>
         <div id="transfer-options" class="option-grid"></div>
       </div>
       <div class="option-card settings-group">
-        <h2>界面</h2>
-        <div id="interface-options" class="option-grid"></div>
+        <h2>视频检测</h2>
+        <div id="detection-options" class="option-grid"></div>
       </div>
       <section class="service-card" aria-labelledby="service-heading">
         <h3 id="service-heading">本机下载服务</h3>
