@@ -15,7 +15,7 @@ function validRange(response, start, end, size, etag) {
     response.headers.get('etag') === etag && (length === null || length === String(end - start + 1));
 }
 
-export async function prefetchRanges(source, cookies, staging, signal, onProgress) {
+export async function prefetchRanges(source, cookies, staging, signal, onProgress, {connections = maxConnections} = {}) {
   const cookie = cookies.map(({ name, value }) => name + '=' + value).join('; ');
   const headers = { 'accept-encoding': 'identity', ...(cookie && {cookie}) };
   const probeSignal = AbortSignal.any([signal, AbortSignal.timeout(2000)]);
@@ -41,7 +41,7 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
     try { await output.truncate(size); }
     finally { await output.close(); }
 
-    const chunkCount = Math.max(maxConnections, Math.ceil(size / (16 * MiB)));
+    const chunkCount = Math.max(connections, Math.ceil(size / (16 * MiB)));
     const chunkSize = Math.ceil(size / chunkCount);
     const controller = new AbortController();
     const transferSignal = AbortSignal.any([signal, controller.signal]);
@@ -71,7 +71,7 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
                 count += chunk.byteLength;
                 if (count > expected) throw new Error('Range exceeded its declared size');
                 received += chunk.byteLength;
-                onProgress(received / size);
+                onProgress(received / size, received, size);
                 yield chunk;
               }
               if (count !== expected) throw new Error('Range ended early');
@@ -83,7 +83,7 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
         throw error;
       }
     };
-    await Promise.allSettled(Array.from({length:maxConnections}, worker));
+    await Promise.allSettled(Array.from({length:connections}, worker));
     transferSignal.throwIfAborted();
     return file;
   } catch {

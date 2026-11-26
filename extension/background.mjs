@@ -30,7 +30,10 @@ chrome.tabs.onRemoved.addListener(tabId => update(tabId, () => []));
 chrome.webRequest.onHeadersReceived.addListener(details => {
   if (details.tabId < 0 || details.statusCode < 200 || details.statusCode >= 300) return;
   const mime = details.responseHeaders.find(header => header.name.toLowerCase() === 'content-type')?.value ?? '';
-  if (!classify(details.url, mime)) return;
+  if ((!classify(details.url, mime) && !classify(details.url)) || ['image','stylesheet','font','script','ping'].includes(details.type)) return;
+  const disposition = details.responseHeaders.find(header => header.name.toLowerCase() === 'content-disposition')?.value ?? '';
+  const filename = /(?:^|;)\s*filename\*=UTF-8'[^']*'([^;]+)/i.exec(disposition)?.[1] ||
+    /(?:^|;)\s*filename=(?:"([^"]+)"|([^;]+))/i.exec(disposition)?.slice(1).find(Boolean);
   update(details.tabId, rows => [...rows.filter(row => row.url !== details.url),
-    {url:details.url, mime, frameId:details.frameId}].slice(-120));
+    {url:details.url, mime, filename, type:details.type, frameId:details.frameId}].slice(-120));
 }, all, ['responseHeaders']);

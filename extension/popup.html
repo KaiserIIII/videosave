@@ -10,8 +10,8 @@
 <body>
   <header class="masthead">
     <div class="brand">
-      <span class="mark" aria-hidden="true">↓</span>
-      <h1>Open Media <span>Toolkit</span></h1>
+      <span class="mark" aria-hidden="true"><b></b></span>
+      <h1>Open Media Toolkit</h1>
     </div>
     <button id="connection-status" class="connection" type="button"><i></i>本机服务</button>
   </header>
@@ -23,8 +23,8 @@
   <main>
     <section id="videos" aria-labelledby="page-title">
       <div class="section-header">
-        <div><p class="eyebrow">当前网页</p><h2 id="page-title">正在扫描…</h2></div>
-        <button id="refresh" class="quiet" type="button">↻ <span>扫描</span></button>
+        <div><p class="site" id="site"></p><h2 id="page-title">正在扫描…</h2></div>
+        <button id="refresh" class="quiet" type="button"><span class="refresh-icon" aria-hidden="true">↻</span> 扫描</button>
       </div>
       <div class="bulk" id="bulk" hidden>
         <label><input id="all" type="checkbox"> 全选</label>
@@ -42,18 +42,26 @@
     </section>
     <section id="downloads" hidden aria-labelledby="download-heading">
       <div class="section-header">
-        <div><p class="eyebrow">保存到 Edge 的下载目录</p><h2 id="download-heading">下载队列</h2></div>
-        <button id="folder" class="quiet" type="button">打开目录 ↗</button>
+        <h2 id="download-heading">下载队列</h2>
+        <div class="actions"><button id="clear" class="quiet" type="button" hidden>清空记录</button>
+          <button id="folder" class="quiet" type="button">打开目录 ↗</button></div>
       </div>
-      <p class="empty" id="queue-empty">下载任务会显示在这里。</p>
+      <p class="empty" id="queue-empty">暂无下载</p>
       <ul id="queue" class="queue" aria-label="下载任务"></ul>
     </section>
     <section id="settings" hidden aria-labelledby="settings-heading">
-      <div class="section-header"><h2 id="settings-heading">默认下载选项</h2></div>
       <div class="option-card">
+        <h2 id="settings-heading">下载默认值</h2>
         <div id="settings-options" class="option-grid"></div>
         <label class="check-row"><input id="save-as" type="checkbox"><span>每次询问保存位置</span></label>
-        <p class="hint">画质、转封装和音视频分离需要连接本机服务。</p>
+      </div>
+      <div class="option-card settings-group">
+        <h2>传输</h2>
+        <div id="transfer-options" class="option-grid"></div>
+      </div>
+      <div class="option-card settings-group">
+        <h2>界面</h2>
+        <div id="interface-options" class="option-grid"></div>
       </div>
       <section class="service-card" aria-labelledby="service-heading">
         <h3 id="service-heading">本机下载服务</h3>

@@ -146,13 +146,23 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
     const url = `http://127.0.0.1:${source.address().port}/separate.mp4`;
     await popup.evaluate(`(() => {
       for (const [key, value] of Object.entries({mode:'separate',quality:'360',concurrency:'1',audioFormat:'mp3',subtitles:'true'})) {
-        const option = document.querySelector('#settings-options [data-option="'+key+'"]');
+        const option = document.querySelector('#settings [data-option="'+key+'"]');
         option.value = value;
         option.dispatchEvent(new Event('change'));
       }
     })()`);
     await until(() => worker.evaluate(`chrome.storage.local.get('downloadSettings')
       .then(({downloadSettings:s})=>s?.quality==='360' && s?.mode==='separate' && s?.concurrency===1 && s?.audioFormat==='mp3' && s?.subtitles)`, 15000));
+    await popup.evaluate(`(() => {
+      for (const [key, value] of Object.entries({theme:'light',density:'compact',connections:'12',showHost:'true'})) {
+        const option = document.querySelector('#settings [data-option="'+key+'"]');
+        option.value = value;
+        option.dispatchEvent(new Event('change'));
+      }
+    })()`);
+    await until(() => worker.evaluate(`chrome.storage.local.get('downloadSettings')
+      .then(({downloadSettings:s})=>s?.theme==='light' && s?.density==='compact' && s?.connections===12 && s?.showHost)`));
+    assert.equal(await popup.evaluate('document.documentElement.dataset.theme'), 'light');
     const saveStarted = performance.now();
     await popup.evaluate(`(() => {
       document.querySelector('#videos-toggle').click();
@@ -209,7 +219,7 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
     const downloaded = path.join(browserOut, 'Parallel MP4.mp4');
     assert.deepEqual(await readFile(downloaded), rangeMedia);
     assert.deepEqual(inspectFile(downloaded), {width:640,height:480,duration:2});
-    assert.deepEqual(requestedParts, Array(8).fill('"large-mp4"'));
+    assert.deepEqual(requestedParts, Array(12).fill('"large-mp4"'));
     assert.equal(fullRequests, 0);
     console.log('Edge saved original Range MP4 byte-for-byte in the configured browser download folder');
 
@@ -222,7 +232,7 @@ async function checkBrowserDelivery(popup, worker, endpoint) {
     });
     assert.equal(result.status, 'done', JSON.stringify(result));
     assert.deepEqual(inspectFile(result.file), {width:640,height:480,duration:2});
-    assert.deepEqual(requestedParts, Array(16).fill('"large-mp4"'));
+    assert.deepEqual(requestedParts, Array(20).fill('"large-mp4"'));
     assert.equal(fullRequests, 0);
     console.log('HTTP queue processed staged Range MP4 without fetching the full upstream file again');
 
@@ -309,6 +319,8 @@ async function testPopup(endpoint) {
       const displayed = await popup.evaluate(`({title:${mediaRow}.querySelector('.media-title').textContent,details:${mediaRow}.innerText})`);
       assert.equal(displayed.title, videoTitle);
       assert.match(displayed.details, /0:52/);
+      assert.equal(await popup.evaluate(`Array.from(document.querySelectorAll('#media .media-title'))
+        .filter(title => title.textContent === ${JSON.stringify(videoTitle)}).length`), 1);
       await popup.evaluate(`${mediaRow}.querySelector('.actions button:last-child').click()`);
       let downloaded;
       try {
@@ -340,6 +352,9 @@ async function testPopup(endpoint) {
       const other = await until(() => popup.evaluate(`[...document.querySelectorAll('#media li')]
         .find(row => row.dataset.url.endsWith('/recording.mp4'))?.innerText`));
       assert.match(other, /独立的节目[\s\S]*1:02:03/);
+      await popup.evaluate('document.querySelector("#media .options-button").click()');
+      assert.equal(await popup.evaluate('getComputedStyle(document.querySelector("#media .card-options:not([hidden])")).animationName'), 'enter');
+      await popup.evaluate('document.querySelector("#media .options-button").click()');
       await checkPopupLayout(popup);
       await page.send('Page.bringToFront');
       await sw.evaluate('chrome.action.openPopup()');
@@ -355,7 +370,7 @@ async function testPopup(endpoint) {
             .map(node=>node.getBoundingClientRect().right)),
           listHeight: document.querySelector('#media').getBoundingClientRect().height})`);
         assert.ok(size.width >= 400 && size.right <= size.width && size.documentWidth <= size.width &&
-          size.height <= 560 && size.footer <= size.height && size.listHeight > 50,
+          size.height <= 560 && size.footer - size.height < 1 && size.listHeight > 50,
           JSON.stringify(size));
         console.log('Edge toolbar popup', size);
         if (process.env.SMOKE_SCREENSHOT) {

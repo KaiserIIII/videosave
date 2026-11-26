@@ -7,14 +7,15 @@ export function classify(value, contentType = '', mediaElement = false) {
   if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
   const pathname = url.pathname.toLowerCase();
   const mime = contentType.split(';')[0].trim().toLowerCase();
-  if (mime === 'text/html' || /\.(?:ts|m4s|cmfv|cmfa|m4a)$/.test(pathname) ||
-      /\/(?:init|segment|chunk|fragment)(?:[-_\d][^/]*)?\.mp4$/.test(pathname)) return null;
   if (/^(?:application|audio)\/(?:vnd\.apple\.mpegurl|x-mpegurl|mpegurl)$/.test(mime)) return 'm3u8';
   if (mime === 'application/dash+xml') return 'mpd';
+  if (/^(?:text\/|image\/|audio\/|font\/)|(?:json|xml|javascript|iso\.segment)$/.test(mime) ||
+      /\.(?:ts|m4s|cmfv|cmfa|m4a|aac|vtt)$/.test(pathname) ||
+      /\/(?:init|segment|chunk|fragment)(?:[-_\d][^/]*)?\.(?:mp4|m4v|mov|webm)$/.test(pathname)) return null;
   const extension = pathname.match(/\.([a-z0-9]+)$/)?.[1];
   if (formats.has(extension)) return extension;
   const subtype = { 'video/webm':'webm', 'video/quicktime':'mov', 'video/x-matroska':'mkv', 'video/ogg':'ogv' }[mime];
-  if (subtype || mime.startsWith('video/') || mediaElement) return subtype || 'mp4';
+  if (subtype || mime.startsWith('video/') || (mediaElement && !mime)) return subtype || 'mp4';
   return null;
 }
 
@@ -34,18 +35,83 @@ export function pickStreams(candidates) {
 }
 
 export function pageStreams(frames, requests) {
+  const noisy = /\/(?:ad[sx]?|preroll|midroll|storyboards?|thumbnails?|sprites?|tracking|beacons?)\//i;
+  const declared = new Set();
+  const covered = new Set();
+  const inferred = [];
+  const rejected = new Set(requests.filter(row => row.mime && !classify(row.url,row.mime)).map(row => row.url));
+  const metadata = frames.find(frame => frame.frameId === 0)?.result.pageMetadata;
+  const playerCount = frames.reduce((count, frame) => count + (frame.result.playerCount || 0), 0);
   const observed = frames.flatMap(({ frameId, result }) => {
-    const { candidates, opaquePlayer } = result;
-    if (!opaquePlayer) return candidates;
-    // An opaque player has no HTTP source URL. Only join an unambiguous
-    // playlist from its own frame so ads and sibling players stay separate.
-    const sameFrame = requests.filter(request => request.frameId === frameId);
-    const playlists = pickStreams([...sameFrame, ...candidates]).filter(stream => adaptive.has(stream.kind));
-    return playlists.length === 1
-      ? [...candidates, { ...playlists[0], ...opaquePlayer }]
-      : candidates;
+    const candidates = result.candidates.map(candidate => ({...candidate, frameId}));
+    for (const candidate of candidates) {
+      if (candidate.mediaElement && classify(candidate.url, candidate.mime, true)) declared.add(new URL(candidate.url).href);
+    }
+    if (!result.opaquePlayer || result.encrypted) return candidates;
+    const playlists = pickStreams([...requests.filter(row => row.frameId === frameId), ...candidates])
+      .filter(stream => adaptive.has(stream.kind) && !noisy.test(new URL(stream.url).pathname));
+    const masters = playlists.filter(stream => stream.kind === 'm3u8' &&
+      /\/(?:master|multivariant|main)(?:[-_][\w-]+)?\.m3u8$/i.test(new URL(stream.url).pathname));
+    const master = masters.length === 1 && masters[0];
+    const base = master && new URL('.', master.url).href;
+    const samePlaylistFamily = base && (result.opaqueCount ?? 1) <= 1 &&
+      playlists.every(stream => stream.kind === 'm3u8' && stream.url.startsWith(base));
+    if (samePlaylistFamily) {
+      for (const stream of playlists) if (stream.url !== master.url && !stream.mediaElement) covered.add(`${frameId} ${stream.url}`);
+    }
+    const playlist = playlists.length === 1 ? playlists[0] : samePlaylistFamily ? master : null;
+    if (playlist) inferred.push({...playlist, ...result.opaquePlayer, fromPlayer:true});
+    return candidates;
   });
-  return pickStreams([...requests, ...observed]);
+  const network = requests.filter(request => {
+    const url = URL.parse(request.url);
+    return url && !rejected.has(url.href) && !covered.has(`${request.frameId} ${url.href}`) && (declared.has(url.href) ||
+      !noisy.test(url.pathname) && request.type !== 'image');
+  });
+  const streams = pickStreams([...network, ...observed.filter(candidate => {
+    const url = URL.parse(candidate.url);
+    return url && !rejected.has(url.href) && !covered.has(`${candidate.frameId} ${url.href}`) &&
+      (candidate.mediaElement || !noisy.test(url.pathname));
+  }), ...inferred]);
+  const players = new Map();
+  const rows = [];
+  for (const stream of streams) {
+    const key = stream.playerIndex == null ? null : `${stream.frameId} ${stream.playerIndex}`;
+    if (!key) {
+      rows.push(stream);
+    } else if (players.has(key)) {
+      players.get(key).push(stream);
+    } else {
+      const group = [stream];
+      players.set(key, group);
+      rows.push(group);
+    }
+  }
+  const representatives = rows.map(row => {
+    if (!Array.isArray(row)) return row;
+    const current = row.find(stream => stream.currentSource) || row[0];
+    if (row.length > 1) current.alternates = row.filter(stream => stream !== current);
+    return current;
+  });
+  if (representatives.length === 1 && playerCount <= 1 && metadata) {
+    const [stream] = representatives;
+    if (stream.frameId !== 0 && !stream.namedByPlayer && metadata.videoTitle) stream.title = metadata.videoTitle;
+    stream.title ||= sourceTitle(stream) || metadata.title;
+    stream.poster ||= metadata.poster;
+  }
+  const priority = stream => stream.playing ? 2 : stream.mediaElement || stream.fromPlayer ? 1 : 0;
+  return representatives.sort((a, b) => priority(b) - priority(a));
+}
+
+export function sourceTitle(stream) {
+  const url = new URL(stream.url);
+  const name = stream.filename || url.searchParams.get('filename') || url.searchParams.get('fileName') ||
+    url.pathname.split('/').pop() || '';
+  let decoded;
+  try { decoded = decodeURIComponent(name); } catch { decoded = name; }
+  const title = decoded.split(/[\\/]/).pop().replace(/\.(?:mp4|mov|webm|mkv|ogv|avi|m4v|m3u8|mpd)$/i, '').trim();
+  return !title || /^(?:index|master|playlist|manifest|video|media|stream|play|[a-f0-9-]{24,}|\d+)$/i.test(title)
+    ? '' : title.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 export function scanDocument() {
@@ -67,8 +133,7 @@ export function scanDocument() {
   };
   const videos = [...document.querySelectorAll('video')];
   const structured = [];
-  if (videos.length) {
-    for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
       const json = script.textContent;
       if (!json || json.length > 512_000) continue;
       let data;
@@ -84,40 +149,53 @@ export function scanDocument() {
           if (value && typeof value === 'object') pending.push(value);
         }
       }
-    }
   }
   const playing = videos.filter(video => !video.paused && !video.ended);
   const primary = videos.length === 1 ? videos[0] : playing.length === 1 ? playing[0] : null;
   const sessionTitle = clean(navigator.mediaSession?.metadata?.title);
-  const fallbackTitle = videos.length === 1
-    ? meta('property', 'og:title') || meta('name', 'twitter:title') || clean(document.title)
-    : '';
+  const pageVideo = structured.length === 1 ? structured[0] : null;
+  const videoTitle = clean(pageVideo?.name) || sessionTitle ||
+    (/^video(?:\.|$)/.test(meta('property','og:type')) ? meta('property','og:title') : '');
+  const pageMetadata = {
+    videoTitle,
+    title: videoTitle || meta('property', 'og:title') || meta('name', 'twitter:title') ||
+      clean(document.querySelector('main h1, article h1, h1')?.textContent) || clean(document.title),
+    poster: normalizeUrl([pageVideo?.thumbnailUrl].flat()[0] || meta('property', 'og:image')) || null,
+  };
   let opaquePlayer = null;
   const candidates = [
-    ...videos.flatMap(video => {
+    ...videos.flatMap((video, playerIndex) => {
       if (video.mediaKeys) return [];
       const source = video.currentSrc || video.src;
       const sources = [...video.querySelectorAll('source')].map(node => ({ url: node.src, mime: node.type || undefined }));
       const urls = new Set([source, video.src, ...sources.map(item => item.url)].filter(Boolean).map(normalizeUrl));
       const opaque = source.startsWith('blob:');
       const matching = structured.find(entry => [entry.contentUrl].flat().some(url => urls.has(normalizeUrl(url))));
-      const only = videos.length === 1 && structured.length === 1 ? structured[0] : null;
+      const only = video === primary ? pageVideo : null;
       const info = matching || (only && (!only.contentUrl || opaque) ? only : null);
-      const title = clean(video.getAttribute('title')) || clean(info?.name) ||
-        (video === primary ? sessionTitle : '') || clean(video.getAttribute('aria-label')) || fallbackTitle || null;
+      const label = (video.getAttribute('aria-labelledby') || '').split(/\s+/).map(id =>
+        document.getElementById(id)?.textContent).filter(Boolean).join(' ');
+      const generic = /^(?:player|video|media|播放器|视频)(?:[ ._-]*\d+)?$/i;
+      const playerTitle = [info?.name, video.getAttribute('title'), label, video === primary ? sessionTitle : '',
+        video.getAttribute('aria-label')].map(clean).find(value => value && !generic.test(value));
+      const title = playerTitle || (video === primary && !generic.test(pageMetadata.title) ? pageMetadata.title : '') || null;
       const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : seconds(clean(info?.duration));
       const metadata = { title, duration, width: video.videoWidth || null, height: video.videoHeight || null,
-        poster: normalizeUrl(video.poster || (video === primary ? meta('property', 'og:image') : '')) || null };
-      if (opaque && videos.length === 1) opaquePlayer = metadata;
+        poster: normalizeUrl(video.poster || (video === primary ? pageMetadata.poster : '')) || null,
+        playing: !video.paused && !video.ended, namedByPlayer:Boolean(playerTitle) };
+      if (opaque && video === primary) opaquePlayer = metadata;
       return [...new Map([{ url: video.src }, { url: source }, ...sources]
         .filter(item => item.url).map(item => [item.url, item])).values()]
-        .map(item => ({ ...item, mediaElement: true, ...metadata }));
+        .map(item => ({ ...item, mediaElement:true, playerIndex, currentSource:item.url === source, ...metadata }));
     }),
-    ...performance.getEntriesByType('resource').map(resource => ({url: resource.name})),
+    ...performance.getEntriesByType('resource').filter(resource =>
+      ['video','fetch','xmlhttprequest'].includes(resource.initiatorType)).map(resource => ({url:resource.name})),
   ];
   const pages = [...new Map([...document.querySelectorAll('a[href]')]
     .filter(a => /^https?:/.test(a.href) && a.href !== location.href && /\/(?:watch|videos?|clip)(?:[/?#]|$)/i.test(a.href))
     .map(a => [a.href, {url: a.href, title: (a.title || a.textContent.trim()).slice(0, 120)}])).values()].slice(0, 80);
-  return { pageTitle:document.title, candidates, pages, opaquePlayer, encrypted:videos.some(video => video.mediaKeys),
-    opaque:videos.some(video => (video.currentSrc || video.src).startsWith('blob:')), ready:document.readyState === 'complete' };
+  const opaqueCount = videos.filter(video => (video.currentSrc || video.src).startsWith('blob:')).length;
+  return { pageTitle:document.title, pageMetadata, playerCount:videos.length, candidates, pages, opaquePlayer,
+    encrypted:videos.some(video => video.mediaKeys),
+    opaqueCount, opaque:opaqueCount > 0, ready:document.readyState === 'complete' };
 }

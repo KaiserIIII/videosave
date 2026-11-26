@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { connectCdp, withEdge } from './edge-session.mjs';
-import { classify, pickStreams, scanDocument } from '../extension/media.mjs';
+import { classify, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
 
 export class ApiError extends Error {
   constructor(code, message, status = 400) {
@@ -40,10 +40,10 @@ export async function discover(url, cookies, signal) {
     const page = await connectCdp(target.webSocketDebuggerUrl, signal);
     try {
       const responses = new Map();
-      page.on('Network.responseReceived', ({ response }) => {
-        if (response.status < 200 || response.status >= 300 || !classify(response.url, response.mimeType)) return;
+      page.on('Network.responseReceived', ({ response, frameId, type }) => {
+        if (response.status < 200 || response.status >= 300 || (!classify(response.url, response.mimeType) && !classify(response.url))) return;
         if (responses.size < 120 || responses.has(response.url)) {
-          responses.set(response.url, {url:response.url, mime:response.mimeType});
+          responses.set(response.url, {url:response.url, mime:response.mimeType, frameId, type:type?.toLowerCase()});
         }
       });
       await page.send('Network.enable');
@@ -64,10 +64,13 @@ export async function discover(url, cookies, signal) {
         if (found?.candidates.some(candidate => classify(candidate.url, candidate.mime, candidate.mediaElement)) || responses.size) collectUntil = Math.min(collectUntil, Date.now() + 1200);
         else if (found?.ready && found.pages.length) collectUntil = Math.min(collectUntil, Date.now() + 3000);
       } while (Date.now() < collectUntil);
+      const observed = [...responses.values()].map(row => ({...row, frameId:row.frameId === nav.frameId ? 0 : row.frameId}));
+      const streams = found?.encrypted ? [] : pageStreams(found ? [{frameId:0,result:found}] : [], observed);
       return {
-        pageTitle: found?.pageTitle || null,
-        streams: found?.encrypted ? [] : pickStreams([...responses.values(), ...(found?.candidates ?? [])])
-          .slice(0, 24).map(({ url, kind }) => ({ url, kind })),
+        pageTitle: found?.pageMetadata?.title || found?.pageTitle || null,
+        streams: streams.flatMap(stream => [stream,...(stream.alternates ?? [])]).slice(0, 24)
+          .map(({url,kind,title,filename,duration,width,height}) =>
+          ({url,kind,title:title || sourceTitle({url,filename}) || undefined,duration,width,height})),
         pages: found?.pages || [],
       };
     } finally { page.close(); }

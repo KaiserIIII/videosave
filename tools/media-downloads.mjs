@@ -9,7 +9,7 @@ import { prefetchRanges } from './range-prefetch.mjs';
 import { ApiError, FFMPEG, discover, mediaInput, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
 
 export { ApiError };
-export const VERSION = '0.2.1';
+export const VERSION = '0.3.0';
 
 function defaultDownloads() {
   try {
@@ -143,9 +143,15 @@ function getTargets(values) {
     if (value.subtitles !== undefined && typeof value.subtitles !== 'boolean') {
       throw new ApiError('INVALID_SUBTITLES', '字幕选项应为布尔值');
     }
+    if (value.sourceKind !== undefined && !['m3u8','mpd'].includes(value.sourceKind)) {
+      throw new ApiError('INVALID_SOURCE_KIND', '流类型应为 m3u8 或 mpd');
+    }
+    if (value.fastStart !== undefined && typeof value.fastStart !== 'boolean') {
+      throw new ApiError('INVALID_FAST_START', '快速播放选项应为布尔值');
+    }
     return { kind: value.kind, url: mediaUrl(value.url).href, format: value.format ?? 'mp4',
       mode: value.mode ?? 'combined', quality: value.quality ?? null, audioFormat: value.audioFormat ?? 'm4a',
-      subtitles: value.subtitles ?? false,
+      subtitles: value.subtitles ?? false, sourceKind:value.sourceKind, fastStart:value.fastStart ?? true,
       title: value.title?.trim().slice(0, 160) || '' };
   });
 }
@@ -160,27 +166,28 @@ function durationLimit(value) {
 
 const directMedia = /^(?:mp4|webm|mkv|mov|m4v|ogv|avi)$/i;
 
-export function queueOriginal({ url, title, extension } = {}) {
+export function queueOriginal({ url, title, extension, connections } = {}) {
   if (typeof extension !== 'string' || !directMedia.test(extension)) {
     throw new ApiError('INVALID_FORMAT', '需要一个直链视频格式');
   }
-  return queue({items:[{kind:'stream', url, title}], delivery:'browser'}, extension.toLowerCase());
+  return queue({items:[{kind:'stream', url, title}], connections, delivery:'browser'}, extension.toLowerCase());
 }
 
-export function queue({ items, maxSec, cookie, concurrency = 2, delivery = 'local' } = {}, originalExtension) {
+export function queue({ items, maxSec, cookie, concurrency = 2, connections = 8, delivery = 'local' } = {}, originalExtension) {
   const targets = getTargets(items);
   if (concurrency !== 1 && concurrency !== 2) throw new ApiError('INVALID_CONCURRENCY', '并发数应为 1 或 2');
+  if (![4,8,12].includes(connections)) throw new ApiError('INVALID_CONNECTIONS', '单任务连接数应为 4、8 或 12');
   if (delivery !== 'local' && delivery !== 'browser') throw new ApiError('INVALID_DELIVERY', '无效的保存方式');
   const limit = durationLimit(maxSec);
   const cookies = parseCookies(cookie);
-  const key = createHash('sha256').update(JSON.stringify([targets, limit, cookies, concurrency, delivery, originalExtension])).digest('hex');
+  const key = createHash('sha256').update(JSON.stringify([targets, limit, cookies, concurrency, connections, delivery, originalExtension])).digest('hex');
   const existing = batches.get(batchKeys.get(key));
   if (existing?.status === 'running') return { id: existing.id, total: targets.length };
 
   const id = randomUUID();
   const batch = {
     id, status: 'running', controller: new AbortController(), log: [], listeners: new Set(),
-    concurrency, running: 0, delivery, originalExtension, files: new Map(),
+    concurrency, connections, running: 0, delivery, originalExtension, files: new Map(),
     items: targets.map(({ kind, title }, idx) => ({ idx, kind, title, status: 'queued', percent: 0, file: null, error: null })),
   };
   batches.set(id, batch);
@@ -295,12 +302,14 @@ async function runItem(batch, item, target, limit, cookies, signal) {
   publish(batch, `[${item.idx + 1}] 正在解析`);
   const input = mediaUrl(target.url);
   let source = input;
+  let sourceKind = target.sourceKind;
   if (target.kind === 'page') {
     const found = await discover(input, cookies, signal);
     const stream = found.streams[0];
     if (!stream) throw new ApiError('NO_MEDIA', '页面里没有找到可下载的媒体', 422);
     source = mediaUrl(stream.url);
-    item.title ||= found.pageTitle || '';
+    sourceKind ||= ['m3u8','mpd'].includes(stream.kind) ? stream.kind : undefined;
+    item.title ||= stream.title || found.pageTitle || '';
   }
   const scopedCookies = source.origin === input.origin ? cookies : [];
   const directory = batch.delivery === 'browser' ? os.tmpdir() : OUT_DIR;
@@ -312,14 +321,27 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     const updateProgress = percent => {
       if (percent > item.percent) { item.percent = percent; publish(batch); }
     };
-    const downloadProgress = fraction => {
+    let sampledAt = performance.now();
+    let sampledBytes = 0;
+    const downloadProgress = (fraction, bytes, totalBytes) => {
       item.status = 'downloading';
-      updateProgress(Math.floor(fraction * 90));
+      const now = performance.now();
+      if (bytes != null && now - sampledAt >= 300) {
+        const speed = (bytes - sampledBytes) * 1000 / (now - sampledAt);
+        item.speed = Math.round(item.speed ? (item.speed + speed) / 2 : speed);
+        item.bytes = bytes;
+        if (totalBytes) item.totalBytes = totalBytes;
+        sampledAt = now;
+        sampledBytes = bytes;
+      }
+      if (fraction != null) updateProgress(Math.floor(fraction * 90));
     };
-    const direct = batch.originalExtension || directMedia.test(path.extname(source.pathname).slice(1));
+    const direct = batch.originalExtension || !sourceKind && directMedia.test(path.extname(source.pathname).slice(1));
     const prefetch = direct ? prefetchRanges : prefetchHls;
-    const staged = !limit && await prefetch(source, scopedCookies, staging, signal, downloadProgress);
+    const staged = !limit && await prefetch(source, scopedCookies, staging, signal, downloadProgress,
+      {quality:target.quality, sourceKind, connections:batch.connections});
     signal.throwIfAborted();
+    delete item.speed;
     if (batch.originalExtension) {
       if (staged) {
         await holdBrowserFiles(batch, item, staging, [{file:staged, name:`${filename(item.title)}.${batch.originalExtension}`}], signal);
@@ -335,6 +357,8 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     if (!staged && item.status === 'downloading') {
       item.status = 'resolving';
       item.percent = 0;
+      delete item.bytes;
+      delete item.totalBytes;
       publish(batch, '并行下载未完成，改用 FFmpeg 读取原地址');
     }
     let media = staged || source;
@@ -359,7 +383,7 @@ async function runItem(batch, item, target, limit, cookies, signal) {
       const file = path.join(staging, outputName + '.' + extension);
       outputs.push({ name: outputName, extension, file,
         args: [...args, ...(limit ? ['-t', String(limit)] : []),
-          ...(['mp4', 'm4a'].includes(extension) ? ['-movflags', '+faststart'] : []), file] });
+          ...(target.fastStart && ['mp4', 'm4a'].includes(extension) ? ['-movflags', '+faststart'] : []), file] });
     };
     if (target.mode !== 'audio') addOutput(target.mode === 'combined' ? '' : '_视频', target.format,
       [...videoArgs, ...(target.mode === 'combined' ? combinedAudio : []), ...subtitleArgs]);

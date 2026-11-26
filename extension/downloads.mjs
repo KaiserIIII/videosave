@@ -1,5 +1,6 @@
 export const defaults = {mode:'combined', quality:'', format:'auto', audioFormat:'m4a', subtitles:false,
-  concurrency:2, accelerate:true, saveAs:false};
+  concurrency:2, connections:8, accelerate:true, saveAs:false, fastStart:true,
+  naming:'title', theme:'system', density:'comfortable', autoScan:true, showHost:false};
 export const activeStates = ['queued', 'starting', 'processing', 'downloading', 'paused'];
 export const endpointDefault = 'http://127.0.0.1:8765';
 
@@ -62,6 +63,8 @@ async function startNative(job, connection) {
   delete job.unreachableSince;
   job.percent = null;
   job.note = '';
+  job.speed = job.bytes = job.totalBytes = 0;
+  job.sampledAt = job.sampledBytes = 0;
   job.state = 'downloading';
 }
 
@@ -69,7 +72,7 @@ async function startJob(job, connection) {
   if (!job.processed) {
     if (job.settings.accelerate && connection?.token) {
       const batch = await companion(connection, '/api/queue/original', {
-        url:job.stream.url, title:job.title, extension:job.stream.kind,
+        url:job.stream.url, title:job.title, extension:job.stream.kind, connections:job.settings.connections,
       }).catch(() => null);
       if (batch?.id) {
         job.batch = batch.id;
@@ -79,9 +82,10 @@ async function startJob(job, connection) {
     }
     return startNative(job, connection);
   }
-  const {mode, quality, audioFormat, format, subtitles} = job.settings;
-  const batch = await companion(connection, '/api/queue', {delivery:'browser', items:[{
-    kind:'stream', url:job.stream.url, title:job.title, mode, audioFormat, subtitles,
+  const {mode, quality, audioFormat, format, subtitles, connections, fastStart} = job.settings;
+  const sourceKind = ['m3u8','mpd'].includes(job.stream.kind) ? job.stream.kind : undefined;
+  const batch = await companion(connection, '/api/queue', {delivery:'browser', connections, items:[{
+    kind:'stream', url:job.stream.url, title:job.title, mode, audioFormat, subtitles, sourceKind, fastStart,
     format:format === 'mkv' ? 'mkv' : 'mp4', ...(quality && {quality:Number(quality)}),
   }]});
   job.batch = batch.id;
@@ -93,6 +97,9 @@ async function transfer(job, connection, jobs) {
   delete job.unreachableSince;
   const item = batch.items[0];
   job.percent = item.percent;
+  job.bytes = item.bytes || 0;
+  job.totalBytes = item.totalBytes || 0;
+  job.speed = item.speed || 0;
   job.note = job.processed ? {queued:'等待本机处理', resolving:'读取媒体轨道', downloading:'正在下载并处理'}[item.status] || ''
     : {queued:'等待本机下载', resolving:'检查分段下载支持', downloading:'多连接下载中'}[item.status] || '';
   if (!job.processed && (item.native || item.status === 'error')) return startNative(job, connection);
@@ -112,6 +119,8 @@ async function transfer(job, connection, jobs) {
   }
   job.state = 'downloading';
   job.percent = null;
+  job.speed = job.bytes = job.totalBytes = 0;
+  job.sampledAt = job.sampledBytes = 0;
 }
 
 function release(job, connection) {
@@ -132,13 +141,22 @@ async function browserProgress(job, connection) {
   }
   const total = files.reduce((sum, file) => sum + Math.max(0, file?.totalBytes || 0), 0);
   const received = files.reduce((sum, file) => sum + (file?.bytesReceived || 0), 0);
+  const now = Date.now();
+  const elapsed = now - (job.sampledAt || now);
+  if (!job.sampledAt || elapsed >= 750) {
+    const speed = elapsed > 0 && !job.batch ? Math.max(0, (received - (job.sampledBytes || 0)) * 1000 / elapsed) : 0;
+    job.speed = Math.round(speed && job.speed ? speed * .7 + job.speed * .3 : speed);
+    job.sampledAt = now;
+    job.sampledBytes = received;
+  }
   job.bytes = received;
   job.totalBytes = total;
   job.percent = total > 0 ? Math.min(100, Math.floor(received / total * 100)) : null;
-  job.note = '';
+  job.note = job.batch ? '正在保存到 Edge' : '';
   if (files.every(file => file?.state === 'complete')) {
     job.state = 'done';
     job.percent = 100;
+    job.note = '';
     release(job, connection);
   } else {
     job.state = files.some(file => file?.paused) ? 'paused' : 'downloading';
@@ -233,6 +251,12 @@ async function mutate({action, id, streams, settings}, state) {
     state.settings = {...defaults, ...settings};
     await storage.set({downloadSettings:state.settings});
   }
+  if (action === 'clear') {
+    for (let index = jobs.length - 1; index >= 0; index--) {
+      if (!activeStates.includes(jobs[index].state)) jobs.splice(index, 1);
+    }
+    await persist(jobs);
+  }
   if (action === 'enqueue') {
     for (const stream of streams) {
       const jobSettings = {...state.settings, ...stream.options};
@@ -269,7 +293,7 @@ async function mutate({action, id, streams, settings}, state) {
       for (const file of records) {
         if (file?.state === 'in_progress') await chrome.downloads.cancel(file.id).catch(() => {});
       }
-      Object.assign(job, {batch:null, files:[], bytes:0});
+      Object.assign(job, {batch:null, files:[], bytes:0, totalBytes:0, speed:0, sampledAt:0, sampledBytes:0});
     }
     Object.assign(job, {state:'queued', percent:null, note:'', canResume:false, expired:false, resumePending:false});
     await persist(jobs);

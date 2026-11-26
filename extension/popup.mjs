@@ -1,4 +1,4 @@
-import { classify, pageStreams, scanDocument } from './media.mjs';
+import { classify, pageStreams, scanDocument, sourceTitle } from './media.mjs';
 import { activeStates, companion, defaults, endpointDefault, usesCompanion } from './downloads.mjs';
 
 const $ = id => document.getElementById(id);
@@ -15,6 +15,13 @@ const optionSets = {
   subtitles:['源文件内嵌字幕', [['false','不保留'], ['true','有则保留']]],
   concurrency:['并发任务', [['1','1 个'], ['2','2 个']]],
   accelerate:['原画直链加速', [['true','自动 · 需本机服务'], ['false','浏览器直接下载']]],
+  connections:['单任务连接数', [['4','4 · 稳定'], ['8','8 · 默认'], ['12','12 · 高速']]],
+  fastStart:['MP4 / M4A 文件优化', [['true','支持边下边播'], ['false','优先完成保存']]],
+  naming:['默认文件名', [['title','视频标题'], ['source','源文件名']]],
+  theme:['外观', [['system','跟随系统'], ['light','浅色'], ['dark','深色']]],
+  density:['列表密度', [['comfortable','标准'], ['compact','紧凑']]],
+  autoScan:['自动补扫', [['true','开启'], ['false','仅手动扫描']]],
+  showHost:['视频来源域名', [['false','隐藏'], ['true','显示']]],
 };
 
 let panel = 'videos';
@@ -53,6 +60,8 @@ function button(text, className, handler) {
 }
 
 function showPanel(next) {
+  if (panel !== next) $(next).animate([{opacity:0,transform:'translateY(5px)'},{opacity:1,transform:'none'}],
+    {duration:matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 180,easing:'ease-out'});
   panel = next;
   for (const nav of document.querySelectorAll('nav [data-panel]')) {
     const current = nav.dataset.panel === panel;
@@ -74,9 +83,8 @@ function durationLabel(duration) {
   return hours ? hours + ':' + String(minutes).padStart(2, '0') + ':' + seconds : minutes + ':' + seconds;
 }
 
-function optionsInto(parent, keys, initial, changed) {
+function optionsInto(parent, keys, values, changed) {
   const controls = {};
-  const values = {...initial};
   const syncControls = () => {
     if (controls.format) controls.format.disabled = values.mode === 'audio';
     if (controls.quality) controls.quality.disabled = values.mode === 'audio';
@@ -91,8 +99,8 @@ function optionsInto(parent, keys, initial, changed) {
     for (const [value, text] of choices) select.add(new Option(text, value));
     select.value = String(values[key]);
     select.addEventListener('change', guarded(async () => {
-      values[key] = key === 'concurrency' ? Number(select.value)
-        : ['subtitles', 'accelerate'].includes(key) ? select.value === 'true' : select.value;
+      values[key] = ['concurrency','connections'].includes(key) ? Number(select.value)
+        : ['subtitles','accelerate','fastStart','autoScan','showHost'].includes(key) ? select.value === 'true' : select.value;
       syncControls();
       await changed(values);
     }));
@@ -122,12 +130,18 @@ async function enqueue(items) {
     $('endpoint').focus();
     throw new Error('当前选项需要连接本机服务');
   }
-  await request('enqueue', {streams:items.map(stream => ({...stream,title:stream.title || pageTitle || '视频'}))});
+  await request('enqueue', {streams:items.map(stream => ({...stream,title:downloadTitle(stream)}))});
   selected.clear();
   document.querySelectorAll('#media input[type=checkbox]').forEach(input => { input.checked = false; });
   updateBulk();
   showPanel('downloads');
   status(items.length === 1 ? '已加入队列' : '已加入 ' + items.length + ' 个任务');
+}
+
+function downloadTitle(stream) {
+  if (stream.customTitle) return stream.customTitle;
+  const filename = sourceTitle(stream);
+  return (preferences.naming === 'source' && filename) || stream.title || filename || (streams.length <= 1 && pageTitle) || '未命名视频';
 }
 
 function updateBulk() {
@@ -144,12 +158,12 @@ function renderMedia(stream) {
   const row = element('li');
   row.dataset.url = stream.url;
   const summary = element('div');
-  const label = element('strong', 'media-title', stream.title || '未命名视频');
+  const label = element('strong', 'media-title', stream.title || sourceTitle(stream) || '未命名视频');
   label.title = label.textContent;
   const details = element('small', 'details', [
     ({m3u8:'HLS', mpd:'DASH'}[stream.kind] || stream.kind.toUpperCase()),
-    durationLabel(stream.duration), stream.width && stream.height && (stream.width + '×' + stream.height),
-    new URL(stream.url).hostname,
+    stream.duration && durationLabel(stream.duration), stream.width && stream.height && (stream.width + '×' + stream.height),
+    preferences.showHost && new URL(stream.url).hostname,
   ].filter(Boolean).join(' · '));
   summary.append(label, details);
 
@@ -162,19 +176,21 @@ function renderMedia(stream) {
     else selected.delete(stream.url);
     updateBulk();
   });
-  const preview = element('div', 'preview', '▶');
+  const preview = element('div', 'preview');
+  preview.append(element('span', 'play-icon'));
   preview.setAttribute('aria-hidden', 'true');
   if (stream.poster && /^https?:$/.test(URL.parse(stream.poster)?.protocol || '')) {
     const image = element('img');
     image.src = stream.poster;
     image.alt = '';
+    image.referrerPolicy = 'no-referrer';
     image.addEventListener('error', () => image.remove(), {once:true});
     preview.append(image);
   }
   const actions = element('div', 'actions');
   const config = element('div', 'card-options');
   config.hidden = true;
-  const optionsToggle = button('⋯', 'quiet', () => {
+  const optionsToggle = button('⋯', 'quiet options-button', () => {
     const opening = config.hidden;
     if (openedOptions && openedOptions.config !== config) {
       openedOptions.config.hidden = true;
@@ -186,25 +202,39 @@ function renderMedia(stream) {
   });
   optionsToggle.setAttribute('aria-label', '打开 ' + label.textContent + ' 的下载选项');
   optionsToggle.setAttribute('aria-expanded', 'false');
-  const download = button('下载', '', async () => enqueue([stream]));
+  const download = button('下载', 'download-button', async () => enqueue([stream]));
   download.setAttribute('aria-label', '下载 ' + label.textContent);
 
   const rename = element('label', '', '文件名');
   const name = element('input');
   name.type = 'text';
-  name.value = stream.title || pageTitle;
+  name.value = downloadTitle(stream);
   name.maxLength = 150;
   rename.append(name);
   const grid = element('div', 'option-grid');
-  const options = optionsInto(grid, ['mode', 'quality', 'format', 'audioFormat', 'subtitles'], preferences, () => {});
+  const options = optionsInto(grid, ['mode', 'quality', 'format', 'audioFormat', 'subtitles'], {...preferences}, () => {});
+  let chosen = stream;
+  if (stream.alternates?.length) {
+    const sources = [stream, ...stream.alternates];
+    const field = element('label', '', '媒体来源');
+    const picker = element('select');
+    for (const [index, source] of sources.entries()) {
+      picker.add(new Option(`${source.kind.toUpperCase()} · ${new URL(source.url).hostname}`, index));
+    }
+    picker.addEventListener('change', () => { chosen = sources[Number(picker.value)]; });
+    field.append(picker);
+    grid.prepend(field);
+  }
   const configActions = element('div', 'actions');
   configActions.append(button('复制链接', 'quiet', async () => {
-    await navigator.clipboard.writeText(stream.url);
+    await navigator.clipboard.writeText(chosen.url);
     status('链接已复制');
-  }), button('按此选项下载', '', () => enqueue([{...stream, title:name.value, options}])));
+  }), button('下载', '', () => enqueue([{...chosen, customTitle:name.value.trim(), options}])));
   config.append(rename, grid, configActions);
   actions.append(optionsToggle, download);
-  row.append(checkbox, preview, summary, actions, config);
+  const select = element('div','select-media');
+  select.append(checkbox);
+  row.append(select, preview, summary, actions, config);
   return row;
 }
 
@@ -219,6 +249,7 @@ async function refresh(retries = 4) {
     const observations = frames.map(frame => frame.result);
     const top = frames.find(frame => frame.frameId === 0)?.result;
     pageTitle = top?.pageTitle || tab.title || '';
+    $('site').textContent = URL.parse(tab.url)?.hostname || '';
     $('page-title').textContent = pageTitle || '当前标签页';
     $('page-title').title = pageTitle;
     const key = 'media:' + tab.id;
@@ -239,7 +270,8 @@ async function refresh(retries = 4) {
     hint.textContent = encrypted ? '播放器启用了 DRM' : observations.some(row => row.opaque)
       ? '播放一段视频后再扫描，查找分片清单。'
       : '还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。';
-    if (retries && observations.length && !encrypted && (!streams.length || streams.some(stream => !stream.duration))) {
+    if (preferences.autoScan && retries && observations.length && !encrypted &&
+        (!streams.length || streams.some(stream => !stream.duration || !stream.title))) {
       scanTimer = setTimeout(guarded(() => refresh(retries - 1)), 1500);
     }
   } finally {
@@ -273,7 +305,8 @@ function renderJob(job) {
     row.append(progress);
   }
   const description = [job.percent != null && job.state !== 'done' ? job.percent + '%' : '',
-    job.bytes ? formatBytes(job.bytes) + (job.totalBytes ? ' / ' + formatBytes(job.totalBytes) : '') : '', job.note]
+    job.bytes && job.state !== 'done' ? formatBytes(job.bytes) + (job.totalBytes ? ' / ' + formatBytes(job.totalBytes) : '') : '',
+    job.speed && ['downloading','processing'].includes(job.state) ? formatBytes(job.speed) + '/s' : '', job.note]
     .filter(Boolean).join(' · ');
   if (description) row.append(element('p', 'details', description));
   const actions = element('div', 'actions');
@@ -301,11 +334,25 @@ function updateJobs(jobs) {
   $('active-count').hidden = !active;
   $('active-count').textContent = active;
   $('queue-empty').hidden = Boolean(jobs.length);
+  $('clear').hidden = !jobs.some(job => !activeStates.includes(job.state));
   const snapshot = JSON.stringify(jobs);
   if (snapshot !== lastJobs) {
     const focused = document.activeElement;
     const id = focused?.closest('#queue li')?.dataset.id;
-    const rows = jobs.map(renderJob);
+    const previous = new Map([...$('queue').children].map(row => [row.dataset.id, row]));
+    const rows = jobs.map(job => {
+      const old = previous.get(job.id);
+      const row = renderJob(job);
+      if (!old) row.classList.add('new-job');
+      const bar = row.querySelector('progress');
+      const oldValue = old?.querySelector('progress')?.getAttribute('value');
+      if (bar?.hasAttribute('value') && oldValue != null) {
+        bar.style.setProperty('--progress-before', oldValue + '%');
+        bar.style.setProperty('--progress-now', bar.value + '%');
+        bar.classList.add('progress-change');
+      }
+      return row;
+    });
     $('queue').replaceChildren(...rows);
     if (id) {
       const row = rows.find(node => node.dataset.id === id);
@@ -341,6 +388,7 @@ $('all').addEventListener('change', () => {
 $('queue-selected').addEventListener('click', guarded(() => enqueue(streams.filter(stream => selected.has(stream.url)))));
 $('history').addEventListener('click', guarded(() => chrome.tabs.create({url:'edge://downloads/'})));
 $('folder').addEventListener('click', guarded(() => chrome.downloads.showDefaultFolder()));
+$('clear').addEventListener('click', guarded(() => request('clear')));
 $('pair').addEventListener('submit', guarded(async event => {
   event.preventDefault();
   const endpoint = $('endpoint').value.replace(/\/$/, '');
@@ -389,16 +437,25 @@ await guarded(async () => {
   const saved = await storage.get(['connection','downloadSettings','downloadJobs']);
   connection = saved.connection ?? connection;
   preferences = {...defaults, ...saved.downloadSettings};
+  const applyAppearance = () => {
+    document.documentElement.dataset.theme = preferences.theme;
+    document.documentElement.dataset.density = preferences.density;
+  };
+  applyAppearance();
   $('endpoint').value = connection.endpoint;
   $('token').value = connection.token;
   $('save-as').checked = preferences.saveAs;
   connectionLabel();
   const saveOptions = async options => {
     preferences = {...options, saveAs:$('save-as').checked};
+    applyAppearance();
     await request('settings', {settings:preferences});
     if (!openedOptions) $('media').replaceChildren(...streams.map(renderMedia));
   };
-  const values = optionsInto($('settings-options'), Object.keys(optionSets), preferences, saveOptions);
+  const values = {...preferences};
+  optionsInto($('settings-options'), ['mode','quality','format','audioFormat','subtitles','naming'], values, saveOptions);
+  optionsInto($('transfer-options'), ['concurrency','connections','accelerate','fastStart'], values, saveOptions);
+  optionsInto($('interface-options'), ['theme','density','autoScan','showHost'], values, saveOptions);
   $('save-as').addEventListener('change', guarded(() => saveOptions(values)));
   storage.onChanged.addListener(changes => {
     if (changes.downloadJobs) updateJobs(changes.downloadJobs.newValue ?? []);
