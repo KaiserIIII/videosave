@@ -10,7 +10,7 @@ import { prefetchRanges } from './range-prefetch.mjs';
 import { ApiError, FFMPEG, discover, mediaInput, mediaUrl, parseCookies, probeStream, runMedia } from './media-source.mjs';
 
 export { ApiError };
-export const VERSION = '0.6.1';
+export const VERSION = '0.6.2';
 
 function defaultDownloads() {
   try {
@@ -88,6 +88,8 @@ export async function probe({ url: value, cookie } = {}) {
         if (value != null && (!['size','sizeEstimated'].includes(key) || !hasObservedSize)) stream[key] = value;
       }
     }
+    const sortableDuration = ({duration}) => Number.isFinite(duration) && duration > 0 ? duration : 0;
+    result.streams.sort((a, b) => sortableDuration(b) - sortableDuration(a));
     return result;
   });
 }

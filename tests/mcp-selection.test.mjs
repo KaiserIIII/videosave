@@ -78,12 +78,14 @@ test('MCP gives a client evidence to choose the full film over the autoplay teas
     titleSource:'heading', playerCount:2});
   assert.equal(pages[0].title, 'Another film');
   assert.equal(streams.some(stream => stream.url.endsWith('/104.mp4')), false);
+  assert.deepEqual(streams.map(stream => stream.duration), [5, 5, 2, 2, null]);
   const teaser = streams.find(stream => stream.recommended);
   assert.equal(teaser.player.heading, 'Festival teaser');
   assert.equal(teaser.player.playing, true);
   assert.equal(teaser.duration, 2);
   const movie = streams.find(stream => stream.currentSource && stream.player?.description === 'Full film, including the credits.');
   assert.ok(movie);
+  assert.equal(streams[0], movie);
   assert.equal(movie.title, 'Across the lake');
   assert.equal(movie.titleSource, 'player-heading');
   assert.equal(movie.discoveredBy, 'player');

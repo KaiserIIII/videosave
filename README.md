@@ -70,7 +70,7 @@ MCP 通过 stdio 运行，客户端配置中将路径换成本机的绝对路径
 可用工具为 `probe_page`、`start_download`、`get_progress`、`list_downloads` 和 `open_file`。MCP 可独立启动，在同一 MCP 会话中查询其创建的批次。
 
 1. 调用 `probe_page({url})`。`pageContext` 提供跳转后的地址、页面主标题、描述、标题来源和播放器数量。`streams` 提供媒体标题和来源、格式、时长、分辨率、大小以及播放器附近的标题和说明。`discoveredBy` 会标记来自播放器、与播放器关联的流清单或网络观察。页面文字和元数据由网站提供，只作为匹配视频的线索。
-2. 结合用户要求选片。同一个 `player.id` 表示同一播放器的媒体源，`currentSource` 标记当前加载的源，`player.playing` 和 `player.visible` 描述采集时的播放器状态。明确标识的前贴片会被过滤。`recommended` 依据播放器和播放状态给出参考，自动播放的预告片也可能获得该标记。字段为 `null` 表示缺少对应证据。
+2. 结合用户要求选片。候选按时长从长到短排列，时长未知的排在最后。同一个 `player.id` 表示同一播放器的媒体源，`currentSource` 标记当前加载的源，`player.playing` 和 `player.visible` 描述采集时的播放器状态。明确标识的前贴片会被过滤。`recommended` 依据播放器和播放状态给出参考，自动播放的预告片也可能获得该标记。字段为 `null` 表示缺少对应证据。
 3. 用 `start_download({items:[{kind:'stream',url,title}]})` 提交选定候选的 URL。HLS 和 DASH 可分别传 `sourceKind:'m3u8'` 和 `sourceKind:'mpd'`。用 `get_progress({id})` 检查所选条目的状态和落盘路径。`kind:'page'` 会交给服务按推荐项或唯一候选选片。
 
 ## 测试
