@@ -1,0 +1,146 @@
+{
+  "videoSave": "0.9.0",
+  "ytDlp": "2026.11.23",
+  "connections": 8,
+  "timeoutMs": 60000,
+  "rows": [
+    {
+      "sample": "Apple",
+      "engine": "VideoSave",
+      "round": 1,
+      "seconds": 3.412,
+      "size": 54920356,
+      "duration": 600,
+      "hashes": [
+        "v,SHA256=158dbd7b37fd18b8e03f57d68b301e069d15b5ff35564ca4659e8c7a5f08fec0"
+      ]
+    },
+    {
+      "sample": "Apple",
+      "engine": "yt-dlp",
+      "round": 1,
+      "seconds": 18.89,
+      "size": 55050222,
+      "duration": 610,
+      "hashes": [
+        "v,SHA256=158dbd7b37fd18b8e03f57d68b301e069d15b5ff35564ca4659e8c7a5f08fec0"
+      ]
+    },
+    {
+      "sample": "Apple",
+      "engine": "yt-dlp",
+      "round": 2,
+      "seconds": 3.543,
+      "size": 55050222,
+      "duration": 610,
+      "hashes": [
+        "v,SHA256=158dbd7b37fd18b8e03f57d68b301e069d15b5ff35564ca4659e8c7a5f08fec0"
+      ]
+    },
+    {
+      "sample": "Apple",
+      "engine": "VideoSave",
+      "round": 2,
+      "seconds": 1.636,
+      "size": 54920356,
+      "duration": 600,
+      "hashes": [
+        "v,SHA256=158dbd7b37fd18b8e03f57d68b301e069d15b5ff35564ca4659e8c7a5f08fec0"
+      ]
+    },
+    {
+      "sample": "Apple",
+      "engine": "VideoSave",
+      "round": 3,
+      "seconds": 2.173,
+      "size": 54920356,
+      "duration": 600,
+      "hashes": [
+        "v,SHA256=158dbd7b37fd18b8e03f57d68b301e069d15b5ff35564ca4659e8c7a5f08fec0"
+      ]
+    },
+    {
+      "sample": "Apple",
+      "engine": "yt-dlp",
+      "round": 3,
+      "seconds": 3.887,
+      "size": 55050222,
+      "duration": 610,
+      "hashes": [
+        "v,SHA256=158dbd7b37fd18b8e03f57d68b301e069d15b5ff35564ca4659e8c7a5f08fec0"
+      ]
+    },
+    {
+      "sample": "Mux",
+      "engine": "VideoSave",
+      "round": 1,
+      "seconds": 20.104,
+      "size": 36675037,
+      "duration": 634.633333,
+      "hashes": [
+        "a,SHA256=d30aec67119c5083e2864715f1df637877161990c7260472b1e1b6f35d1a3ac6",
+        "v,SHA256=1ee64d376af993b0f775ff4ea5d803eee82c65a66b26b301d7d6d9a621d550f1"
+      ]
+    },
+    {
+      "sample": "Mux",
+      "engine": "yt-dlp",
+      "round": 1,
+      "seconds": 16.473,
+      "size": 36674973,
+      "duration": 634.633333,
+      "hashes": [
+        "a,SHA256=d30aec67119c5083e2864715f1df637877161990c7260472b1e1b6f35d1a3ac6",
+        "v,SHA256=1ee64d376af993b0f775ff4ea5d803eee82c65a66b26b301d7d6d9a621d550f1"
+      ]
+    },
+    {
+      "sample": "Mux",
+      "engine": "yt-dlp",
+      "round": 2,
+      "seconds": 8.454,
+      "size": 36674973,
+      "duration": 634.633333,
+      "hashes": [
+        "a,SHA256=d30aec67119c5083e2864715f1df637877161990c7260472b1e1b6f35d1a3ac6",
+        "v,SHA256=1ee64d376af993b0f775ff4ea5d803eee82c65a66b26b301d7d6d9a621d550f1"
+      ]
+    },
+    {
+      "sample": "Mux",
+      "engine": "VideoSave",
+      "round": 2,
+      "seconds": 11.364,
+      "size": 36675037,
+      "duration": 634.633333,
+      "hashes": [
+        "a,SHA256=d30aec67119c5083e2864715f1df637877161990c7260472b1e1b6f35d1a3ac6",
+        "v,SHA256=1ee64d376af993b0f775ff4ea5d803eee82c65a66b26b301d7d6d9a621d550f1"
+      ]
+    },
+    {
+      "sample": "Mux",
+      "engine": "VideoSave",
+      "round": 3,
+      "seconds": 11.635,
+      "size": 36675037,
+      "duration": 634.633333,
+      "hashes": [
+        "a,SHA256=d30aec67119c5083e2864715f1df637877161990c7260472b1e1b6f35d1a3ac6",
+        "v,SHA256=1ee64d376af993b0f775ff4ea5d803eee82c65a66b26b301d7d6d9a621d550f1"
+      ]
+    },
+    {
+      "sample": "Mux",
+      "engine": "yt-dlp",
+      "round": 3,
+      "seconds": 15.552,
+      "size": 36674973,
+      "duration": 634.633333,
+      "hashes": [
+        "a,SHA256=d30aec67119c5083e2864715f1df637877161990c7260472b1e1b6f35d1a3ac6",
+        "v,SHA256=1ee64d376af993b0f775ff4ea5d803eee82c65a66b26b301d7d6d9a621d550f1"
+      ]
+    }
+  ]
+}

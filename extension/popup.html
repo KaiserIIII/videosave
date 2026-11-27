@@ -32,6 +32,7 @@
       </div>
       <p id="hint" class="empty" hidden></p>
       <ul id="media" class="media" aria-label="检测到的视频" data-i18n-aria></ul>
+      <button id="export-diagnostic" class="text-button" type="button" data-i18n>导出探测诊断</button>
       <details class="manual">
         <summary data-i18n>粘贴媒体链接</summary>
         <form id="manual" class="input-row">
@@ -81,6 +82,19 @@
           </div>
           <div id="interface-options" class="option-grid"></div>
         </details>
+        <details class="settings-block">
+          <summary data-i18n>备份与更新</summary>
+          <div class="settings-actions">
+            <button type="button" class="quiet" id="export-settings" data-i18n>导出设置</button>
+            <button type="button" class="quiet" id="import-settings" data-i18n>导入设置</button>
+            <button type="button" class="text-button" id="reset-settings" data-i18n>恢复默认设置</button>
+            <input id="settings-file" type="file" accept=".json,application/json" hidden>
+          </div>
+          <div class="settings-actions">
+            <span id="current-version"></span>
+            <button type="button" class="text-button" id="check-release" data-i18n>查看官方更新 ↗</button>
+          </div>
+        </details>
         <details class="settings-block" id="service-settings">
           <summary data-i18n>本机下载服务</summary>
           <p id="service-status" class="details" role="status" hidden></p>
@@ -101,6 +115,13 @@
     <p id="status" role="status" aria-live="polite"></p>
     <button id="history" type="button" class="text-button" data-i18n>浏览器下载记录 ↗</button>
   </footer>
+  <dialog id="reset-settings-dialog" aria-labelledby="reset-settings-title">
+    <h2 id="reset-settings-title" data-i18n>恢复默认设置</h2>
+    <form method="dialog" class="settings-actions">
+      <button type="submit" class="quiet" data-i18n>取消</button>
+      <button type="button" id="confirm-reset-settings" data-i18n>恢复</button>
+    </form>
+  </dialog>
   <dialog id="preview-dialog" aria-labelledby="preview-title">
     <div class="preview-head">
       <h2 id="preview-title"></h2>

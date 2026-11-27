@@ -1,0 +1,154 @@
+name: Verify VideoSave
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    name: Linux Node.js ${{ matrix.node }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - '24.22.3' # e63cab040c09d43ceef8cb35508c40044614e906
+          - '26.13.1' # e9c277643b0249c50f6e6de5413be8a88ea11b6a
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, MIT
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, MIT
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Check JavaScript and Python syntax
+        shell: bash
+        run: |
+          while IFS= read -r -d '' source; do
+            node --check "$source" || exit 1
+          done < <(git ls-files -z -- 'extension/*.mjs' 'tools/*.mjs' 'tests/*.mjs')
+          python3 -m py_compile tools/build_release.py tools/verify_release.py
+      - name: Test portable JavaScript modules
+        run: >-
+          node --test tests/detection.test.mjs tests/media.test.mjs tests/media-source.test.mjs
+          tests/http-boundaries.test.mjs tests/download-proxy.test.mjs tests/platform-download.test.mjs tests/range-performance.test.mjs
+
+  verify:
+    name: Windows ${{ matrix.target }}
+    runs-on: windows-2025
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [delivery, edge, chrome, firefox, mcp-edge]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, MIT
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, MIT
+        with:
+          node-version: '24.22.3'
+          package-manager-cache: false
+      - name: Prepare pinned FFmpeg and ffprobe
+        run: |
+          $applicationDirectories = @(Get-Command ffmpeg.exe, ffprobe.exe -All -CommandType Application -ErrorAction SilentlyContinue |
+            ForEach-Object { Split-Path -Parent $_.Source })
+          $env:Path = ($env:Path -split ';' | Where-Object { $_.TrimEnd('\') -notin $applicationDirectories }) -join ';'
+          $raw = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tools/start-windows.ps1 -McpConfig -SkipPlatform
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $media = ($raw | ConvertFrom-Json).mcpServers.videosave.env
+          "FFMPEG_BIN=$($media.FFMPEG_BIN)" >> $env:GITHUB_ENV
+          "FFPROBE_BIN=$($media.FFPROBE_BIN)" >> $env:GITHUB_ENV
+      - name: Run regression tests
+        if: matrix.target == 'delivery'
+        run: node --test
+      - name: Check delivery paths in Edge and MCP
+        if: matrix.target == 'delivery'
+        run: node tests/smoke.mjs --delivery-only
+      - name: Build and verify release packages
+        id: release
+        run: |
+          $manifest = Get-Content -Raw extension/manifest.json | ConvertFrom-Json
+          $version = $manifest.version
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "The release tag does not match the manifest version."
+          }
+          python tools/build_release.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($env:VIDEOSAVE_TEST_TARGET -eq 'delivery') {
+            python tools/verify_release.py --smoke-windows
+          } else {
+            python tools/verify_release.py
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "name=VideoSave-$version" >> $env:GITHUB_OUTPUT
+        env:
+          VIDEOSAVE_TEST_TARGET: ${{ matrix.target }}
+      - name: Run compatibility matrix on extracted packages
+        if: matrix.target != 'delivery'
+        env:
+          VIDEOSAVE_TEST_BROWSER: ${{ matrix.target }}
+          VIDEOSAVE_PACKAGE_NAME: ${{ steps.release.outputs.name }}
+        run: |
+          $name = $env:VIDEOSAVE_PACKAGE_NAME
+          $target = $env:VIDEOSAVE_TEST_BROWSER
+          if ($target -eq 'mcp-edge') {
+            Expand-Archive "dist/$name.zip" unpacked
+            $source = "unpacked/$name"
+          } else {
+            $suffix = if ($target -eq 'firefox') { 'firefox' } else { 'extension' }
+            Expand-Archive "dist/$name-$suffix.zip" unpacked/extension
+            $source = 'unpacked'
+          }
+          node tests/compatibility.mjs "--browser=$target" "--source=$source" --strict --output=compatibility.json
+      - name: Upload verified release packages
+        if: matrix.target == 'delivery'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, MIT
+        with:
+          name: release-packages
+          path: |
+            dist/${{ steps.release.outputs.name }}*.zip
+            dist/${{ steps.release.outputs.name }}-sbom.cdx.json
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+      - name: Upload compatibility report
+        if: ${{ !cancelled() && matrix.target != 'delivery' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2, MIT
+        with:
+          name: compatibility-${{ matrix.target }}
+          path: compatibility.json
+          if-no-files-found: warn
+
+  attest:
+    name: Attest verified release files
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [runtime, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0, MIT
+        with:
+          name: release-packages
+          path: release
+      - name: Check transferred artifact checksums
+        working-directory: release
+        run: sha256sum --strict --check SHA256SUMS.txt
+      - name: Attest provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2, MIT
+        with:
+          subject-path: |
+            release/*.zip
+            release/*-sbom.cdx.json
+            release/SHA256SUMS.txt

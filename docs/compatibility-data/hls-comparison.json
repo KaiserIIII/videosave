@@ -1,0 +1,491 @@
+{
+  "system": "win32",
+  "cpu": "Intel(R) Core(TM) i7-14650HX",
+  "node": "v24.19.0",
+  "connections": 8,
+  "timeoutMs": 30000,
+  "segmentCount": 24,
+  "fixtureBytes": 2739348,
+  "rows": [
+    {
+      "scenario": "steady",
+      "round": 1,
+      "product": "VideoSave 0.8.1",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 1148,
+      "requests": 25,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "steady",
+      "round": 1,
+      "product": "VideoSave 0.9.0",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 1114,
+      "requests": 25,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "steady",
+      "round": 1,
+      "product": "yt-dlp 2026.11.23",
+      "status": "done",
+      "elapsedMs": 2619,
+      "requests": 28,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608360,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "steady",
+      "round": 2,
+      "product": "VideoSave 0.9.0",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 1124,
+      "requests": 25,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "steady",
+      "round": 2,
+      "product": "yt-dlp 2026.11.23",
+      "status": "done",
+      "elapsedMs": 2567,
+      "requests": 28,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608360,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "steady",
+      "round": 2,
+      "product": "VideoSave 0.8.1",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 1056,
+      "requests": 25,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "steady",
+      "round": 3,
+      "product": "yt-dlp 2026.11.23",
+      "status": "done",
+      "elapsedMs": 2590,
+      "requests": 28,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608360,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "steady",
+      "round": 3,
+      "product": "VideoSave 0.8.1",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 992,
+      "requests": 25,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "steady",
+      "round": 3,
+      "product": "VideoSave 0.9.0",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 1012,
+      "requests": 25,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "slow-tail",
+      "round": 1,
+      "product": "VideoSave 0.8.1",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 3019,
+      "requests": 26,
+      "segmentRequests": 25,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2740372,
+      "repeatedMediaBytes": 1024,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "slow-tail",
+      "round": 1,
+      "product": "VideoSave 0.9.0",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 3038,
+      "requests": 26,
+      "segmentRequests": 25,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2740372,
+      "repeatedMediaBytes": 1024,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "slow-tail",
+      "round": 1,
+      "product": "yt-dlp 2026.11.23",
+      "status": "done",
+      "elapsedMs": 6573,
+      "requests": 28,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608360,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "slow-tail",
+      "round": 2,
+      "product": "VideoSave 0.9.0",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 3121,
+      "requests": 26,
+      "segmentRequests": 25,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2740372,
+      "repeatedMediaBytes": 1024,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "slow-tail",
+      "round": 2,
+      "product": "yt-dlp 2026.11.23",
+      "status": "done",
+      "elapsedMs": 28214,
+      "requests": 28,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608360,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "slow-tail",
+      "round": 2,
+      "product": "VideoSave 0.8.1",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 3012,
+      "requests": 26,
+      "segmentRequests": 25,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2740372,
+      "repeatedMediaBytes": 1024,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "slow-tail",
+      "round": 3,
+      "product": "yt-dlp 2026.11.23",
+      "status": "done",
+      "elapsedMs": 6390,
+      "requests": 28,
+      "segmentRequests": 24,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2739348,
+      "repeatedMediaBytes": 0,
+      "fileBytes": 2608360,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "slow-tail",
+      "round": 3,
+      "product": "VideoSave 0.8.1",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 3038,
+      "requests": 26,
+      "segmentRequests": 25,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2740372,
+      "repeatedMediaBytes": 1024,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    },
+    {
+      "scenario": "slow-tail",
+      "round": 3,
+      "product": "VideoSave 0.9.0",
+      "status": "done",
+      "prefetch": true,
+      "elapsedMs": 3050,
+      "requests": 26,
+      "segmentRequests": 25,
+      "peakSegmentRequests": 8,
+      "mediaBytes": 2740372,
+      "repeatedMediaBytes": 1024,
+      "fileBytes": 2608408,
+      "verified": {
+        "duration": 24.032653,
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "hashes": [
+          "0,v,SHA256=87737f094804fdd969dd4717aac407c919d9069cbdfccf30880b1e2c120fa644",
+          "1,a,SHA256=a9ff65ca08489ceb53c8c96b29becfba5ccd970de0b1e7f90a9b18676d833722"
+        ],
+        "width": 640,
+        "height": 360
+      }
+    }
+  ]
+}

@@ -346,7 +346,7 @@ async function mutate({action, id, streams, settings}, state, remote) {
   if (action === 'enqueue') {
     for (const stream of streams) {
       const jobSettings = {...state.settings, ...stream.options};
-      if (!/^(?:mp4|webm|mkv|mov|m4v|ogv|avi|m3u8|mpd|page)$/.test(stream.kind)) {
+      if (!/^(?:mp4|webm|mkv|mov|m4v|ogv|avi|m3u8|mpd|ts|mp3|m4a|ogg|wav|flac|page)$/.test(stream.kind)) {
         throw new Error('不支持此媒体格式');
       }
       if (!/^https?:$/.test(new URL(stream.url).protocol)) throw new Error('媒体地址必须使用 HTTP(S)');

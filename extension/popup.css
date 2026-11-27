@@ -400,6 +400,11 @@ footer {
 :root[data-direct-only=true] .media li>.actions { grid-column:1/-1;justify-content:flex-end }
 :root[data-mobile=true] body { inline-size:100vw;max-block-size:100dvh }
 :root[data-mobile=true] button { min-block-size:40px }
+.settings-actions { display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-block:5px }
+#current-version { color:var(--muted);font-variant-numeric:tabular-nums }
+#reset-settings-dialog { border:1px solid var(--stroke);border-radius:10px;background:var(--surface);color:var(--ink);padding:16px }
+#reset-settings-dialog .settings-actions { justify-content:flex-end;padding-block:12px 0 }
+#reset-settings-dialog::backdrop { background:#0b0e1366 }
 @media(prefers-reduced-motion:reduce) {
   *,*::before,*::after { animation-duration:0s !important;transition-duration:0s !important }
 }

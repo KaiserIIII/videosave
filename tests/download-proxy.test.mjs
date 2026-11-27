@@ -2,27 +2,38 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import {spawn} from 'node:child_process';
 import {once} from 'node:events';
+import {connect} from 'node:net';
 import {fileURLToPath} from 'node:url';
 import test from 'node:test';
 
 test('uses the configured proxy for media while keeping loopback requests local', async t => {
   if (!http.setGlobalProxyFromEnv) return t.skip('Requires Node.js with the native proxy API');
   const seen = [];
-  const proxy = http.createServer();
-  proxy.on('connect', (req, socket) => {
-    seen.push(req.url);
+  const tunnels = [];
+  const localRanges = [];
+  const respondToMedia = (req, res) => {
+    const url = new URL(req.url, `http://${req.headers.host}`).href;
+    seen.push([req.method, url, req.headers.host, req.headers.range]);
+    res.writeHead(200, {'content-length':5, connection:'close'}).end('media');
+  };
+  const tunnelTarget = http.createServer(respondToMedia);
+  const proxy = http.createServer(respondToMedia);
+  proxy.on('connect', (req, socket, head) => {
+    tunnels.push(req.url);
+    const upstream = connect(tunnelTarget.address().port, '127.0.0.1');
+    socket.on('error', () => upstream.destroy());
+    socket.on('close', () => upstream.destroy());
+    upstream.on('error', () => socket.destroy());
     socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-    socket.once('data', () => {
-      socket.end('HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nmedia');
-    });
+    if (head.length) upstream.write(head);
+    socket.pipe(upstream).pipe(socket);
   });
-  proxy.on('request', (req,res) => {
-    seen.push(req.url);
-    res.writeHead(200,{'content-length':5,'connection':'close'}).end('media');
+  const local = http.createServer((req, res) => {
+    localRanges.push(req.headers.range);
+    res.end('local');
   });
-  const local = http.createServer((req, res) => res.end('local'));
   const outsideBypass = http.createServer((req, res) => res.end('direct'));
-  for (const [server, host] of [[proxy,'127.0.0.1'],[local,'127.0.0.1'],[outsideBypass,'127.0.0.2']]) {
+  for (const [server, host] of [[tunnelTarget,'127.0.0.1'],[proxy,'127.0.0.1'],[local,'127.0.0.1'],[outsideBypass,'127.0.0.2']]) {
     server.listen(0, host);
     await once(server, 'listening');
     t.after(() => { server.closeAllConnections(); server.close(); });
@@ -61,14 +72,24 @@ test('uses the configured proxy for media while keeping loopback requests local'
     assert.equal(exit, 0, stderr);
     return stdout.trim().split(/\r?\n/);
   };
-  assert.deepEqual(await run({}, 'http://videosave-proxy.test/media', localUrl), ['media', 'local']);
-  assert.deepEqual(seen, ['videosave-proxy.test:80']);
+  const upstreamHost = 'videosave-proxy.test';
+  const fetchUrl = `http://${upstreamHost}/media`;
+  const rangeUrl = `http://${upstreamHost}/direct-file`;
+  assert.deepEqual(await run({}, fetchUrl, localUrl), ['media', 'local']);
+  assert.deepEqual(seen, [['GET', fetchUrl, upstreamHost, undefined]]);
+  const tunnelCount = tunnels.length;
   // An invalid proxy must not keep the local MCP and companion from starting.
   assert.deepEqual(await run({HTTP_PROXY:'none'}, localUrl), ['local']);
   // A wildcard must bypass the proxy even for hosts outside the loopback list.
   assert.deepEqual(await run({NO_PROXY:'*'}, `http://127.0.0.2:${outsideBypass.address().port}/media`), ['direct']);
-  assert.deepEqual(seen, ['videosave-proxy.test:80']);
-  assert.deepEqual(await run({}, 'http://videosave-proxy.test/direct-file',
+  assert.deepEqual(seen, [['GET', fetchUrl, upstreamHost, undefined]]);
+  assert.equal(tunnels.length, tunnelCount);
+  assert.deepEqual(await run({}, rangeUrl,
     new URL('/direct-file',localUrl).href), ['media','local']);
-  assert.ok(seen[1].includes('videosave-proxy.test'));
+  assert.deepEqual(seen, [
+    ['GET', fetchUrl, upstreamHost, undefined],
+    ['GET', rangeUrl, upstreamHost, 'bytes=0-0'],
+  ]);
+  assert.deepEqual(localRanges, [undefined, undefined, 'bytes=0-0']);
+  for (const authority of tunnels) assert.equal(authority, `${upstreamHost}:80`);
 });

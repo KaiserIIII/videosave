@@ -1,8 +1,11 @@
+import { assessCandidates, detectionDiagnostic, diagnosticReport } from './detection.mjs';
+import { observeMediaChanges, inspectPublicManifest } from './live-detection.mjs';
 import { browserApi, downloadsPage, downloadSettingsPage, isAndroid, nativeDownloads } from './browser.mjs';
-import { canUseMediaTitle, classify, isPlaylist, pageStreams, platformVideo, scanDocument, sourceTitle } from './media.mjs';
+import { canUseMediaTitle, classify, isPlaylist, pageStreams, platformVideo, scanDocument, selectPageStream, sourceTitle } from './media.mjs';
 import { queryMp4Metadata } from './media-metadata.mjs';
 import { activeStates, companion, endpointDefault, usesCompanion } from './downloads.mjs';
-import { defaults, downloadFolder, interfaceLanguage, maxConcurrency, readDownloadSettings } from './settings.mjs';
+import { defaults, downloadFolder, interfaceLanguage, maxConcurrency, readDownloadSettings,
+  restoreSettingsBackup, settingsBackup } from './settings.mjs';
 import { translate } from './locale.mjs';
 import { canQuerySize, preparePreview, queryMediaSize } from './preview.mjs';
 
@@ -42,7 +45,7 @@ const optionSets = {
 };
 const themes = {system:'跟随系统',light:'浅色',dark:'深色',jade:'竹青',amber:'琥珀'};
 const connectionCopy = {
-  unpaired:['连接服务', '运行 node tools/server.mjs，然后输入终端显示的地址和配对码。'],
+  unpaired:['连接服务', '双击 Start VideoSave.cmd，输入窗口显示的地址和配对码。直链下载无需配对。'],
   checking:['正在连接…', '正在检查本机服务…'],
   connected:['已连接', '本机服务已连接'],
   unauthorized:['配对码无效', '请输入当前服务终端显示的配对码，然后重新连接。'],
@@ -60,12 +63,35 @@ let tab;
 let pageTitle = '';
 let pageHeading = '正在扫描…';
 let scanHint = '';
+let detection = {code:'no-player'};
+let scanQueued = false;
+let watchingTab;
+let scannedUrl;
+const manifestCache = new Map();
+const diagnosticHints = {
+  'multiple-candidates':'检测到多个候选，请确认要下载的视频。',
+  'no-player':'页面中未检测到播放器。',
+  'media-not-loaded':'请正常播放视频，候选列表会自动更新。',
+  'no-playlist-request':'播放器已就绪，尚未观察到媒体清单。',
+  'frame-access':'无法访问一个或多个嵌入播放器。',
+  'unsupported-format':'播放器使用了暂不支持的媒体来源。',
+  'only-ads':'页面目前只提供了广告候选。',
+  'login-required':'请在网站上登录后重新扫描。',
+  paywall:'站点要求授权访问。',
+  forbidden:'站点限制了访问。',
+  'rate-limited':'站点要求稍后重试。',
+  captcha:'站点要求完成验证码。',
+  'cf-turnstile':'站点要求完成安全验证。',
+  'cloudflare-challenge':'站点返回 Cloudflare 验证页，未探测到媒体流。',
+  drm:'播放器启用了 DRM',
+};
 let streams = [];
 let lastStreams;
 let lastJobs;
 let downloadJobs = [];
 let scanning = false;
 let scanTimer;
+let discoveryRetry;
 let pollTimer;
 let polling = false;
 let openedOptions;
@@ -545,13 +571,38 @@ function renderMedia(stream) {
   return row;
 }
 
-async function refresh(retries = 4) {
+function scheduleScan() {
+  if (!tab || !preferences.autoScan) return;
+  scanQueued = true;
+  if (scanning || scanTimer) return;
+  scanTimer = setTimeout(guarded(async () => {
+    scanTimer = undefined;
+    await refresh(false);
+  }), 500);
+}
+
+async function stopWatching() {
+  const tabId = watchingTab;
+  watchingTab = undefined;
+  if (tabId !== undefined) await browserApi.scripting.executeScript({
+    target:{tabId,allFrames:true},func:observeMediaChanges,args:[false],
+  }).catch(() => {});
+}
+
+async function refresh(manual = true) {
   if (!tab || scanning) return;
   clearTimeout(scanTimer);
+  scanTimer = undefined;
+  scanQueued = false;
   scanning = true;
-  if (retries === 4) $('refresh').disabled = true;
+  if (manual) $('refresh').disabled = true;
   try {
-    const scan = allFrames => browserApi.scripting.executeScript({target:{tabId:tab.id, allFrames},func:scanDocument});
+    const currentTab = await browserApi.tabs.get?.(tab.id).catch(() => null);
+    if (currentTab) tab = currentTab;
+    const pageChanged = scannedUrl !== undefined && scannedUrl !== tab.url;
+    if (pageChanged) manifestCache.clear();
+    scannedUrl = tab.url;
+    const scan = allFrames => browserApi.scripting.executeScript({target:{tabId:tab.id, allFrames},func:scanDocument,args:[true]});
     const frames = (await scan(true).catch(() => scan(false).catch(() => []))).filter(frame => frame.result);
     const observations = frames.map(frame => frame.result);
     const top = frames.find(frame => frame.frameId === 0)?.result;
@@ -562,10 +613,37 @@ async function refresh(retries = 4) {
     $('page-title').textContent = pageTitle || t(pageHeading);
     $('page-title').title = pageTitle;
     const key = 'media:' + tab.id;
-    const requests = (await browserApi.storage.session.get(key))[key] || [];
-    const encrypted = observations.some(row => row.encrypted);
-    streams = encrypted ? [] : pageStreams(frames, requests);
-    const platform = nativeDownloads && !encrypted ? platformVideo(tab.url) : null;
+    const stored = (await browserApi.storage.session.get(key))[key] || [];
+    const allowedFrames = new Map(frames.map(frame => [frame.frameId,frame]));
+    const requests = stored.filter(row => {
+      const frame = allowedFrames.get(row.frameId);
+      if ((!row.url && !row.fragment) || !frame) return false;
+      if (row.documentId && frame.documentId && row.documentId !== frame.documentId) return false;
+      if (row.documentUrl && row.documentUrl !== frame.result.documentUrl) return false;
+      return !frame.result.routeStartedAt || !row.timeStamp || row.timeStamp >= frame.result.routeStartedAt;
+    });
+    const blockers = new Set(stored.filter(row => row.blocker).map(row => row.blocker));
+    if (top?.blocker) blockers.add(top.blocker);
+    if (top?.encrypted) blockers.add('drm');
+    const available = !blockers.size;
+    streams = available ? pageStreams(frames, requests) : [];
+    const manifests = nativeDownloads ? streams.filter(stream => isPlaylist(stream.kind)).slice(0,4) : [];
+    await Promise.all(manifests.map(async stream => {
+      if (!manifestCache.has(stream.url) && manifestCache.size < 24) {
+        manifestCache.set(stream.url,await inspectPublicManifest(stream));
+      }
+    }));
+    const enriched = [...requests];
+    for (const stream of manifests) {
+      const evidence = manifestCache.get(stream.url);
+      if (!evidence) continue;
+      enriched.push({url:stream.url,manifestOnly:true,mime:stream.kind === 'm3u8' ? 'application/x-mpegurl' : 'application/dash+xml',
+        frameId:stream.frameId,...evidence});
+      if (evidence.drm) blockers.add('drm');
+    }
+    if (available && manifests.length) streams = pageStreams(frames,enriched);
+    if (!streams.length && observations.some(row => row.encrypted)) blockers.add('drm');
+    const platform = nativeDownloads && !blockers.size ? platformVideo(tab.url) : null;
     if (platform && !streams.length && await checkPlatformAvailability()) {
       streams = [{...platform, ...top?.opaquePlayer, kind:'page',
         title:top?.pageMetadata?.title || pageTitle || null,
@@ -575,6 +653,18 @@ async function refresh(retries = 4) {
       const [direct, ...alternates] = [stream, ...(stream.alternates ?? [])].filter(source => !isPlaylist(source.kind));
       return direct ? [{...direct, alternates}] : [];
     });
+    const previews = new Set(streams.filter(stream => assessCandidates([stream])[0].evidence.includes('preview-label')));
+    const selection = selectPageStream(streams);
+    const plausible = streams.filter(stream => !previews.has(stream));
+    detection = detectionDiagnostic({streams,selection,blockers:[...blockers],
+      players:observations.reduce((n,row) => n + row.playerCount,0),
+      unloaded:observations.reduce((n,row) => n + row.unloaded,0),
+      opaque:observations.reduce((n,row) => n + row.opaqueCount,0),
+      unsupported:observations.reduce((n,row) => n + row.unsupported,0) + requests.filter(row => row.fragment).length,
+      excluded:observations.reduce((n,row) => n + (row.excludedMedia?.length ?? 0),0),
+      blockedFrames:Math.max(0, (top?.iframeCount ?? 0) - frames.filter(frame => frame.frameId !== 0).length),
+    });
+    streams = [...plausible,...streams.filter(stream => previews.has(stream))];
     const snapshot = JSON.stringify(streams);
     if (snapshot !== lastStreams && !openedOptions && !hoverPreview) {
       for (const url of selected) {
@@ -590,23 +680,28 @@ async function refresh(retries = 4) {
       }
     }
     const hint = $('hint');
-    hint.hidden = streams.length > 0;
-    scanHint = encrypted ? '播放器启用了 DRM' : platform && !streams.length
-      ? '此视频需要配对已配置 yt-dlp 的本机服务。'
-      : !nativeDownloads
-      ? '还没有找到直链视频。播放后可以再扫描。分片流需要桌面版。' : observations.some(row => row.opaque)
-      ? '播放一段视频后再扫描，查找分片清单。'
-      : '还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。';
+    hint.hidden = streams.length > 0 && detection.code !== 'multiple-candidates';
+    scanHint = platform && !streams.length ? '此视频需要配对已配置 yt-dlp 的本机服务。'
+      : diagnosticHints[detection.code] ?? '还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。';
     hint.textContent = t(scanHint);
     void queryMissingMetadata();
-    if (preferences.autoScan && retries && observations.length && !encrypted &&
-        (!streams.length || streams.some(stream => !stream.duration || !stream.title ||
-          preferences.showSize && canQuerySize(stream) && !stream.size && !observedSizes.has(stream.url)))) {
-      scanTimer = setTimeout(guarded(() => refresh(retries - 1)), 1500);
+    if (preferences.autoScan && observations.length && (manual || pageChanged || watchingTab !== tab.id)) {
+      watchingTab = tab.id;
+      await browserApi.scripting.executeScript({target:{tabId:tab.id,allFrames:true},
+        func:observeMediaChanges,args:[true]}).catch(() => {});
+    } else if (!preferences.autoScan) await stopWatching();
+    if (manual || pageChanged) {
+      clearTimeout(discoveryRetry);
+      if (preferences.autoScan && available && !streams.length) {
+        discoveryRetry = setTimeout(() => {
+          if (!streams.length) scheduleScan();
+        },2600);
+      }
     }
   } finally {
     scanning = false;
-    if (retries === 4) $('refresh').disabled = false;
+    if (manual) $('refresh').disabled = false;
+    if (scanQueued) scheduleScan();
   }
 }
 
@@ -712,6 +807,29 @@ $('connection-status').addEventListener('click', () => {
   void checkService(true);
 });
 $('refresh').addEventListener('click', guarded(() => refresh()));
+function saveJson(filename, report) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(report,null,2) + '\n'],{type:'application/json'}));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url),1000);
+}
+$('export-diagnostic').addEventListener('click', () => saveJson('videosave-diagnostic.json',
+  diagnosticReport({diagnostic:detection,streams})));
+$('check-release').addEventListener('click', () => browserApi.tabs.create({
+  url:'https://github.com/KaiserIIII/videosave/releases/latest',
+}));
+browserApi.runtime?.onMessage?.addListener((message,sender) => {
+  if (message?.action === 'videosave-media-changed' && sender.tab?.id === tab?.id) scheduleScan();
+});
+browserApi.tabs.onUpdated?.addListener((id,change) => {
+  if (id === tab?.id && (change.url || change.status === 'complete')) scheduleScan();
+});
+window.addEventListener('pagehide', () => {
+  clearTimeout(discoveryRetry);
+  void stopWatching();
+});
 $('all').addEventListener('change', () => {
   selected.clear();
   for (const input of $('media').querySelectorAll('input[type=checkbox]')) {
@@ -852,6 +970,43 @@ await guarded(async () => {
   const values = {...preferences};
   const syncToggle = $('settings-sync');
   const syncNow = $('sync-now');
+  $('current-version').textContent = browserApi.runtime?.getManifest?.().version || '';
+  const replaceOptions = async next => {
+    if (syncToggle.checked) throw Error('请先关闭本机设置同步。');
+    const prior = {...values};
+    try {
+      await saveOptions(next);
+      Object.assign(values,next);
+      updateSettingsControls();
+    } catch (error) {
+      preferences = prior;
+      applyLanguage();
+      applyAppearance();
+      throw error;
+    }
+  };
+  $('export-settings').addEventListener('click', () => saveJson('videosave-settings.json',settingsBackup(preferences)));
+  $('import-settings').addEventListener('click', () => $('settings-file').click());
+  $('settings-file').addEventListener('change', guarded(async () => {
+    const input = $('settings-file');
+    const file = input.files[0];
+    input.value = '';
+    if (!file) return;
+    if (file.size > 32 * 1024) throw Error('设置文件格式不受支持');
+    let backup;
+    try { backup = JSON.parse(await file.text()); } catch { throw Error('设置文件格式不受支持'); }
+    const choices = Object.fromEntries(Object.entries(optionSets).filter(([,entry]) => entry[1])
+      .map(([key,[,options]]) => [key,options.map(([value]) => value)]));
+    choices.theme = Object.keys(themes);
+    await replaceOptions(restoreSettingsBackup(backup,choices));
+    status('已导入浏览器设置');
+  }));
+  $('reset-settings').addEventListener('click', () => $('reset-settings-dialog').showModal());
+  $('confirm-reset-settings').addEventListener('click', guarded(async () => {
+    await replaceOptions({...defaults});
+    $('reset-settings-dialog').close();
+    status('已恢复默认浏览器设置');
+  }));
   syncToggle.checked = Boolean(saved.settingsSync);
   syncNow.disabled = !syncToggle.checked;
   const pullSettings = () => {
@@ -919,6 +1074,17 @@ await guarded(async () => {
     values.saveAs = $('save-as').checked;
     return saveOptions(values);
   }));
+  browserApi.storage.session.onChanged?.addListener(changes => {
+    if (tab && changes['media:' + tab.id]) scheduleScan();
+  });
+  function updateSettingsControls() {
+    $('save-as').checked = preferences.saveAs;
+    folderInput.value = preferences.downloadFolder;
+    for (const input of $('themes').querySelectorAll('input')) input.checked = input.value === preferences.theme;
+    for (const id of ['settings-options','transfer-options','interface-options','detection-options']) {
+      $(id).dispatchEvent(new Event('settings-sync'));
+    }
+  }
   storage.onChanged.addListener(changes => {
     if (changes.downloadJobs) updateJobs(changes.downloadJobs.newValue ?? []);
     if (changes.downloadSettings) {
@@ -926,12 +1092,7 @@ await guarded(async () => {
       Object.assign(values, preferences);
       applyLanguage();
       applyAppearance();
-      $('save-as').checked = preferences.saveAs;
-      folderInput.value = preferences.downloadFolder;
-      for (const input of $('themes').querySelectorAll('input')) input.checked = input.value === preferences.theme;
-      for (const id of ['settings-options','transfer-options','interface-options','detection-options']) {
-        $(id).dispatchEvent(new Event('settings-sync'));
-      }
+      updateSettingsControls();
       lastStreams = undefined;
       if (tab) void guarded(refresh)();
     }

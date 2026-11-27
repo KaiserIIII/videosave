@@ -10,7 +10,7 @@ import test from 'node:test';
 
 const project = fileURLToPath(new URL('..', import.meta.url));
 
-test('MCP gives a client evidence to choose the full film over the autoplay teaser', {timeout: 90_000}, async t => {
+test('MCP gives a client evidence to choose the full film over the autoplay teaser', {timeout: 150_000}, async t => {
   const out = await mkdtemp(path.join(project, '.mcp-selection-'));
   t.after(() => rm(out, {recursive:true, force:true, maxRetries:5}));
   const media = new Map();
@@ -170,7 +170,7 @@ test('MCP gives a client evidence to choose the full film over the autoplay teas
     const id = ++nextId;
     send({id, method, params});
     const {value} = await replies.next();
-    assert.ok(value, 'MCP closed before replying');
+    assert.ok(value, 'MCP closed before replying to ' + (params?.name ?? method));
     const reply = JSON.parse(value);
     assert.equal(reply.id, id);
     assert.ok(reply.result && Boolean(reply.result.isError) === expectError, value);
@@ -267,6 +267,11 @@ test('MCP gives a client evidence to choose the full film over the autoplay teas
   const gated = await tool('probe_page',{url:new URL('/watch/challenge',url).href,clickPlay:true,waitMs:600});
   assert.deepEqual(gated.selection,{status:'unavailable',reason:'blocked'});
   assert.deepEqual(gated.blockers,['cloudflare-challenge']);
+  const gatedBatch = await tool('start_download',{items:[{kind:'page',url:new URL('/watch/challenge',url).href}]});
+  const [gatedItem] = (await tool('wait_for_download',gatedBatch)).items;
+  assert.equal(gatedItem.errorCode,'NO_MEDIA');
+  assert.deepEqual(gatedItem.detail.blockers,['cloudflare-challenge']);
+  assert.match(gatedItem.error,/Cloudflare.+未探测到媒体流/);
   const headed = await tool('probe_page',{url:new URL('/watch/challenge',url).href,
     mode:'headed',waitForMediaMs:600,retries:0,clickPlay:true});
   assert.deepEqual(headed.blockers,['cloudflare-challenge']);

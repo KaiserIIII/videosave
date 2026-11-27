@@ -1,0 +1,17 @@
+{
+  "browser": "edge",
+  "videoSave": "0.9.0",
+  "videoDownloadHelper": "10.7.9.2",
+  "rows": [
+    {
+      "engine": "VideoSave",
+      "detected": true,
+      "video": "/2010/05/sintel/trailer.mp4"
+    },
+    {
+      "engine": "Video DownloadHelper",
+      "detected": true,
+      "video": "/2010/05/sintel/trailer.mp4"
+    }
+  ]
+}

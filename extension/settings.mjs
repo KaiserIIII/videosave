@@ -30,6 +30,31 @@ export function downloadFolder(value, maxLength = 100) {
   return folder;
 }
 
+export function settingsBackup(saved) {
+  const current = readDownloadSettings(saved);
+  return {schema:1, settings:Object.fromEntries(Object.keys(defaults).map(key => [key,current[key]]))};
+}
+
+export function restoreSettingsBackup(backup, choices = {}) {
+  if (backup?.schema !== 1 || !backup.settings || typeof backup.settings !== 'object' ||
+      Array.isArray(backup.settings)) throw new Error('设置文件格式不受支持');
+  const settings = {...defaults};
+  for (const [key,value] of Object.entries(backup.settings)) {
+    if (!Object.hasOwn(defaults,key) || key === 'concurrencyVersion') continue;
+    if (key === 'downloadFolder') {
+      settings[key] = downloadFolder(value);
+      continue;
+    }
+    let valid = typeof value === typeof defaults[key];
+    if (key === 'concurrency') valid &&= validConcurrency(value);
+    if (key === 'accent') valid &&= /^(?:#[a-f0-9]{6})?$/i.test(value);
+    if (Object.hasOwn(choices,key)) valid &&= choices[key].includes(String(value));
+    if (!valid) throw new Error('设置文件包含无效的选项');
+    settings[key] = value;
+  }
+  return settings;
+}
+
 export function readDownloadSettings(saved) {
   const settings = {...defaults, ...saved};
   const oldDefault = !saved?.concurrencyVersion && settings.concurrency === 2 ||

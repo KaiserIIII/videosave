@@ -1,0 +1,48 @@
+{
+  "version": "0.8.1",
+  "browser": "mcp-edge",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "sample": "local fixtures",
+  "scenarioCount": 1,
+  "count": {
+    "scenarios": 1,
+    "positive": 1,
+    "detected": 1,
+    "casesWithFalsePositives": 0,
+    "selectionTests": 0,
+    "selectionCorrect": 0,
+    "downloads": 0,
+    "downloaded": 0,
+    "firstProbeMedianMs": 2661,
+    "browserTaskMedianMs": null,
+    "browserHeapMedianBytes": null,
+    "fixtureRequests": 8,
+    "fixtureBytes": 76290,
+    "restrictedRequests": 0
+  },
+  "rows": [
+    {
+      "id": "dynamic-json",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "blockers": [],
+      "probeMs": 2661,
+      "firstProbeMs": 2661,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 76290,
+      "restrictedRequests": 0
+    }
+  ]
+}
