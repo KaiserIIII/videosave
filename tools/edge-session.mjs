@@ -107,12 +107,11 @@ export async function withChromium(args, run, signal, {downloadsDirectory, execu
   const profile = await mkdtemp(path.join(os.tmpdir(), 'media-toolkit-edge-'));
   let edge;
   try {
-    if (downloadsDirectory) {
-      const settings = path.join(profile, 'Default');
-      await mkdir(settings);
-      await writeFile(path.join(settings, 'Preferences'),
-        JSON.stringify({download:{default_directory:downloadsDirectory, prompt_for_download:false}}));
-    }
+    const settings = path.join(profile, 'Default');
+    await mkdir(settings);
+    await writeFile(path.join(settings, 'Preferences'), JSON.stringify({
+      download:{default_directory:downloadsDirectory ?? path.join(profile,'Downloads'),prompt_for_download:false},
+    }));
     signal?.throwIfAborted();
     edge = spawn(executable, [
       ...(headed ? [] : ['--headless=new']), '--no-first-run', '--no-default-browser-check', '--disable-gpu',

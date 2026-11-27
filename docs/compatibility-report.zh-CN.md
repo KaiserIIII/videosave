@@ -1,5 +1,21 @@
 # VideoSave 兼容性实测
 
+## v1.0.0-rc.2 定向回归
+
+2026 年 11 月 27 日在 Windows 和 Node.js 24.19.0 上，以相同本地样本对照 v0.9.0 标签和候选代码。模拟服务器只在 `Referer`、`Origin`、`User-Agent` 三项全部匹配时返回媒体。
+
+| 验收 | 观察结果 |
+| --- | --- |
+| v0.9.0，标准 `.ts` 分片 | 主清单、子清单和全部三个分片收到正确请求头。预取和合并通过。 |
+| v0.9.0，`.jpeg`、`.png`、无后缀分片 | 清单请求头正确。预取判定清单不受支持，分片未被请求。随后 FFmpeg 返回 `Invalid data found`。 |
+| 候选版，同样的非标准后缀 | 五个请求的请求头全部正确。三个分片预取并合并成功，成品时长约 3 秒，解码后音视频轨道哈希均与原片一致。 |
+| 候选版，服务器拒绝、图片响应与单分片 | 分片 403 返回 `MEDIA_ACCESS_RESTRICTED` 与 `hlsPhase:segment`。实际 PNG 返回 `INVALID_HLS_SEGMENT`。单分片点播预取成功。 |
+| 独立 MCP，B 站 Creative Commons 公网样本 | 三份样本均探测到标题和画质，完整下载 0/3。本次网络访问中三份样本的媒体 CDN 均返回 HTTP 567。候选代码重新跑了后两份，现可在 MCP 进度中读取 `MEDIA_ACCESS_RESTRICTED` 和原始状态码。 |
+
+B 站样本为《Big Buck Bunny》两份公开投稿（`BV1Fb4111732`、`BV1Zs411o7Ee?p=1`）以及《The Daily Dweebs》（`BV1iW4113786?p=4`）。样本只用于本地验收。实际 CDN 拒绝与服务端只在缺少请求头时返回 403 的本地用例是两种独立现象。
+
+可用 `node --test tests/download-recovery.test.mjs tests/platform-download.test.mjs` 复跑本地用例。测试输出、SQLite 和临时 Chromium 的下载目录均隔离。完整源码回归通过 118/118，桌面 ZIP 解压后通过独立 MCP 下载和 FFprobe 校验。
+
 ## v1.0.0-rc.1 验证范围
 
 2026 年 11 月 27 日在 Windows、Node.js 24.19.0 上用同一份矩阵对照 v0.10.0 发布包（`60dc36694087fd1d07f8f667c66baae1e24c944a`）和 v1.0 候选开发树。浏览器前后版本分别为 Edge 158.0.4370.45、Chrome 158.0.8127.38、Firefox 136.0.1。独立 MCP 的候选本地轮在版本号调整前启动，原始 JSON 的 `version` 字段保留 `0.10.0`。托管 MCP 的授权与下载单独验证。

@@ -70,6 +70,8 @@ The installer verifies pinned downloads and records their source and checksum. R
 
 Pair the desktop extension with the companion and open a video page, or paste the page URL into the extension. Choose the quality cap and audio/video options as usual. Platform downloads support public, non-DRM single videos. The panel shows the page title and playback duration when available. Preview and exact file size are unavailable for the page-based entry.
 
+For DeepSeek Harness or another local MCP client, run `Start VideoSave.cmd -McpConfig` and copy the generated `mcpServers.videosave` entry into the client's configuration. Pass a Bilibili or YouTube video page URL in `start_download.items`, then call `wait_for_download` with the batch ID. See the [MCP example](docs/mcp.md#独立-mcp-下载-b-站与-youtube).
+
 | Environment variable | Purpose |
 | --- | --- |
 | `PORT` | Change the local HTTP port. |

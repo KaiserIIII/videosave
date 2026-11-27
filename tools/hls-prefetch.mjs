@@ -68,7 +68,8 @@ function assertManagedOrigin(url, origin, approvedEntry = false) {
   }
 }
 
-async function request(url, origin, cookies, signal, range, headers, restrictedOrigin = false, approvedEntry = false, transport) {
+async function request(url, origin, cookies, signal, range, headers, restrictedOrigin = false, approvedEntry = false, transport,
+  hlsPhase = 'playlist') {
   if (restrictedOrigin && !transport) assertManagedOrigin(url,origin,approvedEntry);
   for (let hop = 0; hop < 5; hop++) {
     const host = url.host;
@@ -95,7 +96,7 @@ async function request(url, origin, cookies, signal, range, headers, restrictedO
     if (response.headers.get('cf-mitigated') === 'challenge') {
       await response.body?.cancel();
       throw new ApiError(restrictedOrigin ? 'MCP_MEDIA_ACCESS_RESTRICTED' : 'MEDIA_ACCESS_RESTRICTED',
-        'The media server returned a browser challenge',403,{status:response.status});
+        'The media server returned a browser challenge',403,{status:response.status,hlsPhase});
     }
     if (response.body && (response.status === 200 || ranged && response.status === 206)) return {url, response};
     await response.body?.cancel();
@@ -105,10 +106,10 @@ async function request(url, origin, cookies, signal, range, headers, restrictedO
     }
     if ([401,402,403,451].includes(response.status)) {
       throw new ApiError(restrictedOrigin ? 'MCP_MEDIA_ACCESS_RESTRICTED' : 'MEDIA_ACCESS_RESTRICTED',
-        'The media server denied access to an HLS resource',403,{status:response.status});
+        'The media server denied access to an HLS resource',403,{status:response.status,hlsPhase});
     }
     if (response.status === 410) {
-      throw new ApiError('STREAM_EXPIRED','The HLS resource is no longer available. Re-probe the original page.',410,{status:410});
+      throw new ApiError('STREAM_EXPIRED','The HLS resource is no longer available. Re-probe the original page.',410,{status:410,hlsPhase});
     }
     if (![301,302,303,307,308].includes(response.status) || !location) {
       if (response.status === 429) {
@@ -206,7 +207,7 @@ async function downloadSegment(url, destination, origin, cookies, signal, onByte
       const range = resume && offset > 0 && offset < resume.size
         ? {url:resume.url, start:(slice?.start ?? 0) + offset, end:slice?.end ?? resume.size - 1, etag:resume.etag}
         : slice;
-      const {url: finalUrl, response} = await request(url, origin, cookies, requestSignal, range, headers, restrictedOrigin,false,transport);
+      const {url: finalUrl, response} = await request(url, origin, cookies, requestSignal, range, headers, restrictedOrigin,false,transport,'segment');
       clearTimeout(timeout);
       reader = response.body.getReader();
       const encoding = response.headers.get('content-encoding')?.toLowerCase() ?? 'identity';
@@ -286,12 +287,12 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
   const directory = path.join(staging, 'segments');
   let directoryCreated = false;
   try {
-    const read = async (url, readBody = readManifest, approvedEntry = false) => {
+    const read = async (url, readBody = readManifest, approvedEntry = false, hlsPhase = 'playlist') => {
       for (let attempt = 0; ; attempt++) {
         const deadline = AbortSignal.timeout(5000);
         try {
           const resource = await request(url, source.origin, cookieHeader, AbortSignal.any([transferSignal, deadline]),
-            undefined,headers,restrictedOrigin,approvedEntry,transport);
+            undefined,headers,restrictedOrigin,approvedEntry,transport,hlsPhase);
           return {url:resource.url, content:await readBody(resource.response.body)};
         } catch (error) {
           transferSignal.throwIfAborted();
@@ -350,7 +351,7 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
       await runWorkers(Math.min(connections, keys.length), async () => {
         while (nextKey < keys.length) {
           const {url, filename} = keys[nextKey++];
-          const {content} = await read(url, readKey);
+          const {content} = await read(url,readKey,false,'key');
           await writeFile(path.join(directory, filename), content, {mode:0o600,flag:'wx',signal:transferSignal});
           keyHashes.set(filename,createHash('sha256').update(content).digest('hex'));
         }

@@ -171,6 +171,6 @@ export function parseManifest(text, source, prefix, {byteRanges = false, aes128 
     mediaCount++;
     needsSegment = false;
   }
-  if (mediaCount < 2 || needsSegment) return null;
+  if (!mediaCount || needsSegment) return null;
   return { segments, playlist: playlist.join('\n') + '\n', ...(aes128 && {keys:[...keys.values()]}) };
 }

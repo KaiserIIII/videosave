@@ -15,6 +15,87 @@ import test from 'node:test';
 const entry = fileURLToPath(new URL('../tools/mcp-server.mjs', import.meta.url));
 const ffmpeg = process.env.FFMPEG_BIN || 'ffmpeg';
 
+test('MCP sends all explicit HLS headers and validates the payload behind nonstandard segment URLs', {timeout:30_000}, async t => {
+  const root = await mkdtemp(path.join(tmpdir(),'videosave-hls-headers-'));
+  const out = path.join(root,'output');
+  const env = {...process.env,OUT_DIR:out,MEDIA_TOOLKIT_SETTINGS:path.join(root,'state.sqlite'),MEDIA_TOOLKIT_URL:''};
+  const headers = {Referer:'https://example.test/player',Origin:'https://example.test','User-Agent':'VideoSave HLS fixture'};
+  const files = ['/first.jpeg','/second.png','/third'];
+  const requests = [];
+  let server;
+  let mcp;
+  let denySegment = false;
+  let imageSegment = false;
+  t.after(async () => {
+    try { await mcp?.stop(); }
+    finally {
+      if (server) await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
+      await rm(root,{recursive:true,force:true,maxRetries:5});
+    }
+  });
+  const ffmpegArgs = ['-v','error','-f','lavfi','-i','testsrc2=s=160x90:r=10'];
+  execFileSync(ffmpeg,[...ffmpegArgs,'-f','lavfi','-i','sine=frequency=440','-t','3','-c:v','libx264',
+    '-g','10','-sc_threshold','0','-c:a','aac','-hls_time','1','-hls_list_size','0','reference.m3u8'],
+    {cwd:root,windowsHide:true});
+  execFileSync(ffmpeg,[...ffmpegArgs,'-frames:v','1','preview.png'],{cwd:root,windowsHide:true});
+  const image = await readFile(path.join(root,'preview.png'));
+  const original = await readFile(path.join(root,'reference.m3u8'),'utf8');
+  const playlist = original.replaceAll(/reference(\d+)\.ts/g,(_,index) => files[index].slice(1));
+  const bytes = await Promise.all(files.map((_,index) => readFile(path.join(root,`reference${index}.ts`))));
+  server = createServer((req,res) => {
+    const pathname = new URL(req.url,'http://localhost').pathname;
+    const matched = Object.entries(headers).every(([name,value]) => req.headers[name.toLowerCase()] === value);
+    requests.push({pathname,matched});
+    if (!matched || denySegment && pathname === files[2]) return res.writeHead(403).end();
+    if (pathname === '/master.m3u8') {
+      return res.end('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=180000,RESOLUTION=160x90\nmedia.m3u8\n');
+    }
+    if (pathname === '/media.m3u8') return res.end(playlist);
+    if (pathname === '/short.m3u8') {
+      return res.end('#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nfirst.jpeg\n#EXT-X-ENDLIST\n');
+    }
+    const index = files.indexOf(pathname);
+    if (index < 0) return res.writeHead(404).end();
+    res.writeHead(200,{'content-type':index === 0 ? 'image/jpeg' : index === 1 ? 'image/png' : 'application/octet-stream'});
+    res.end(imageSegment && index === 1 ? image : bytes[index]);
+  }).listen(0,'127.0.0.1');
+  await once(server,'listening');
+  mcp = await startMcp(env);
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const download = async (pathname, options = {}) => {
+    const {id} = await mcp.tool('start_download',{
+      items:[{kind:'stream',sourceKind:'m3u8',url:base + pathname,title:'HLS headers fixture'}],
+      headers,prefetch:true,connections:12,...options,
+    });
+    return (await mcp.tool('wait_for_download',{id,timeoutMs:7000})).items[0];
+  };
+  const decodedHash = file => execFileSync(ffmpeg,['-v','error','-i',file,'-map','0:v','-map','0:a','-f','streamhash','-'],
+    {encoding:'utf8',windowsHide:true});
+  const full = await download('/master.m3u8');
+  assert.equal(full.status,'done',JSON.stringify({full,requests}));
+  assert.equal(full.prefetch,true);
+  assert.ok(Math.abs(full.info.duration - 3) < 0.15);
+  assert.equal(path.dirname(full.file),out);
+  assert.equal(decodedHash(full.file),decodedHash(path.join(root,'reference.m3u8')));
+  assert.deepEqual(requests.map(({pathname}) => pathname).sort(), [...files,'/master.m3u8','/media.m3u8'].sort());
+  assert.ok(requests.every(({matched}) => matched));
+
+  denySegment = true;
+  const denied = await download('/master.m3u8?denied=true');
+  assert.equal(denied.errorCode,'MEDIA_ACCESS_RESTRICTED');
+  assert.equal(denied.detail.status,403);
+  assert.equal(denied.detail.hlsPhase,'segment');
+  assert.equal(denied.prefetchFallback,undefined);
+  denySegment = false;
+  imageSegment = true;
+  assert.equal((await download('/master.m3u8?image=true')).errorCode,'INVALID_HLS_SEGMENT');
+
+  const single = await download('/short.m3u8');
+  assert.equal(single.status,'done',JSON.stringify(single));
+  assert.equal(single.prefetch,true);
+  assert.ok(Math.abs(single.info.duration - 1) < 0.15);
+});
+
 test('MCP validates nonstandard HLS parts and resumes a transient failure without repeating committed parts', {timeout:40_000}, async t => {
   const root = await mkdtemp(path.join(tmpdir(),'videosave-hls-parts-'));
   const env = {...process.env,OUT_DIR:path.join(root,'saved'),MEDIA_TOOLKIT_SETTINGS:path.join(root,'state.sqlite'),MEDIA_TOOLKIT_URL:''};

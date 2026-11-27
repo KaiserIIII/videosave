@@ -579,7 +579,8 @@ export async function runMedia(bin, args, signal, onLine, {onFailure, strict = f
     if (signal.aborted) stop();
     let stdout = '', stderr = '', pending = '', failure;
     proc.stdout.setEncoding('utf8').on('data', chunk => {
-      if (!onLine) { stdout = (stdout + chunk).slice(-65536); return; }
+      if (!onLine || onFailure) stdout = (stdout + chunk).slice(-65536);
+      if (!onLine) return;
       const lines = (pending + chunk).split('\n');
       pending = lines.pop();
       for (const line of lines) onLine(line.trim());
@@ -590,7 +591,7 @@ export async function runMedia(bin, args, signal, onLine, {onFailure, strict = f
       signal.removeEventListener('abort', stop);
       await stopping;
       if (signal.aborted) return reject(signal.reason);
-      if ((failure || code !== 0) && onFailure) return reject(onFailure({failure,stderr}));
+      if ((failure || code !== 0) && onFailure) return reject(onFailure({failure,stdout,stderr}));
       if (onLine && pending.trim()) onLine(pending.trim());
       if (failure) return reject(new ApiError('TOOL_UNAVAILABLE', '无法启动本机媒体工具', 503));
       if (code !== 0 || (strict && hasFatalStderr(stderr))) {
@@ -600,7 +601,7 @@ export async function runMedia(bin, args, signal, onLine, {onFailure, strict = f
           /(?:HTTP error|Server returned) (?:408|429|500|502|503|504|5XX)\b|(?:\[(?:tls|tcp) @ [^\]]+\].*(?:Error|timed out)|Connection reset by peer)/i.test(stderr);
         return reject(error);
       }
-      resolve(stdout);
+      resolve(onLine ? '' : stdout);
     });
   });
 }

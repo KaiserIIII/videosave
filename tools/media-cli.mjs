@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import {open} from 'node:fs/promises';
 import {parseArgs} from 'node:util';
+import {platformVideo} from '../extension/media.mjs';
 import * as downloads from './media-downloads.mjs';
 import {mediaUrl,parseCookies} from './media-source.mjs';
 import {isChallengeCookie} from './approved-cookies.mjs';
@@ -47,7 +48,7 @@ try {
     const cookie = values['cookie-file'] ? await readCookieFile(values['cookie-file'],urls) : undefined;
     const quality = values.quality && (values.quality === 'max' ? 'max' : Number(values.quality));
     const {id} = downloads.queueBatch({
-      items:urls.map(url => ({kind:values.page ? 'page' : 'stream',url:url.href,quality})),
+      items:urls.map(url => ({kind:values.page || platformVideo(url) ? 'page' : 'stream',url:url.href,quality})),
       cookie,headers:values.ua ? {'User-Agent':values.ua} : undefined,
       connections:values.connections === undefined ? undefined : Number(values.connections),
     });

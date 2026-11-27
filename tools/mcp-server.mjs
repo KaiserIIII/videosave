@@ -14,13 +14,14 @@ const string = { type: 'string' };
 const object = (properties, required = []) => ({ type: 'object', properties, required });
 const array = items => ({type:'array',items});
 const downloadItem = object({
-      kind: { type: 'string', enum: ['stream', 'page'] }, url: string, title: string, format: { type: 'string', enum: ['mp4', 'mkv'] },
+      kind: { type: 'string', enum: ['stream', 'page'], description:'May be omitted for a recognized Bilibili or YouTube video URL.' },
+      url: string, title: string, format: { type: 'string', enum: ['mp4', 'mkv'] },
       mode: { type: 'string', enum: ['combined', 'video', 'audio', 'separate'] },
       quality: { anyOf:[{ type: 'integer', minimum: 144, maximum: 4320 }, {const:'max'}, {type:'null'}] },
       audioFormat: { type: 'string', enum: ['m4a', 'mp3'] },
       subtitles: { type: 'boolean' },
       sourceKind: { enum: ['m3u8', 'mpd'] }, fastStart: { type: 'boolean' },
-}, ['kind', 'url']);
+}, ['url']);
 const downloadFields = {
     items: {type:'array',minItems:1,items:downloadItem},
     maxSec: { type: 'number', exclusiveMinimum: 0 },
@@ -49,7 +50,7 @@ const operations = [
     captureXhrBody:{type:'boolean',default:false,description:'Inspect bounded same-origin JSON player source lists and report key summaries'},
     includeFrames:{type:'boolean',default:false,description:'Inspect embedded player frames and report their URLs'},
   }, ['url']), downloads.probe],
-  ['start_download', 'Queue media URLs or pages. Resubmit the original request if the batch reports resumable. With maxSec, set prefetch to true to stage the source before trimming.',
+  ['start_download', 'Queue media URLs or pages. For a Bilibili or YouTube video, pass its page URL directly in items. Resubmit the original request if the batch reports resumable. With maxSec, set prefetch to true to stage the source before trimming.',
     object(downloadFields,['items']), downloads.queue],
   ['start_batch', 'Queue URLs with concurrency defaulting to one. Resolve each page when its download slot becomes available.',
     object({...downloadFields,concurrency:{...downloadFields.concurrency,default:1},skipExisting:{type:'boolean',default:true},
@@ -78,12 +79,16 @@ const batchResult = object({
   id:string, status:string, timedOut:{type:'boolean'}, items:array(object({
     status:string, errorCode:{type:['string','null']}, outputs:array(object({})),
     engine:string,elapsedMs:{type:'integer',minimum:0},prefetchFallback:object({reason:string}),
+    detail:object({status:{type:'integer'},hlsPhase:{enum:['playlist','segment','key']}}),
     alreadySaved:{type:'boolean'},segmentDirectory:string,
     segments:object({completed:{type:'integer'},total:{type:'integer'},restored:{type:'integer'}}),
   },['status'])),resumable:{type:'boolean'},
 },['id','status','items']);
 const outputSchemas = {
   probe_page:object({
+    downloadTargets:array(object({kind:{const:'page'},platform:{enum:['bilibili','youtube']},url:string,title:string,
+      duration:{type:['number','null']},width:{type:['integer','null']},height:{type:'integer'},qualities:array({type:'integer'})},
+    ['kind','platform','url','title'])),
     streams:array(object({url:string,kind:string,strategies:array(string),evidence:array(string)},['url','kind'])),
     selection:object({status:{enum:['selected','ambiguous','unavailable']},url:string,reason:string},['status']),
     diagnostic:object({code:string,nextAction:string,candidateCount:{type:'integer'}},['code','nextAction','candidateCount']),

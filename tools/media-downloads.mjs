@@ -326,6 +326,8 @@ function publish(batch, line) {
 function historyRecord(batch, status = batch.status) {
   const redact = detail => detail && {stderr:'',...(detail.status && {status:detail.status}),
     ...(detail.reason && {reason:detail.reason}), ...(detail.expiresAt && {expiresAt:detail.expiresAt}),
+    ...(detail.hlsPhase && {hlsPhase:detail.hlsPhase}),
+    ...(detail.platform && {platform:detail.platform}),
     ...(Number.isSafeInteger(detail.retryAfterSec) && {retryAfterSec:detail.retryAfterSec})};
   return {id:batch.id, status, outDir:batch.outDir, delivery:batch.delivery, createdAt:batch.createdAt,
     log:batch.log, itemKeys:batch.itemKeys, items:batch.items.map(item => {
@@ -563,7 +565,8 @@ function getTargets(values, defaults) {
     throw new ApiError('INVALID_ITEMS', '请添加至少一个媒体目标');
   }
   return values.map(value => {
-    if (!value || !['page', 'stream'].includes(value.kind)) throw new ApiError('INVALID_KIND', 'kind 必须为 page 或 stream');
+    const kind = value?.kind === undefined && platformVideo(value?.url) ? 'page' : value?.kind;
+    if (!['page', 'stream'].includes(kind)) throw new ApiError('INVALID_KIND', 'kind 必须为 page 或 stream');
     if (value.title !== undefined && typeof value.title !== 'string') throw new ApiError('INVALID_TITLE', '标题必须是文本');
     if (value.format !== undefined && !['mp4', 'mkv'].includes(value.format)) {
       throw new ApiError('INVALID_FORMAT', '输出格式应为 mp4 或 mkv');
@@ -592,7 +595,7 @@ function getTargets(values, defaults) {
       if (error.code !== 'INVALID_URL' || values.length === 1) throw error;
       url = null;
     }
-    return { kind: value.kind, url, format: value.format ?? defaults.format,
+    return { kind, url, format: value.format ?? defaults.format,
       mode: value.mode ?? defaults.mode, quality: value.quality === 'max' ? null : value.quality === undefined ? defaults.quality : value.quality,
       audioFormat: value.audioFormat ?? defaults.audioFormat, subtitles: value.subtitles ?? defaults.subtitles,
       sourceKind:value.sourceKind, fastStart:value.fastStart ?? defaults.fastStart,

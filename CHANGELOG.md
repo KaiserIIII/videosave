@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.0-rc.2
+
+- Accept single-segment HLS VOD and report whether an access denial came from a playlist, segment or key. Test all three explicit media headers through a master playlist and variant, then verify decoded audio and video from MPEG-TS segments with nonstandard filenames.
+- Accept recognized Bilibili and YouTube video page URLs directly in standalone MCP and the CLI. Expose platform download targets in the tool schema and return sanitized CDN status codes when an extractor fails.
+- Keep downloads from disposable Chromium profiles and packaged MCP smoke tests in temporary directories. Packaged smoke tests now set their own SQLite path.
+
+### 简体中文
+
+- 支持只有一个分片的 HLS 点播。媒体访问被拒绝时，报告问题发生在清单、分片还是密钥阶段。回归测试核对三种请求头，并校验非标准后缀分片合并后的实际音视频内容。
+- 独立 MCP 和命令行可直接接收已识别的 B 站、YouTube 视频页链接。探测工具公开平台下载目标的结构，下载失败时保留脱敏后的 CDN 状态码。
+- 临时 Chromium 配置和发行包验收都使用临时下载目录。发行包验收单独创建 SQLite。
+
 ## 1.0.0-rc.1
 
 - Allow approved browser playback to supply public HTTPS CDN candidates to managed MCP. Additional origins require exact same-player evidence. Keep observed signed URLs and playback credentials inside the approved session.

@@ -18,6 +18,16 @@ Use the generated stdio entry under the client's MCP servers. For Codex CLI, reg
 4. Pass the batch ID to `wait_for_download`. Timeouts leave the job running. Read per-item status, `errorCode`, verified media properties and output paths before reporting success.
 5. For resumable interrupted batches, resubmit the same request using the documented options and any needed session credential. Use `retry_download` for a failed or cancelled batch still held by the process.
 
+### 独立 MCP 下载 B 站与 YouTube
+
+在解压目录运行 `& ".\Start VideoSave.cmd" -McpConfig`，把输出的 `mcpServers.videosave` 配置放入 DeepSeek Harness 的 MCP 配置后重连。Windows x64 启动器会安装并校验 yt-dlp，独立配置可直接下载获授权的公开视频。
+
+```json
+{"items":[{"url":"https://www.bilibili.com/video/BV1Fb4111732/","quality":360}]}
+```
+
+将上述参数交给 `start_download`，再拿返回的 `id` 调用 `wait_for_download({id, timeoutMs:60000})`。若 `timedOut:true`，继续等待同一个 ID。检查 `items[].status` 和 `items[].file` 再报告完成。对于 B 站分 P，保留链接的 `?p=` 参数。也可先用 `probe_page` 查看 `downloadTargets` 中的标题、时长与画质。收到 `MEDIA_ACCESS_RESTRICTED` 时读取 `detail.status`，返回站点正常的播放或下载入口。
+
 ### Serial batches and HLS recovery
 
 `start_batch` defaults to one active item per batch. A page resolves when its turn starts. Pass page or stream URLs, or pass `{kind:"code", code:"TEST-100"}` with a `codeUrlTemplate` such as `https://example.org/watch/{code}`. Set batch defaults with `perItem.quality` and `perItem.headers`. Each item reports its own result through `get_progress` and `wait_for_download`.
@@ -29,6 +39,8 @@ On supported HLS downloads, `items[].segments` reports `completed`, `total`, and
 For a single local HLS stream, use `refresh:{pageUrl: "https://example.org/watch/film"}` to re-probe its public player page once on HTTP `410` or a recognized expiry timestamp. Public page items can retry once from the original page. The new playlist must belong to the original stream's origin. A changed playlist starts a new transfer. If the page yields no eligible replacement, progress reports `STREAM_EXPIRED` and the page URL without its query string. HTTP `403` stops with `MEDIA_ACCESS_RESTRICTED`.
 
 Set `items[].quality` to `"max"` for the highest declared quality or pass a numeric height. The HLS prefetcher can try a lower declared variant when its preferred playlist returns `404`. An access denial stops the download. `probe_page` returns `qualities` for the selected HLS stream and can extract up to 50 visible reference codes with `harvestCodes:true`. When an HLS master declares a bitrate, the prefetcher estimates the required space using the selected variant's duration and reports `NO_SPACE` when the estimate exceeds available storage.
+
+For HTTP access denials and explicit expiry during HLS prefetch, item details report `status` and `hlsPhase` (`playlist`, `segment`, or `key`). A single-segment VOD can use the same prefetch path as a longer playlist.
 
 Run `node tools/media-cli.mjs --help` from the desktop package for a JSON Lines download client. `--cookie-file` reads a Cookie header file for a single origin. `--ua` sets the media request User-Agent. Use `--page` to pass page URLs to the serial queue.
 

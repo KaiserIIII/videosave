@@ -46,6 +46,8 @@ node tools/server.mjs
 
 AI 调用 `probe_page` 时可从 `downloadTargets` 获取视频页地址、标题、时长和可用画质。把该地址与 `kind: "page"` 一起交给 `start_download` 即可下载。HTTP 的 `/api/probe` 和 `/api/queue` 使用相同字段。
 
+DeepSeek Harness 可使用 `Start VideoSave.cmd -McpConfig` 生成独立配置。复制 `mcpServers.videosave` 后即可把 B 站或 YouTube 的单条视频页交给 `start_download`，再用 `wait_for_download` 等成品。示例见 [MCP 文档](docs/mcp.md#独立-mcp-下载-b-站与-youtube)。
+
 ## 功能
 
 - 查看片名、时长、分辨率和大小。点击封面静音预览，展开菜单可更换媒体源、改名或复制链接。
