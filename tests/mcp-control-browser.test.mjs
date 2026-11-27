@@ -55,6 +55,9 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
         companionMedia.push(req.url);
       }
       if (req.headers.cookie !== login) return res.writeHead(401).end('Sign in');
+      if (req.url.includes('ticket=') && (req.headers.referer !== mediaUrl+'/watch' || !/Edg\//.test(req.headers['user-agent'] ?? ''))) {
+        return res.writeHead(403).end('Expected the same approved playback context');
+      }
       if (mediaRedirect) return res.writeHead(302,{location:mediaRedirect}).end();
       return res.writeHead(200,{'content-type':'video/mp4','content-length':bytes.length}).end(bytes);
     }

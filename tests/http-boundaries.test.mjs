@@ -30,7 +30,7 @@ test('companion HTTP boundary rejects invalid requests and keeps failures privat
     const ready = await once(lines,'line',{signal:t.signal});
     const endpoint = URL.parse(ready[0].match(/http:\/\/127\.0\.0\.1:\d+/)?.[0]);
     assert.ok(endpoint);
-    const send = (route, {authorized = true, method = 'GET', headers, data} = {}) => new Promise((resolve,reject) => {
+    const send = (route, {authorized = true, method = 'GET', headers, data, endRequest = true} = {}) => new Promise((resolve,reject) => {
       const pending = request({
         hostname:endpoint.hostname,port:endpoint.port,path:route,method,agent:false,signal:t.signal,
         headers:{...(authorized && {Authorization:'Bearer ' + token}),...headers},
@@ -42,7 +42,9 @@ test('companion HTTP boundary rejects invalid requests and keeps failures privat
         response.on('end',() => resolve({status:response.statusCode,headers:response.headers,text:chunks.join('')}));
       });
       pending.on('error',reject);
-      pending.end(data);
+      if (endRequest) pending.end(data);
+      else if (data) pending.write(data);
+      else pending.flushHeaders();
     });
     const code = response => JSON.parse(response.text).error.code;
 
@@ -76,11 +78,12 @@ test('companion HTTP boundary rejects invalid requests and keeps failures privat
     assert.equal(malformed.status,400);
     assert.equal(code(malformed),'INVALID_JSON');
     const oversized = ' '.repeat(maxBody + 1);
-    const size = await send(route,{method:'POST',headers:{...json,'Content-Length':oversized.length},data:oversized});
+    // An oversized declared body must be rejected before any upload is sent.
+    const size = await send(route,{method:'POST',headers:{...json,'Content-Length':oversized.length},endRequest:false});
     assert.equal(size.status,413);
     assert.equal(code(size),'BODY_TOO_LARGE');
     assert.equal(size.headers.connection,'close');
-    const sizeChunked = await send(route,{method:'POST',headers:{...json,'Transfer-Encoding':'chunked'},data:oversized});
+    const sizeChunked = await send(route,{method:'POST',headers:{...json,'Transfer-Encoding':'chunked'},data:oversized,endRequest:false});
     assert.equal(sizeChunked.status,413);
     assert.equal(code(sizeChunked),'BODY_TOO_LARGE');
     const requestTarget = await send(endpoint.href + 'api/health');

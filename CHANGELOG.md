@@ -23,6 +23,7 @@
 - Update standing browser grants with observed media, preserve IDs for unchanged candidates, and select or download a clear recommendation with managed MCP.
 - Require each standing client to opt into unattended downloads. Revoke shared login access when its cookie state changes, including before the first media observation.
 - Stage public same-origin AES-128 HLS VOD with validated key length, while preserving managed resource boundaries and DRM diagnostics.
+- Replay the observed same-origin playback context for approved managed media and give pending site requests a sanitized access diagnostic.
 - Add bounded Maximum Compatibility probing, optional local strategy learning, and rule import, export, and reset controls.
 - Recognize FLV sources declared in structured page data and extend compatibility coverage across browser and MCP paths.
 

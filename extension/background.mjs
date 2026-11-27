@@ -1,10 +1,11 @@
-import { browserApi, nativeDownloads } from './browser.mjs';
+import { browserApi, isFirefox, nativeDownloads } from './browser.mjs';
 
 import { classify, isMediaFragment, mediaResponseSize } from './media.mjs';
 import { documentBlockers } from './detection.mjs';
 import { isPublicPlayerJson } from './live-detection.mjs';
 import { startTabGrantCleanup } from './mcp-center.mjs';
 import { registerDownloads } from './downloads.mjs';
+import { playbackHeaders } from './request-context.mjs';
 
 if (nativeDownloads) {
   registerDownloads();
@@ -30,6 +31,23 @@ function update(tab, fn) {
 }
 
 const all = {urls:['http://*/*','https://*/*']};
+const requestContexts = new Map();
+if (nativeDownloads) {
+  const mediaRequests = {...all,types:['media','xmlhttprequest','other']};
+  browserApi.webRequest.onSendHeaders.addListener(details => {
+    requestContexts.delete(details.requestId);
+    const origin = new URL(details.url).origin;
+    const initiator = URL.parse(details.documentUrl ?? details.initiator ?? details.originUrl ?? '');
+    if (details.tabId < 0 || details.frameId !== 0 || details.method !== 'GET' || initiator?.origin !== origin) return;
+    const headers = playbackHeaders(Object.fromEntries((details.requestHeaders ?? []).map(({name,value}) => [name,value])),origin);
+    if (!Object.keys(headers).length) return;
+    if (requestContexts.size >= 256) requestContexts.delete(requestContexts.keys().next().value);
+    requestContexts.set(details.requestId,{url:details.url,headers});
+  },mediaRequests,['requestHeaders',...(!isFirefox ? ['extraHeaders'] : [])]);
+  const clearContext = ({requestId}) => { requestContexts.delete(requestId); };
+  browserApi.webRequest.onCompleted.addListener(clearContext,mediaRequests);
+  browserApi.webRequest.onErrorOccurred.addListener(clearContext,mediaRequests);
+}
 browserApi.webRequest.onBeforeRequest.addListener(
   ({tabId,frameId,type}) => {
     if (tabId >= 0) update(tabId, rows => type === 'main_frame' ? [] : rows.filter(row => row.frameId !== frameId));
@@ -38,6 +56,8 @@ browserApi.webRequest.onBeforeRequest.addListener(
 );
 browserApi.tabs.onRemoved.addListener(tabId => update(tabId, () => []));
 browserApi.webRequest.onHeadersReceived.addListener(details => {
+  const context = requestContexts.get(details.requestId);
+  requestContexts.delete(details.requestId);
   if (details.tabId < 0) return;
   const header = name => details.responseHeaders?.find(entry => entry.name.toLowerCase() === name)?.value;
   if (details.type === 'main_frame' || details.type === 'sub_frame') {
@@ -67,12 +87,14 @@ browserApi.webRequest.onHeadersReceived.addListener(details => {
   const filename = /(?:^|;)\s*filename\*=UTF-8'[^']*'([^;]+)/i.exec(disposition)?.[1] ||
     /(?:^|;)\s*filename=(?:"([^"]+)"|([^;]+))/i.exec(disposition)?.slice(1).find(Boolean);
   const size = mediaResponseSize(kind, details.statusCode, header);
+  const requestHeaders = context?.url === details.url && context.headers || undefined;
   const same = row => row.frameId === details.frameId && row.url === details.url && row.documentId === details.documentId;
   update(details.tabId, rows => {
     const prior = rows.find(same);
     const next = {url:details.url, mime, filename, size:size ?? prior?.size, type:details.type, frameId:details.frameId, documentId:details.documentId, documentUrl:details.documentUrl,
-      timeStamp:details.timeStamp};
-    if (prior && prior.mime === mime && prior.size === next.size && prior.filename === filename) return rows;
+      timeStamp:details.timeStamp, ...(requestHeaders && {requestHeaders})};
+    if (prior && prior.mime === mime && prior.size === next.size && prior.filename === filename &&
+        JSON.stringify(prior.requestHeaders) === JSON.stringify(requestHeaders)) return rows;
     return [...rows.filter(row => !same(row)), next].slice(-120);
   });
 }, all, ['responseHeaders']);

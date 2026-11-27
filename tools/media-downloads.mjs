@@ -971,7 +971,7 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, {onHls,r
   sourceKind ||= classify(source);
   if (sourceKind === 'm3u8') onHls?.(source.origin);
   const scopedCookies = !authorization && source.origin === input.origin ? cookies : [];
-  const headers = authorization ? {} : {...capturedHeaders(source.href), ...(!refreshOrigin && batch.request.headers)};
+  const headers = authorization ? authorization.headersFor(source) : {...capturedHeaders(source.href), ...(!refreshOrigin && batch.request.headers)};
   const expiresAt = streamExpiry(source);
   if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
     throw new ApiError('STREAM_EXPIRED', '媒体地址已过期，请重新探测原页面', 422, {expiresAt});
@@ -1019,10 +1019,10 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, {onHls,r
     if (authorization) {
       staged = sourceKind === 'm3u8'
         ? await prefetchHls(source,[],staging,signal,downloadProgress,{
-          quality:target.quality,sourceKind,connections:batch.connections,restrictedOrigin:true,signedEntry:true,
+          quality:target.quality,sourceKind,connections:batch.connections,restrictedOrigin:true,signedEntry:true,headers,
         })
         : await prefetchRanges(source,scopedCookies,staging,signal,downloadProgress,{
-          connections:batch.connections,stageFull:true,exactSource:true,cookiesFor:authorization.cookiesFor,
+          connections:batch.connections,stageFull:true,exactSource:true,cookiesFor:authorization.cookiesFor,headers,
         });
       if (!staged) throw new ApiError('MCP_MEDIA_UNAVAILABLE','The approved source did not return complete eligible media',422);
     } else if (platform) {

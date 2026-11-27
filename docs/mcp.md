@@ -70,6 +70,8 @@ The client calls `request_site_authorization` with the origin. Keep the relevant
 
 The optional login session applies to eligible direct media observed on the approved origin. Candidate responses carry opaque IDs. Privacy mode suppresses SQLite batch history and activity records for new managed operations and clears the client's prior activity records. Completed files remain available, and managed work in the running companion remains visible until its in-memory state is cleared.
 
+The companion can reuse same-origin `Referer` and `Origin` and the `User-Agent` observed on an eligible top-frame media request. The extension omits referrers containing a query string and keeps captured header values out of MCP responses.
+
 ### Maximum Compatibility
 
 Standalone and shared-queue `probe_page` accept `compatibility: "maximum"`. The probe first observes normal playback and, if needed, uses the remaining observation budget for iframe and public JSON inspection. `waitForMediaMs` sets the observation budget, with a separate bounded metadata phase. `probeStrategy` reports the stage and attempt count. Set `learnCompatibility: true` to store the site origin, strategy and aggregate results in local SQLite. The control center can import, export and reset rules. Set the `preferred` field to `standard` or `deep` before importing to change the preferred strategy for an origin.

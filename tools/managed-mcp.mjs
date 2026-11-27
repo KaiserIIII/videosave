@@ -191,12 +191,14 @@ function enqueue(client,args, context = getContext(client,args)) {
       ...(source.kind === 'm3u8' && {sourceKind:'m3u8'}),
       quality,audioFormat:settings.audioFormat,subtitles:settings.subtitles};
   });
+  function approvedSource(url) {
+    const current = activeTab(client,authorizationId).streams.find(stream => stream.url === url.href);
+    if (!current) throw new ApiError('MCP_SOURCE_NOT_APPROVED','Choose a candidate from the approved tab',403);
+    return current;
+  }
   const batch = downloads.queue({items,resume:false,connections:settings.connections,concurrency:settings.concurrency},undefined,client.id,
-    {id:authorizationId,retryPlan,privacy:clientAccess(client.id).privacy,check:() => activeTab(client,authorizationId),cookiesFor(url) {
-      const current = activeTab(client,authorizationId).streams.find(stream => stream.url === url.href);
-      if (!current) throw new ApiError('MCP_SOURCE_NOT_APPROVED','Choose a candidate from the approved tab',403);
-      return current.cookiesFor(url);
-    }});
+    {id:authorizationId,retryPlan,privacy:clientAccess(client.id).privacy,check:() => activeTab(client,authorizationId),
+      headersFor:url => approvedSource(url).headers,cookiesFor:url => approvedSource(url).cookiesFor(url)});
   consumeGrant(authorizationId,client);
   if (!batches.has(authorizationId)) batches.set(authorizationId,new Set());
   batches.get(authorizationId).add(batch.id);

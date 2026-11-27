@@ -64,8 +64,9 @@ function shareableStreams(streams, origin, advanced) {
     return source?.origin === origin && (!source.search || advanced && stream.observed) &&
       !source.hash && !stream.drm && !stream.restricted;
   }).slice(0,40).map(stream => {
-    const {url,kind,duration,height,size,sizeEstimated,observed,observedTopFrame} = stream;
+    const {url,kind,duration,height,size,sizeEstimated,observed,observedTopFrame,requestHeaders} = stream;
     return {url,kind,duration,height,observed,observedTopFrame,...(size && !sizeEstimated && {size}),
+      ...(observedTopFrame && requestHeaders && {requestHeaders}),
       recommended:recommendation === url,preview:assessCandidates([stream])[0].evidence.includes('preview-label')};
   });
 }

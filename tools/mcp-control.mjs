@@ -5,6 +5,7 @@ import path from 'node:path';
 import { ApiError } from './media-source.mjs';
 import { approvedCookies } from './approved-cookies.mjs';
 import { detectionDiagnostic, diagnosticReport } from '../extension/detection.mjs';
+import { playbackHeaders } from '../extension/request-context.mjs';
 import { readPreferences, settingsFile } from './preferences.mjs';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
@@ -250,7 +251,7 @@ function tabSnapshot(grant,tab,client,shareSession) {
     const cookiesFor = shareSession && !['m3u8','mpd'].includes(item.kind) ? approvedCookies(item.cookies) : () => [];
     const prior = previous.get(url.href);
     streams.set(url.href,{candidateId:prior?.kind === item.kind ? prior.candidateId : randomUUID(),url:url.href,kind:item.kind,cookiesFor,preview:item.preview === true,
-      recommended:item.recommended === true,
+      recommended:item.recommended === true,headers:item.observed === true ? playbackHeaders(item.requestHeaders,grant.origin) : {},
       ...(Number.isSafeInteger(item.size) && item.size > 0 && !['m3u8','mpd'].includes(item.kind) && {size:item.size}),
       ...(Number.isFinite(item.duration) && item.duration > 0 && {duration:item.duration}),
       ...(Number.isInteger(item.height) && item.height > 0 && {height:item.height})});
