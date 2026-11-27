@@ -1,7 +1,8 @@
 import { assessCandidates, detectionDiagnostic, diagnosticReport } from './detection.mjs';
-import { observeMediaChanges, inspectPublicManifest } from './live-detection.mjs';
+import { observeMediaChanges, inspectPublicManifest, inspectPublicPlayerJson, publicPlayerJsonUrl } from './live-detection.mjs';
 import { browserApi, downloadsPage, downloadSettingsPage, isAndroid, nativeDownloads } from './browser.mjs';
 import { canUseMediaTitle, classify, isPlaylist, pageStreams, platformVideo, scanDocument, selectPageStream, sourceTitle } from './media.mjs';
+import { bindMcpCenter } from './mcp-center.mjs';
 import { queryMp4Metadata } from './media-metadata.mjs';
 import { activeStates, companion, endpointDefault, usesCompanion } from './downloads.mjs';
 import { defaults, downloadFolder, interfaceLanguage, maxConcurrency, readDownloadSettings,
@@ -67,7 +68,9 @@ let detection = {code:'no-player'};
 let scanQueued = false;
 let watchingTab;
 let scannedUrl;
+let scannedDocument;
 const manifestCache = new Map();
+const playerJsonCache = new Map();
 const diagnosticHints = {
   'multiple-candidates':'检测到多个候选，请确认要下载的视频。',
   'no-player':'页面中未检测到播放器。',
@@ -92,6 +95,8 @@ let downloadJobs = [];
 let scanning = false;
 let scanTimer;
 let discoveryRetry;
+let discoveryAttempts = 0;
+const discoveryDelays = [700,900,900];
 let pollTimer;
 let polling = false;
 let openedOptions;
@@ -605,7 +610,10 @@ async function refresh(manual = true) {
     const scan = allFrames => browserApi.scripting.executeScript({target:{tabId:tab.id, allFrames},func:scanDocument,args:[true]});
     const frames = (await scan(true).catch(() => scan(false).catch(() => []))).filter(frame => frame.result);
     const observations = frames.map(frame => frame.result);
-    const top = frames.find(frame => frame.frameId === 0)?.result;
+    const topFrame = frames.find(frame => frame.frameId === 0);
+    const top = topFrame?.result;
+    if (scannedDocument?.timeOrigin !== top?.documentTimeOrigin || pageChanged) playerJsonCache.clear();
+    scannedDocument = top && {url:top.documentUrl,timeOrigin:top.documentTimeOrigin,id:topFrame.documentId ?? null};
     const previousPageTitle = pageTitle;
     pageTitle = top?.pageTitle?.trim() || tab.title?.trim() || '';
     pageHeading = '当前标签页';
@@ -615,7 +623,7 @@ async function refresh(manual = true) {
     const key = 'media:' + tab.id;
     const stored = (await browserApi.storage.session.get(key))[key] || [];
     const allowedFrames = new Map(frames.map(frame => [frame.frameId,frame]));
-    const requests = stored.filter(row => {
+    const matchedRequests = stored.filter(row => {
       const frame = allowedFrames.get(row.frameId);
       if ((!row.url && !row.fragment) || !frame) return false;
       if (row.documentId && frame.documentId && row.documentId !== frame.documentId) return false;
@@ -626,6 +634,19 @@ async function refresh(manual = true) {
     if (top?.blocker) blockers.add(top.blocker);
     if (top?.encrypted) blockers.add('drm');
     const available = !blockers.size;
+    const requests = matchedRequests.filter(row => !row.playerJson);
+    if (available && top && nativeDownloads) {
+      const origin = URL.parse(top.documentUrl)?.origin;
+      const jsonUrls = new Set([...(top.publicJsonRequests ?? []),...matchedRequests.filter(row => row.playerJson).map(row => row.url)]);
+      const eligible = [...jsonUrls].filter(url => URL.parse(url)?.origin === origin && publicPlayerJsonUrl(url)).slice(-4);
+      const sources = await Promise.all(eligible.map(async url => {
+        if (!playerJsonCache.has(url) && playerJsonCache.size < 12) {
+          playerJsonCache.set(url,await inspectPublicPlayerJson(url,top.documentUrl));
+        }
+        return playerJsonCache.get(url) ?? [];
+      }));
+      requests.push(...sources.flat().map(source => ({...source,frameId:0,xhrJson:true})));
+    }
     streams = available ? pageStreams(frames, requests) : [];
     const manifests = nativeDownloads ? streams.filter(stream => isPlaylist(stream.kind)).slice(0,4) : [];
     await Promise.all(manifests.map(async stream => {
@@ -692,11 +713,19 @@ async function refresh(manual = true) {
     } else if (!preferences.autoScan) await stopWatching();
     if (manual || pageChanged) {
       clearTimeout(discoveryRetry);
-      if (preferences.autoScan && available && !streams.length) {
-        discoveryRetry = setTimeout(() => {
-          if (!streams.length) scheduleScan();
-        },2600);
-      }
+      discoveryRetry = undefined;
+      discoveryAttempts = 0;
+    }
+    if (streams.length || !preferences.autoScan || !available) {
+      clearTimeout(discoveryRetry);
+      discoveryRetry = undefined;
+    } else if (!discoveryRetry && discoveryAttempts < discoveryDelays.length) {
+      // Creating an open shadow root on an existing host emits no document mutation.
+      discoveryRetry = setTimeout(guarded(async () => {
+        discoveryRetry = undefined;
+        if (scanning) scanQueued = true;
+        else await refresh(false);
+      }),discoveryDelays[discoveryAttempts++]);
     }
   } finally {
     scanning = false;
@@ -815,6 +844,12 @@ function saveJson(filename, report) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url),1000);
 }
+bindMcpCenter({root:$('mcp-center'),translate:(zh,en) => language === 'en' ? en : zh,
+  getConnection:() => connection,getTab:() => tab,saveJson,
+  getSnapshot:() => ({document:scanning ? null : scannedDocument,title:pageTitle,restricted:Boolean(detection.blockers?.length),diagnostic:detection,
+    playing:streams.some(stream => stream.playing),streams:scanning ? [] : streams})});
+$('mcp-center').hidden = !nativeDownloads;
+
 $('export-diagnostic').addEventListener('click', () => saveJson('videosave-diagnostic.json',
   diagnosticReport({diagnostic:detection,streams})));
 $('check-release').addEventListener('click', () => browserApi.tabs.create({

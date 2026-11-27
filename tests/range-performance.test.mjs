@@ -3,9 +3,9 @@ import { randomBytes } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 const fixture = randomBytes(16 * 1024 * 1024 + 7);
@@ -14,9 +14,19 @@ const bytesPerConnection = 128 * 1024;
 const bytesPerTick = 8 * bytesPerConnection;
 const tickMs = 80;
 
+async function removeFixture(file) {
+  for (let attempt = 0; ; attempt++) {
+    try { return await rm(file); }
+    catch (error) {
+      if (attempt === 4 || !['EBUSY','EPERM'].includes(error.code)) throw error;
+      await sleep(100 * (attempt + 1));
+    }
+  }
+}
+
 test('parallel Range transfer', async t => {
   const { prefetchRanges } = await import('../tools/range-prefetch.mjs');
-  const staging = await mkdtemp(fileURLToPath(new URL('../.range-test-', import.meta.url)));
+  const staging = await mkdtemp(path.join(os.tmpdir(),'videosave-range-test-'));
   const transfers = new Set();
   const redirectedRequests = [];
   const retries = [];
@@ -99,7 +109,7 @@ test('parallel Range transfer', async t => {
       console.log(`Range single ${Math.round(singleMs)} ms, parallel ${Math.round(elapsed)} ms, ${peak} connections, ${(effectiveCeiling / elapsed * 100).toFixed(1)}% of the ceiling measured from the single transfer`);
       assert.equal(peak, 8);
       assert.ok(elapsed < singleMs / 4 && elapsed < ceilingMs * 1.6);
-      await rm(file);
+      await removeFixture(file);
     });
     await t.test('retries an interrupted range from the last written byte without restarting other ranges', async () => {
       let progress = 0;
@@ -114,7 +124,7 @@ test('parallel Range transfer', async t => {
       assert.deepEqual(retries.filter(([, end]) => end === initial[1]), [initial, [bytesPerConnection * 2, initial[1]]]);
       assert.equal(retries.length, 9);
       console.log('Range recovery resumed at byte', bytesPerConnection * 2, 'with no repeated bytes');
-      await rm(file);
+      await removeFixture(file);
     });
     await t.test('accelerates a redirect to a media origin without forwarding cookies', async () => {
       const cookies = [{name:'session',value:'source-only'}];
@@ -123,7 +133,7 @@ test('parallel Range transfer', async t => {
       assert.deepEqual(await readFile(file), fixture);
       assert.equal(redirectedRequests.length, 9);
       assert.ok(redirectedRequests.every(headers => headers.cookie === undefined));
-      await rm(file);
+      await removeFixture(file);
     });
     for (const mode of ['ignore', 'wrong', 'changed']) {
       await t.test(`abandons ${mode} responses and removes staging`, async () => {

@@ -15,12 +15,15 @@ export async function companion(connection, route, body) {
   if (!connection?.token) throw new Error('请先连接本机服务');
   if (!/^http:\/\/127\.0\.0\.1(?::\d+)?$/.test(connection.endpoint)) throw new Error('本机服务地址无效');
   const response = await fetch(connection.endpoint + route, {
+    redirect:'error',
     headers:{authorization:'Bearer ' + connection.token, ...(body && {'content-type':'application/json'})},
     ...(body && {method:'POST', body:JSON.stringify(body)}),
     signal:AbortSignal.timeout(6500),
   }).catch(() => { throw new Error('本机服务未响应'); });
   const data = await response.json();
-  if (!response.ok) throw Object.assign(new Error(data.error?.message || '本机服务请求失败'), {status:response.status});
+  if (!response.ok) throw Object.assign(new Error(data.error?.message || '本机服务请求失败'), {
+    status:response.status,code:data.error?.code,
+  });
   return data;
 }
 

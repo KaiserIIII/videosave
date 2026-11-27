@@ -10,9 +10,11 @@ VideoSave processes media information in the browser and, when configured, in a 
 
 ## Companion and MCP
 
-- The companion uses a temporary Chromium profile for page inspection. Explicit cookies supplied to the local HTTP or MCP interface are held during the task. VideoSave does not import your main browser’s cookies. Cookie handling differs by transfer engine. Native HTTP prefetch sends explicit cookies only to the matching origin.
-- The companion stores local settings, a pairing code when local pairing is enabled, and recent batches in SQLite. Local history can contain output paths, titles, times and error codes. SQLite is stored in the current user’s application data directory by default.
+- The companion uses a temporary Chromium profile for page inspection. Explicit cookies supplied to the trusted local HTTP or MCP interface are held during the task. Cookie handling differs by transfer engine. Native HTTP prefetch sends explicit cookies only to the matching origin.
+- Managed MCP authorization snapshots stay in companion memory until expiry, revocation, service restart or loss of the browser confirmation lease. The app shares a tab origin, title, playback state and bounded same-origin media candidates. The MCP client receives opaque candidate IDs. If you choose the browser login or provide a cookie header or cookie file during approval, the extension sends applicable cookies to the paired local companion for requests to the approved direct media only. Cookie values are kept out of MCP responses, audit exports and SQLite. Browser-login grants use a session fingerprint to detect changes. Optional audit records keep client IDs, tool names, outcome codes, origins and batch IDs with configurable retention. The companion stores local settings, a pairing code when local pairing is enabled, and recent batches in SQLite. Local history can contain output paths, titles, times and error codes.
 - MCP may return media URLs, page metadata and local output paths to your client. Consult the client’s own privacy policy before allowing it to send those details onward.
+- Standing approvals store exact origins and preferences per client. Optional compatibility learning stores only origin, strategy, protocol, counts and elapsed time. Private managed operations skip new activity and batch records. Enabling this mode clears that client's previous MCP activity. Its batches and authorization snapshots remain in process memory during the active session. Existing downloads and prior batch history remain on disk.
+- Browser observation can retain a same-origin media request's `Referer` without query parameters, `Origin`, and `User-Agent` in browser session storage. The paired local companion can use them on an approved source. They stay out of managed tool responses.
 - The Windows launcher can contact dependency distribution sites to obtain verified tooling. Media probes and downloads contact the selected sites and their media hosts, subject to your network and proxy settings. The update link opens GitHub Releases when you select it.
 - To remove extension settings and its local history, remove the extension. Companion state is independent of the extension. You can stop the companion and remove its state directory to clear local preferences and history. This does not affect already downloaded files stored elsewhere.
 
@@ -25,6 +27,7 @@ VideoSave processes media information in the browser and, when configured, in a 
 | `storage` | Save preferences and queue information and track recent media observations per session. |
 | `downloads`, `alarms` | Dispatch and resume eligible desktop downloads and maintain queue progress. |
 | `offscreen` | Complete compatible Chromium HLS downloads using an extension document. |
+| `cookies` (optional) | Use the current site's login for an explicitly approved same-origin direct-media download. |
 
 The experimental Android package omits the desktop `downloads` and `offscreen` permissions.
 

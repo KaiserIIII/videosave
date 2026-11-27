@@ -3,11 +3,11 @@ import { assessCandidates } from './detection.mjs';
 import { declaredMediaSources } from './media-adapters.mjs';
 
 const adaptive = new Set(['m3u8', 'mpd']);
-const formats = new Set(['mp4', 'webm', 'mkv', 'mov', 'm4v', 'ogv', 'avi', 'm3u8', 'mpd']);
+const formats = new Set(['mp4', 'webm', 'mkv', 'mov', 'm4v', 'ogv', 'avi', 'flv', 'm3u8', 'mpd']);
 export const audioFormats = new Set(['mp3','m4a','ogg','wav','flac']);
 const mediaMimes = {
   'video/mp4':'mp4', 'video/webm':'webm', 'video/quicktime':'mov', 'video/x-matroska':'mkv', 'video/ogg':'ogv',
-  'video/x-msvideo':'avi', 'audio/mpeg':'mp3', 'audio/mp4':'m4a', 'audio/ogg':'ogg', 'audio/wav':'wav',
+  'video/x-msvideo':'avi', 'video/x-flv':'flv', 'audio/mpeg':'mp3', 'audio/mp4':'m4a', 'audio/ogg':'ogg', 'audio/wav':'wav',
   'audio/x-wav':'wav', 'audio/flac':'flac',
 };
 
@@ -189,7 +189,9 @@ export function pageStreams(frames, requests) {
       !encryptedFrames.has(request.frameId) && eligible(url) && !covered.has(`${request.frameId} ${url.href}`) && (declared.has(url.href) ||
       !noisy.test(url.pathname) && request.type !== 'image');
   });
-  const streams = pickStreams([...network.map(request => request.xhrJson || request.manifestOnly ? request : {...request,observed:true}), ...observed.filter(candidate => {
+  const streams = pickStreams([...network.map(request => request.xhrJson || request.manifestOnly ? request : {
+    ...request,observed:true,...(request.frameId === 0 && {observedTopFrame:true}),
+  }), ...observed.filter(candidate => {
     const url = URL.parse(candidate.url);
     return url && !isPart(url,candidate.frameId) && eligible(url) && !covered.has(`${candidate.frameId} ${url.href}`) &&
       (candidate.mediaElement || !noisy.test(url.pathname));
@@ -468,8 +470,14 @@ export function scanDocument(includeContext = false, includeText = false) {
   const blocker = visibleBlocker('#challenge-form, #cf-challenge-running, #cf-challenge-stage') ? 'cloudflare-challenge'
     : visibleBlocker('#captcha-form, form[action*="captcha"]') ? 'captcha'
     : !videos.length && visibleBlocker('iframe[src*="challenges.cloudflare.com"], .cf-turnstile') ? 'cf-turnstile' : null;
-  return { pageTitle:document.title, pageMetadata, pageContext, playerCount:videos.length, candidates, pages,
-    documentUrl:location.href, blocker, routeStartedAt:globalThis.videoSaveRouteStart && performance.timeOrigin + globalThis.videoSaveRouteStart,
+  const publicJsonRequests = includeContext ? performance.getEntriesByType('resource').slice(-48)
+    .filter(entry => ['fetch','xmlhttprequest'].includes(entry.initiatorType) &&
+      entry.startTime >= (globalThis.videoSaveRouteStart ?? 0) &&
+      (entry.responseStatus === undefined || entry.responseStatus >= 200 && entry.responseStatus < 300))
+    .map(entry => entry.name).filter(name => /\.json$/i.test(name)).slice(-8) : [];
+  return { pageTitle:document.title, pageMetadata, pageContext, playerCount:videos.length, candidates, pages,publicJsonRequests,
+    documentUrl:location.href, documentTimeOrigin:performance.timeOrigin, blocker,
+    routeStartedAt:globalThis.videoSaveRouteStart && performance.timeOrigin + globalThis.videoSaveRouteStart,
     ...(detailPages && {detailPages:[...detailPages.values()]}), opaquePlayer, excludedMedia:[...excludedMedia],
     encrypted:videos.some(video => video.mediaKeys),
     publicConfigs, unloaded, unsupported, iframeCount:document.querySelectorAll('iframe, frame').length,

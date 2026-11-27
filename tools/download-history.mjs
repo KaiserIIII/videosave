@@ -84,14 +84,20 @@ export function storeBatch(batch) {
   });
 }
 
-export function claimBatch(hash, create) {
+export function claimBatch(hash, create, reuseCompleted) {
   return transaction(connection => {
     const rows = connection.prepare(`SELECT owner,data FROM download_batches WHERE request_hash=?
       AND status IN ('running','interrupted') ORDER BY rowid DESC`).all(hash);
     const matching = rows.map(restore);
     const existing = matching.find(batch => batch.status === 'running');
     if (existing) return {batch:existing,claimed:false};
-    const batch = create(matching.find(row => row.status === 'interrupted'));
+    const interrupted = matching.find(row => row.status === 'interrupted');
+    if (!interrupted && reuseCompleted) {
+      const saved = connection.prepare("SELECT data FROM download_batches WHERE request_hash=? AND status='done' ORDER BY rowid DESC LIMIT 1").get(hash);
+      const completed = saved && JSON.parse(saved.data);
+      if (completed && reuseCompleted(completed)) return {batch:completed,claimed:false,alreadySaved:true};
+    }
+    const batch = create(interrupted);
     connection.prepare(`INSERT INTO download_batches (id,request_hash,owner,status,created_at,data)
       VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET owner=excluded.owner,status=excluded.status,data=excluded.data`)
       .run(batch.id,hash,process.pid,batch.status,batch.createdAt,JSON.stringify(batch));

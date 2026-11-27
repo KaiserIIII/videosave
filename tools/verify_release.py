@@ -136,7 +136,7 @@ def main():
         verify_browser_manifest(packages[f"{name}-firefox.zip"], "firefox", version)
         verify_browser_manifest(packages[f"{name}-android-dev.zip"], "android", version)
         desktop = packages[f"{name}.zip"]
-        for path in ("Start VideoSave.cmd", "tools/start-windows.ps1", "tools/mcp-server.mjs", "tools/server.mjs"):
+        for path in ("Start VideoSave.cmd", "tools/start-windows.ps1", "tools/mcp-server.mjs", "tools/media-cli.mjs", "tools/server.mjs"):
             require(f"{name}/{path}" in desktop, f"Desktop package is missing {path}")
         require((args.dist / bom_name).read_bytes() == sbom(version, [args.dist / filename for filename in packages]),
                 "SBOM does not match the archive checksums and Windows launcher pins")

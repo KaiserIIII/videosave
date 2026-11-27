@@ -6,6 +6,10 @@
 
 ![Microsoft Edge 中的 VideoSave 0.9 探测面板](docs/videosave-0.9-detection.png)
 
+扩展的「AI 与 MCP」支持按客户端授权、限时共享当前页、手动授权同源直链媒体使用当前登录会话，以及按站点限制下载、暂停和恢复排队任务、筛选脱敏活动记录。 [托管客户端教程](docs/mcp.md#中文快速开始) · [控制中心截图](docs/videosave-mcp-control.png)
+
+高级模式和 Full Access 支持按站点保存长期授权，通过已打开的标签页更新媒体候选，并自动下载有明确推荐的正片。Maximum Compatibility 可延长观测窗口，在常规探测无结果时检查 iframe 和公开播放器 JSON。 [权限与探测选项](docs/mcp.md#高级授权和兼容性)
+
 ## 安装
 
 下载并解压发布 ZIP，里面的 `extension` 是浏览器扩展目录。
@@ -93,6 +97,7 @@ MCP 可以独立运行。要和 `Start VideoSave.cmd` 启动的本机服务共�
 | --- | --- |
 | `probe_page` | 查看媒体、列表页候选和选片结果。可设 `waitMs`（默认 20000）和 `retries`（默认 2）。 |
 | `start_download` | 下载直链，或将 `probe_page` 返回的 `candidates` 直接交给 `items`。 |
+| `start_batch` | 默认逐项处理页面、媒体直链或带 URL 模板的编号，复用匹配的已保存成品。 |
 | `get_progress` / `list_batches` | 查看批次详情或列出近期批次，包括中断的本地下载。 |
 | `wait_for_download` | 等待批次结束。可用 `timeoutMs` 设置等待时间，默认 30,000 毫秒。返回 `timedOut: true` 时下载继续运行。 |
 | `cancel_download` | 取消批次中正在运行或等待的任务。 |

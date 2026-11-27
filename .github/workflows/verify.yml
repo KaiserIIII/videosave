@@ -40,6 +40,7 @@ jobs:
         run: >-
           node --test tests/detection.test.mjs tests/media.test.mjs tests/media-source.test.mjs
           tests/http-boundaries.test.mjs tests/download-proxy.test.mjs tests/platform-download.test.mjs tests/range-performance.test.mjs
+          tests/mcp-control.test.mjs tests/compatibility-policy.test.mjs
 
   verify:
     name: Windows ${{ matrix.target }}
@@ -69,7 +70,8 @@ jobs:
           "FFPROBE_BIN=$($media.FFPROBE_BIN)" >> $env:GITHUB_ENV
       - name: Run regression tests
         if: matrix.target == 'delivery'
-        run: node --test
+        # Keep browser and FFmpeg fixtures within the Windows runner's CPU budget.
+        run: node --test --test-concurrency=2
       - name: Check delivery paths in Edge and MCP
         if: matrix.target == 'delivery'
         run: node tests/smoke.mjs --delivery-only

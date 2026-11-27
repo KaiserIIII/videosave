@@ -43,7 +43,7 @@ export function publicMediaSources(value, base, {strategy, sameOrigin = false} =
         const bitrate = Number(entry.bitrate);
         const type = typeof entry.type === 'string' ? entry.type.toLowerCase() : '';
         const mime = (Object.hasOwn(formats,type) ? formats[type] : '') || (/^(?:application|audio|video)\/[a-z0-9.+-]+$/.test(type) ? type : undefined);
-        if (!mime && !/\.(?:mp4|m4v|webm|ogv|mkv|mov|m3u8|mpd|mp3|m4a|ogg|wav|flac|ts)$/i.test(url.pathname)) continue;
+        if (!mime && !/\.(?:mp4|m4v|webm|ogv|mkv|mov|flv|m3u8|mpd|mp3|m4a|ogg|wav|flac|ts)$/i.test(url.pathname)) continue;
         if (!rows.has(url.href)) rows.set(url.href, {
           url:url.href, strategy, adapter:adapter.name, mime,
           ...(Number.isSafeInteger(height) && height >= 144 && height <= 8640 && {height}),

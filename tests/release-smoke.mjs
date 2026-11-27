@@ -54,12 +54,13 @@ try {
   assert.equal(serverInfo.version,version);
   child.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');
   const {tools} = await call('tools/list');
-  for (const name of ['probe_page','start_download','wait_for_download']) {
+  for (const name of ['probe_page','start_download','start_batch','wait_for_download']) {
     assert.ok(tools.some(tool => tool.name === name),'Missing packaged MCP tool ' + name);
   }
   const probe = await tool('probe_page',{url:base + '/watch',waitForMediaMs:4000});
   assert.equal(probe.selection?.url,base + '/fixture.mp4');
-  const {id:batch} = await tool('start_download',{items:[{kind:'stream',url:probe.selection.url,title:'Packaged fixture'}]});
+  const request = {items:[{kind:'stream',url:probe.selection.url,title:'Packaged fixture'}],concurrency:1};
+  const {id:batch} = await tool('start_download',request);
   const {status,items} = await tool('wait_for_download',{id:batch,timeoutMs:15_000});
   const [item] = items;
   assert.equal(status,'done',JSON.stringify(items));
@@ -74,7 +75,10 @@ try {
   assert.deepEqual([video.width,video.height],[160,90]);
   assert.ok(streams.some(stream => stream.codec_type === 'audio'));
   assert.ok(Math.abs(Number(format.duration) - 2) < 0.2);
-  console.log('Verified packaged MCP playback discovery and a complete on-disk audio/video download');
+  assert.deepEqual(await tool('start_batch',request),{id:batch,total:1,alreadySaved:true});
+  const cli = path.join(path.dirname(entry),'media-cli.mjs');
+  assert.match(execFileSync(process.execPath,[cli,'--help'],{windowsHide:true,encoding:'utf8',timeout:5000}),/--cookie-file/);
+  console.log('Verified packaged MCP discovery, complete audio/video output, batch reuse, and CLI help');
 } finally {
   clearTimeout(deadline);
   child.stdin.end();

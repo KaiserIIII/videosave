@@ -95,6 +95,137 @@
             <button type="button" class="text-button" id="check-release" data-i18n>查看官方更新 ↗</button>
           </div>
         </details>
+        <details class="settings-block" id="mcp-center">
+          <summary data-i18n>AI 与 MCP</summary>
+          <p id="mcp-message" class="details" role="status"></p>
+          <button type="button" class="quiet" id="mcp-refresh" data-i18n>刷新控制中心</button>
+          <section class="mcp-section">
+            <h3 data-i18n>MCP 客户端</h3>
+            <ul class="mcp-list" id="mcp-clients"></ul>
+            <p class="details" id="mcp-editing"></p>
+            <label><span data-i18n>客户端名称</span><input id="mcp-client-name" maxlength="60"></label>
+            <label><span data-i18n>客户端权限</span><select id="mcp-preset">
+              <option value="restricted" data-i18n>受限模式</option><option value="standard" data-i18n>标准下载</option><option value="advanced" data-i18n>高级模式</option><option value="full-access">Full Access</option><option value="custom" data-i18n>自定义</option>
+            </select></label>
+            <fieldset id="mcp-scopes" hidden>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="read"><span data-i18n>探测和查询</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="download"><span data-i18n>下载与取消</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="session"><span data-i18n>申请页面授权</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="files"><span data-i18n>定位成品</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="automation"><span data-i18n>自动化与长期授权</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="settings"><span data-i18n>站点下载设置</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="network"><span data-i18n>网络状态</span></label>
+            </fieldset>
+            <div class="settings-actions">
+              <button type="button" id="mcp-save-client" data-i18n>保存客户端</button>
+              <button type="button" id="mcp-new-client" class="quiet" data-i18n>新建客户端</button>
+              <button type="button" id="mcp-copy-command" class="quiet" data-i18n>复制 MCP 配置</button>
+            </div>
+            <div class="settings-actions">
+              <button type="button" id="mcp-full-access" data-i18n>一键授权全部</button>
+              <button type="button" id="mcp-revoke-access" class="quiet" data-i18n>一键撤销全部</button>
+              <button type="button" id="mcp-reset-access" class="quiet" data-i18n>恢复默认权限</button>
+            </div>
+            <details class="settings-block" id="mcp-trust" hidden>
+              <summary data-i18n>长期站点授权与隐私</summary>
+              <label><span data-i18n>站点列表（每行一个 HTTP(S) 源）</span><textarea id="mcp-trusted-origins" rows="3" maxlength="6000" spellcheck="false"></textarea></label>
+              <button type="button" class="quiet" id="mcp-window-sites" data-i18n>填入当前窗口站点</button>
+              <label><span data-i18n>站点组</span><select id="mcp-site-group"><option value=""></option></select></label>
+              <label><span data-i18n>保存为站点组</span><input id="mcp-site-group-name" maxlength="48"></label>
+              <div class="settings-actions">
+                <button type="button" class="quiet" id="mcp-save-group" data-i18n>保存站点组</button>
+                <button type="button" class="quiet" id="mcp-delete-group" data-i18n>删除站点组</button>
+              </div>
+              <label><span data-i18n>有效天数</span><input type="number" id="mcp-trust-days" value="30" min="1" max="90"></label>
+              <label class="check-row"><input type="checkbox" id="mcp-trust-session"><span data-i18n>在长期授权站点使用登录会话</span></label>
+              <label class="check-row"><input type="checkbox" id="mcp-trust-download"><span data-i18n>允许从长期授权站点下载</span></label>
+              <label class="check-row"><input type="checkbox" id="mcp-privacy"><span data-i18n>隐私模式</span></label>
+              <button type="button" id="mcp-save-trust" data-i18n>保存长期授权</button>
+            </details>
+          </section>
+          <section class="mcp-section">
+            <h3 data-i18n>浏览器页面授权</h3>
+            <p class="details" data-i18n>分享当前页的同源媒体候选。授权在标签页导航、关闭或到期时撤销。</p>
+            <label><span data-i18n>授权时长</span><select id="mcp-duration">
+              <option value="1">1 min</option><option value="5" selected>5 min</option><option value="15">15 min</option>
+              <option value="60">1 h</option><option value="browser" data-i18n>当前浏览器会话（最长 12 小时）</option>
+            </select></label>
+            <label class="check-row"><input type="checkbox" id="mcp-share-session" autocomplete="off"><span data-i18n>本次授权同时使用当前站点的登录会话</span></label>
+            <label class="check-row"><input type="checkbox" id="mcp-single-task" autocomplete="off"><span data-i18n>仅允许一个下载批次</span></label>
+            <details class="settings-block">
+              <summary data-i18n>手动提供本站 Cookie</summary>
+              <label><span data-i18n>本站 Cookie</span><input type="password" id="mcp-session-text" maxlength="8192" autocomplete="off" spellcheck="false"></label>
+              <label><span data-i18n>Netscape Cookie 文件</span><input type="file" id="mcp-session-file" accept=".txt,text/plain"></label>
+            </details>
+            <ul class="mcp-list" id="mcp-grants"></ul>
+          </section>
+          <details class="settings-block">
+            <summary data-i18n>本地兼容性规则</summary>
+            <label><span data-i18n>规则文件</span><input type="file" id="mcp-rules-file" accept=".json,application/json"></label>
+            <div class="settings-actions">
+              <button type="button" class="quiet" id="mcp-rules-import" data-i18n>导入规则</button>
+              <button type="button" class="quiet" id="mcp-rules-export" data-i18n>导出规则</button>
+              <button type="button" class="quiet" id="mcp-rules-reset" data-i18n>重置规则</button>
+            </div>
+          </details>
+          <section class="mcp-section">
+            <h3 data-i18n>当前站点设置</h3>
+            <p class="details" id="mcp-policy-origin"></p>
+            <div id="mcp-policy" hidden>
+              <label class="check-row"><input type="checkbox" data-mcp-policy="probe"><span data-i18n>允许 MCP 探测</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-policy="download"><span data-i18n>允许 MCP 下载</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-policy="session"><span data-i18n>允许手动授权登录会话</span></label>
+              <label><span data-i18n>画质上限</span><input type="number" min="144" max="4320" data-mcp-policy="quality"></label>
+              <label><span data-i18n>视频格式</span><select data-mcp-policy="format"><option value="mp4">MP4</option><option value="mkv">MKV</option></select></label>
+              <label><span data-i18n>音频格式</span><select data-mcp-policy="audioFormat"><option value="m4a">M4A</option><option value="mp3">MP3</option></select></label>
+              <label><span data-i18n>连接数</span><select data-mcp-policy="connections"><option>4</option><option>8</option><option>12</option></select></label>
+              <label><span data-i18n>同时下载数</span><input type="number" min="1" max="2" data-mcp-policy="concurrency"></label>
+              <label class="check-row"><input type="checkbox" data-mcp-policy="subtitles"><span data-i18n>源文件内嵌字幕</span></label>
+              <label><span data-i18n>单批任务上限</span><input type="number" min="1" max="8" data-mcp-policy="maxBatchItems"></label>
+              <label><span data-i18n>最低时长（秒，0 为关闭）</span><input type="number" min="0" max="86400" data-mcp-policy="minDurationSec"></label>
+              <label class="check-row"><input type="checkbox" data-mcp-policy="excludePreviews"><span data-i18n>跳过明确标识的广告和预告</span></label>
+              <button type="button" id="mcp-save-policy" data-i18n>保存站点设置</button>
+            </div>
+          </section>
+          <section class="mcp-section">
+            <h3 data-i18n>本机服务网络</h3>
+            <p class="details" id="mcp-network-status" role="status"></p>
+            <label><span data-i18n>代理模式</span><select id="mcp-network-mode">
+              <option value="environment" data-i18n>浏览器系统代理与环境变量</option>
+              <option value="direct" data-i18n>直连</option>
+              <option value="http" data-i18n>指定 HTTP 代理</option>
+            </select></label>
+            <label id="mcp-network-address" hidden><span data-i18n>HTTP 代理地址</span>
+              <input id="mcp-network-proxy" maxlength="512" type="url" placeholder="http://127.0.0.1:8080" autocomplete="off" spellcheck="false">
+            </label>
+            <label id="mcp-network-bypass"><span data-i18n>绕过代理的主机（逗号分隔）</span>
+              <input id="mcp-network-no-proxy" maxlength="2048" autocomplete="off" spellcheck="false">
+            </label>
+            <div class="settings-actions">
+              <button type="button" id="mcp-network-save" class="quiet" data-i18n>保存网络设置</button>
+              <button type="button" id="mcp-network-check" class="quiet" data-i18n>检查连接</button>
+            </div>
+          </section>
+          <section class="mcp-section">
+            <h3 data-i18n>MCP 活动记录</h3>
+            <label class="check-row"><input id="mcp-audit-enabled" type="checkbox"><span data-i18n>保留活动记录</span></label>
+            <label><span data-i18n>保留天数</span><select id="mcp-audit-days"><option>1</option><option>7</option><option>30</option><option>90</option></select></label>
+            <div class="settings-actions">
+              <button type="button" class="quiet" id="mcp-save-audit" data-i18n>保存保留设置</button>
+              <button type="button" class="quiet" id="mcp-export-audit" data-i18n>导出活动记录</button>
+              <button type="button" class="text-button" id="mcp-clear-audit" data-i18n>清除记录</button>
+            </div>
+            <label><span data-i18n>按客户端筛选</span><select id="mcp-audit-client"><option value="" data-i18n>全部客户端</option></select></label>
+            <label><span data-i18n>调用结果</span><select id="mcp-audit-result">
+              <option value="" data-i18n>全部结果</option>
+              <option value="success" data-i18n>调用成功</option>
+              <option value="failure" data-i18n>调用失败</option>
+            </select></label>
+            <p class="details" id="mcp-audit-summary" role="status"></p>
+            <ul class="mcp-list" id="mcp-activity"></ul>
+            <button type="button" class="quiet" id="mcp-more-audit" data-i18n hidden>显示更多记录</button>
+          </section>
+        </details>
         <details class="settings-block" id="service-settings">
           <summary data-i18n>本机下载服务</summary>
           <p id="service-status" class="details" role="status" hidden></p>

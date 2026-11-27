@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { browserProxyArgs } from './media-proxy.mjs';
 
 const edgeDefault = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 
@@ -99,7 +100,7 @@ export async function withChromium(args, run, signal, {downloadsDirectory, execu
     ...(headed ? [] : ['--headless=new']), '--no-first-run', '--no-default-browser-check', '--disable-gpu',
     '--mute-audio', '--disable-background-networking', '--disable-component-update',
     '--disable-sync', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
-    `--user-data-dir=${profile}`, ...args, 'about:blank',
+    `--user-data-dir=${profile}`, ...browserProxyArgs(), ...args, 'about:blank',
   ], { stdio: 'ignore', windowsHide: !headed });
   let startupError;
   edge.once('error', error => { startupError = error; });

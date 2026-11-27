@@ -1,6 +1,6 @@
 # Install, upgrade, and remove VideoSave
 
-Use the [official Releases page](https://github.com/KaiserIIII/videosave/releases/latest). Compare archives with SHA256SUMS.txt before loading an unpacked extension or running its launcher. PowerShell can show a file SHA-256 with `Get-FileHash -Algorithm SHA256 -LiteralPath 'VideoSave-0.9.0.zip'`.
+Use the [official Releases page](https://github.com/KaiserIIII/videosave/releases/latest). Compare archives with SHA256SUMS.txt before loading an unpacked extension or running its launcher. PowerShell can show a file SHA-256 with `Get-FileHash -Algorithm SHA256 -LiteralPath 'VideoSave-0.10.0.zip'`.
 
 For Edge or Chrome, extract the desktop or Chromium-only ZIP and load the extension using your browser's developer mode. Firefox requires a signed build for permanent normal installation. The Firefox developer ZIP can be installed temporarily from `about:debugging`. The Android developer ZIP is experimental.
 

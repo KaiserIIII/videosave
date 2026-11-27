@@ -12,6 +12,26 @@ const jsonLd = value => '<script type="application/ld+json">' + JSON.stringify(v
 const playAction = "document.querySelector('#play-fixture')?.click()";
 const delayed = (markup, ms) => script('setTimeout(() => document.body.insertAdjacentHTML("beforeend",' +
   JSON.stringify(markup) + '),' + ms + ');');
+const formats = [
+  ['mp4','film.mp4','video/mp4'],['webm','film.webm','video/webm'],['mov','film.mov','video/quicktime'],
+  ['mkv','film.mkv','video/x-matroska'],['flv','film.flv','video/x-flv'],
+  ['hls','film.m3u8','application/vnd.apple.mpegurl'],['dash','film.mpd','application/dash+xml'],
+];
+const structures = [
+  ['typed-source',(src,mime) => `<video controls><source src="${src}" type="${mime}"></video>`],
+  ['late-dom',src => delayed(video(src),1100)],
+  ['open-shadow',src => '<section id="root"></section>' + script(
+    'document.getElementById("root").attachShadow({mode:"open"}).innerHTML=' + JSON.stringify(video(src)))],
+  ['nested-frame',src => `<iframe src="/nested/${src}"></iframe>`],
+  ['network-signed',src => script(request(src + '?ticket=fixture'))],
+  ['network-no-suffix',(_src,_mime,kind) => script(request('body-' + kind))],
+  ['schema-video',src => jsonLd({'@type':'VideoObject',name:'The test film',contentUrl:src})],
+  ['public-player-config',(src,mime) => config({playlist:[{sources:[{file:src,type:mime}]}]})],
+];
+const formatScenarios = formats.flatMap(([kind,src,mime]) => structures.map(([name,html]) => ({
+  id:`${kind}-${name}`,expected:[name === 'network-no-suffix' ? 'body-' + kind : src],html:html(src,mime,kind),
+  ...(name === 'network-signed' && ['mov','mkv','flv'].includes(kind) && {download:true,browserDownload:false}),
+})));
 const msePlayback = video('', 'autoplay muted') + script(`
   const element = document.querySelector('video');
   const type = 'video/mp4; codecs="avc1.64001F,mp4a.40.2"';
@@ -115,6 +135,9 @@ export const compatibilityCases = [
   {id:'http-restricted', expected:[], reason:'blocked', status:403, html:'<h1>Restricted</h1>'},
   {id:'challenge-header', expected:[], reason:'blocked', blocker:'cloudflare-challenge', status:403, html:'<p>Challenge</p>'},
   {id:'protected-hls', expected:[], blocker:'drm', html:script(request('protected.m3u8'))},
+  {id:'complete-transport-stream',expected:['film.ts'],download:true,browserDownload:false,
+    html:'<video controls><source src="film.ts" type="video/mp2t"></video>'},
+  ...formatScenarios,
 ];
 
 export const publicCases = [
@@ -156,12 +179,15 @@ function buildMedia(directory) {
   encode(directory, ['-i','film.mp4','-map','0:v','-c','copy',...hls,'video.m3u8']);
   encode(directory, ['-i','film.mp4','-map','0:a','-c','copy',...hls,'audio.m3u8']);
   encode(directory, ['-i','film.mp4','-c','copy','-f','dash','-seg_duration','1','film.mpd']);
+  for (const extension of ['mov','mkv','flv','ts']) encode(directory,['-i','film.mp4','-c','copy','film.' + extension]);
 }
 
 const types = {m3u8:'application/vnd.apple.mpegurl',mpd:'application/dash+xml',
-  m4s:'video/iso.segment',ts:'video/mp2t',mp4:'video/mp4',m4a:'audio/mp4',webm:'video/webm'};
+  m4s:'video/iso.segment',ts:'video/mp2t',mp4:'video/mp4',m4a:'audio/mp4',webm:'video/webm',
+  mov:'video/quicktime',mkv:'video/x-matroska',flv:'video/x-flv'};
 const aliases = {'raw':'film.mp4','raw-webm':'film.webm','manifest':'film.m3u8','dashmanifest':'film.mpd',
-  'ad.mp4':'film.mp4','other.mp4':'film.mp4','init.mp4':'film.mp4','chunk-0.m4s':'film.mp4'};
+  'ad.mp4':'film.mp4','other.mp4':'film.mp4','init.mp4':'film.mp4','chunk-0.m4s':'film.mp4',
+  ...Object.fromEntries(formats.map(([kind,src]) => ['body-' + kind,src]))};
 
 export async function serveFixtures(directory, cases) {
   buildMedia(directory);
@@ -188,6 +214,9 @@ export async function serveFixtures(directory, cases) {
       return res.writeHead(200,{...common,'content-type':'text/html'}).end(url.pathname === '/embed'
         ? video('/film.mp4') : '<iframe src="/embed"></iframe>');
     }
+    const embedded = /^\/(nested|embed)\/(film\.(?:mp4|webm|mov|mkv|flv|m3u8|mpd))$/.exec(url.pathname);
+    if (embedded) return res.writeHead(200,{...common,'content-type':'text/html'}).end(embedded[1] === 'nested'
+      ? `<iframe src="/embed/${embedded[2]}"></iframe>` : video('/' + embedded[2]));
     const name = path.posix.basename(url.pathname);
     if (name === 'sources.json') return res.writeHead(200,{...common,'content-type':'application/json'})
       .end('{"playlist":[{"sources":[{"file":"film.m3u8"}]}]}');

@@ -77,3 +77,42 @@ node tests/compatibility.mjs --browser=chrome '--only=shadow-delayed|delay-late|
 ```
 
 另见 [HLS 下载性能与竞品对照](hls-benchmark.zh-CN.md)，包含受控慢尾、两个公网样片和 Video DownloadHelper 的探测核对。
+
+## 0.10.0 候选版复测
+
+2026 年 11 月 27 日，提交 `6a8b86e` 的 Windows CI 从解压后的发行包运行同一组本地场景。Edge 和 Firefox 各识别 39/39 个正样本，Chrome 识别 37/39。三个扩展各落盘 5/5，均无误报。独立 MCP 探测识别 38/38，落盘 7/7，两个选片场景均通过。四个通道向测试保留资源发出的请求数均为 0。 [原始 CI 和逐场景附件](https://github.com/KaiserIIII/videosave/actions/runs/45940753966)
+
+Chrome 漏检 `shadow-delayed` 和 `shadow-attach-late`。复现中，已有元素调用 `attachShadow` 时，外层文档观察不到这个变化。将空结果的补扫改为有限次数后，Chrome 158.0.8127.38 的发行格式扩展包完整复测识别 39/39、落盘 5/5、正片选择 1/1，48 个场景无误报。两个 Shadow DOM 场景首次命中分别用了 3,330 和 2,091 ms。首个命中中位数为 233 ms，页面 JS 堆中位数为 12.43 MiB。该轮在本机运行，CI 数据来自 GitHub Windows runner。
+
+同一批七个合法公网样本在 Windows 的候选版中均被 Edge 扩展和独立 MCP 命中。Edge 扩展落盘 1/1，独立 MCP 落盘 2/2。独立 MCP 探测返回耗时中位数为 11,716 ms。样本用于验证公开资源，登录授权另用本地媒体服务器和隔离浏览器账户验证。
+
+### 高级授权版的扩展矩阵
+
+在 Windows 上用同一份扩展矩阵对照 `7ccca413d11762cd068e550718874db57f82bf96` 和 0.10.0 高级授权候选版。Edge 跑了 105 个本地场景和 7 个合法公网样本。Chrome、Firefox 和独立 MCP 本轮使用本地场景。表中的命中率以应出现媒体的场景为分母，落盘以安排下载的场景为分母。单个场景可能同时验证多个候选。
+
+| 路径 | 场景 | 探测命中 | 正片判断 | 验证落盘 | 含误报的场景 | 首次探测中位数 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Edge 基线 | 112 | 102/103 | 1/1 | 6/6 | 0/112 | 264.5 ms |
+| Edge 候选版 | 112 | 103/103 | 1/1 | 6/6 | 0/112 | 347 ms |
+| Chrome 候选版 | 105 | 96/96 | 1/1 | 5/5 | 0/105 | 293 ms |
+| Firefox 候选版 | 105 | 96/96 | 1/1 | 5/5 | 0/105 | 485.5 ms |
+| 独立 MCP（Edge） | 104 | 95/95 | 2/2 | 11/11 | 0/104 | 4,918 ms |
+| MCP Maximum Compatibility 定向测试 | 10 | 8/8 | — | — | 0/10 | 17,332.5 ms |
+
+Edge 基线漏检 `flv-schema-video`，候选版在相同场景识别出 `film.flv`。两个版本均识别 7/7 个公网样本。独立 MCP 的首轮在完成 77/104 项后触发 65 秒响应截止，前 77 项命中 68/68，落盘 10/10。隔离复测随后首项 `mkv-network-no-suffix` 通过，独立启动的全量复测也通过。保留 [首次记录](compatibility-data/v010-advanced-mcp-edge-first-run.json) 和 [完整复测](compatibility-data/v010-advanced-mcp-edge.json)。每轮对模拟受限媒体资源的请求均为零。
+
+Maximum Compatibility 定向测试中，动态 JSON 和七个嵌套 iframe 在第二阶段命中。Cloudflare 挑战与 DRM 模拟场景在第一阶段停止。样本验证了回退路径，范围仅覆盖这十项。完整的 [定向记录](compatibility-data/v010-advanced-maximum.json) 包含具体阶段和诊断。
+
+浏览器记录首个候选出现的时间，MCP 记录整次调用返回的时间。Edge 两轮的页面 JS 堆中位数为 4.87 MiB 和 6.29 MiB，Chrome 候选版为 5.27 MiB。部分采样与其他测试并行，时延和堆采样用于描述这些运行。全进程 CPU、峰值内存、稳定的平均耗时和用户实测授权交互次数仍缺少可比较的采样。自动授权的端到端测试覆盖一次显式站点设置后直接发起下载、两个阶段的退出登录撤权，以及隐私批次未写入 SQLite。普通手动授权在 Edge 和 Chrome 分别验证。
+
+| 支持等级 | 本轮验证范围 |
+| --- | --- |
+| 完整支持 | 公开直接媒体和经过验证的 HLS VOD 路径。独立 MCP 还验证了 DASH 和独立音视频轨道。 |
+| 自动回退后支持 | Maximum Compatibility 对定向 iframe 和公开 JSON 使用第二探测阶段。 |
+| 需要授权 | 托管 MCP 的精确站点授权。隔离 Edge、Chrome 测试覆盖正常登录后委托同源直链。 |
+| 需要组件 | 本机封装和验证使用 FFmpeg、FFprobe。平台下载按已有入口使用可选 yt-dlp。 |
+| 部分支持 | 托管 MCP 验证同源 HLS 和同源公开标准 AES-128 密钥。托管 DASH 可返回诊断与候选。MSE 和 blob 通过观察到的原始媒体清单识别。 |
+| 暂不支持 | 通用 WebSocket、WebTransport、WebRTC 与 Canvas 捕获、LL-HLS 全功能录制、Streamlink 自动调度、跨域登录会话及 FMP4 以外的通用直播录制。 |
+| 受保护 | DRM、支付、登录及挑战场景保留访问限制；测试使用模拟站点。 |
+
+[Edge 基线](compatibility-data/v010-advanced-baseline-edge.json) · [Edge 候选版](compatibility-data/v010-advanced-edge.json) · [Chrome 候选版](compatibility-data/v010-advanced-chrome.json) · [Firefox 候选版](compatibility-data/v010-advanced-firefox.json)

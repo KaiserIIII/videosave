@@ -408,3 +408,9 @@ footer {
 @media(prefers-reduced-motion:reduce) {
   *,*::before,*::after { animation-duration:0s !important;transition-duration:0s !important }
 }
+.mcp-section { display:grid; gap:.55rem; margin-top:.9rem; }
+.mcp-section h3 { margin:0; font-size:inherit; }
+.mcp-list { display:grid; gap:.45rem; list-style:none; padding:0; margin:0; }
+.mcp-list li { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem .5rem; }
+.mcp-list small { flex-basis:100%; opacity:.8; overflow-wrap:anywhere; }
+#mcp-policy:not([hidden]) { display:grid; gap:.45rem; }

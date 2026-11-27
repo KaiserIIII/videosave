@@ -66,6 +66,18 @@ test('diagnostics distinguish a lack of playback from DRM and strip all raw cont
   assert.doesNotMatch(JSON.stringify(result),/SECRET|PRIVATE|example\.org/);
 });
 
+test('the top-frame player cannot inherit network observation from a child frame', () => {
+  const direct = new URL('/media/film.mp4',base).href;
+  const [row] = pageStreams([{frameId:0,result:{candidates:[{url:direct,mediaElement:true}],playerCount:1}}],
+    [{url:direct,frameId:1,mime:'video/mp4',type:'media'}]);
+  assert.equal(row.frameId,0);
+  assert.equal(row.observed,true);
+  assert.equal(Boolean(row.observedTopFrame),false);
+  const [top] = pageStreams([],[{url:direct,frameId:0,mime:'video/mp4',type:'media'},
+    {url:direct,frameId:1,mime:'video/mp4',type:'media'}]);
+  assert.equal(top.observedTopFrame,true);
+});
+
 test('HLS initialization files and segments do not compete with an observed playlist', () => {
   const init = new URL('fixture-init.mp4',movie).href;
   const evidence = manifestEvidence('#EXTM3U\n#EXT-X-MAP:URI="fixture-init.mp4"\n#EXTINF:1,\npart-1.mp4\n',movie,'m3u8');

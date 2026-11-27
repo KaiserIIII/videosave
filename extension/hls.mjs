@@ -24,44 +24,49 @@ function manifestLines(text) {
 }
 
 export function selectRendition(text, source, quality) {
+  return rankRenditions(text,source,quality)[0] ?? null;
+}
+
+export function rankRenditions(text, source, quality) {
   const [header, ...lines] = manifestLines(text);
-  if (header !== '#EXTM3U') return null;
+  if (header !== '#EXTM3U') return [];
   const variants = [];
   const audio = [];
   let pending;
   for (const line of lines) {
     if (pending) {
       const url = !line.startsWith('#') && httpUrl(line, source);
-      if (!url) return null;
+      if (!url) return [];
       variants.push({...pending, url});
       pending = null;
     } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
       const attributes = line.slice(line.indexOf(':') + 1);
-      if (/(?:^|,)(?:VIDEO|SUBTITLES|CLOSED-CAPTIONS)=(?!NONE(?:,|$))/.test(attributes)) return null;
+      if (/(?:^|,)(?:VIDEO|SUBTITLES|CLOSED-CAPTIONS)=(?!NONE(?:,|$))/.test(attributes)) return [];
       const bandwidth = Number(/(?:^|,)BANDWIDTH=(\d+)/.exec(attributes)?.[1]);
       const height = Number(/(?:^|,)RESOLUTION=\d+x(\d+)/.exec(attributes)?.[1]);
-      if (!bandwidth || !height) return null;
+      if (!bandwidth || !height) return [];
       pending = {height, bandwidth, audioGroup:attribute(attributes,'AUDIO')};
     } else if (line.startsWith('#EXT-X-MEDIA:')) {
       const attributes = line.slice(line.indexOf(':') + 1);
       const group = attribute(attributes, 'GROUP-ID');
       const uri = attribute(attributes, 'URI');
-      if (!/(?:^|,)TYPE=AUDIO(?:,|$)/.test(attributes) || !group || !uri) return null;
+      if (!/(?:^|,)TYPE=AUDIO(?:,|$)/.test(attributes) || !group || !uri) return [];
       const url = httpUrl(uri, source);
-      if (!url) return null;
+      if (!url) return [];
       audio.push({url,group,preferred:/(?:^|,)DEFAULT=YES(?:,|$)/.test(attributes)});
     } else if (!/^#EXT-X-(?:VERSION:\d+|INDEPENDENT-SEGMENTS)$/.test(line)) {
-      return null;
+      return [];
     }
   }
-  if (pending || !variants.length) return null;
+  if (pending || !variants.length) return [];
   variants.sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth);
-  const lowest = variants.find(variant => variant.height === variants.at(-1).height);
-  const variant = variants.find(variant => !quality || variant.height <= quality) ?? lowest;
-  const group = audio.filter(track => track.group === variant.audioGroup);
-  const sound = group.find(track => track.preferred) ?? group[0];
-  if (variant.audioGroup && !sound) return null;
-  return {video:variant.url, audio:sound?.url, bandwidth:variant.bandwidth, height:variant.height};
+  const eligible = variants.filter(variant => !quality || variant.height <= quality);
+  return (eligible.length ? eligible : variants.filter(variant => variant.height === variants.at(-1).height)).map(variant => {
+    const group = audio.filter(track => track.group === variant.audioGroup);
+    const sound = group.find(track => track.preferred) ?? group[0];
+    return variant.audioGroup && !sound ? null
+      : {video:variant.url, audio:sound?.url, bandwidth:variant.bandwidth, height:variant.height};
+  });
 }
 
 function attribute(attributes, key) {
@@ -99,7 +104,7 @@ function segmentKey(value, source) {
   return {method:'AES-128', url, iv:iv && '0x' + iv.slice(2).padStart(32, '0')};
 }
 
-export function parseManifest(text, source, prefix, {byteRanges = false, aes128 = false} = {}) {
+export function parseManifest(text, source, prefix, {byteRanges = false, aes128 = false, sniffTransport = false} = {}) {
   const lines = manifestLines(text);
   if (lines[0] !== '#EXTM3U' || lines.at(-1) !== '#EXT-X-ENDLIST') return null;
   const segments = [];
@@ -152,12 +157,14 @@ export function parseManifest(text, source, prefix, {byteRanges = false, aes128 
       continue;
     }
     const url = httpUrl(line, source);
-    if (!needsSegment || !url || !initFilename && !/\.ts$/i.test(url.pathname)) return null;
+    if (!needsSegment || !url) return null;
+    const verifyTransport = !initFilename && !/\.ts$/i.test(url.pathname);
+    if (verifyTransport && (!sniffTransport || encrypted)) return null;
     const range = pendingRange && byteRange(pendingRange, previousRange?.url === url.href ? previousRange.end + 1 : undefined);
     // Full MPEG-TS segments can be staged unchanged for local FFmpeg decryption.
     if (pendingRange && !range || encrypted && (range || initFilename)) return null;
     const filename = `${prefix}-${segments.length}.${initFilename ? 'm4s' : 'ts'}`;
-    segments.push({url, filename, ...(range && {range})});
+    segments.push({url, filename, ...(range && {range}), ...(verifyTransport && {verifyTransport})});
     previousRange = range ? {url:url.href, end:range.end} : undefined;
     pendingRange = undefined;
     playlist.push(filename);

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { connectCdp, withChromium } from './edge-session.mjs';
+import { mediaProcessEnvironment } from './media-proxy.mjs';
 import { classify, isMediaFragment, isPlaylist, mediaResponseSize, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
 import { assessCandidates, detectionDiagnostic, documentBlockers } from '../extension/detection.mjs';
 import { publicMediaSources } from '../extension/media-adapters.mjs';
@@ -201,8 +202,19 @@ async function observeEmbedded(page, target, embedded, observe, networkOptions) 
   await target.send('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:true,flatten:true});
 }
 
+function visibleReferenceCodes() {
+  const description = document.querySelector('meta[name="description"],meta[property="og:description"]')?.content;
+  const text = [document.title.slice(0,1024),description?.slice(0,4096),document.body?.innerText.slice(0,32_768)].join('\n');
+  const results = new Set();
+  for (const [code] of text.matchAll(/\b[A-Z]{2,6}-\d{2,5}\b/g)) {
+    results.add(code);
+    if (results.size === 50) break;
+  }
+  return [...results];
+}
+
 export async function discover(url, cookies, signal, {
-  waitMs = 20_000, includeText = false, clickPlay = false, captureXhrBody = false, includeFrames = false, mode = 'headless',
+  waitMs = 20_000, includeText = false, harvestCodes = false, clickPlay = false, captureXhrBody = false, includeFrames = false, mode = 'headless',
   onMediaHeaders,
 } = {}) {
   return withChromium(['--autoplay-policy=no-user-gesture-required'], async ({ list }) => {
@@ -377,6 +389,10 @@ export async function discover(url, cookies, signal, {
       } while (Date.now() < collectUntil);
       const blocker = frameBlockers.get(nav.frameId) || (found?.encrypted ? 'drm' : found?.blocker);
       const blocked = blockedFrames.has(nav.frameId) || Boolean(blocker);
+      const codes = harvestCodes && !blocked ? await page.evaluate(`(${visibleReferenceCodes})()`).catch(() => {
+        signal.throwIfAborted();
+        return [];
+      }) : [];
       const childFrames = includeFrames && !blocked ? await inspectChildFrames(page,embedded,expression,blockedFrames,signal) : null;
       if (pendingBodies.size) await Promise.race([Promise.allSettled(pendingBodies),sleep(300,undefined,{signal})]);
       const allowedFrame = frameId => frameId === nav.frameId || childFrames?.urls.has(frameId);
@@ -405,6 +421,7 @@ export async function discover(url, cookies, signal, {
       return {
         pageTitle: found?.pageMetadata?.title || found?.pageTitle || null,
         pageContext: found?.pageContext ?? null,
+        ...(harvestCodes && {codes}),
         streams: [...streams, ...streams.flatMap(stream => stream.alternates ?? [])].slice(0, 24).map(stream => {
           const {url,kind,duration,width,height,size,recommended,currentSource,playerContext} = stream;
           const title = stream.title || sourceTitle(stream) || undefined;
@@ -500,7 +517,7 @@ export async function runMedia(bin, args, signal, onLine, {onFailure, strict = f
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const grouped = process.platform !== 'win32';
-    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env:mediaProcessEnvironment(),
       detached:grouped });
     let stopping;
     const stop = () => {
@@ -590,16 +607,17 @@ export async function probeStream(url, cookies, signal, tracks = false, kind, he
 }
 
 export async function inspectOutput(file, signal, expectedTrack, expectedDuration) {
+  const extension = file.split('.').at(-1).toLowerCase();
+  const container = {mp4:'mov',m4a:'mov',mkv:'matroska',mp3:'mp3'}[extension];
   const raw = await runMedia(FFPROBE, ['-v','error','-count_packets','-show_entries',
     'format=duration,size,format_name:stream=codec_type,codec_name,width,height,nb_read_packets',
-    '-of','json',...mediaInput(file, [])], signal, undefined, {strict:true});
+    '-of','json',...(container ? ['-f',container] : []),...mediaInput(file, [])], signal, undefined, {strict:true});
   const {format,streams = []} = JSON.parse(raw);
   const video = streams.find(track => track.codec_type === 'video');
   const audio = streams.find(track => track.codec_type === 'audio');
   const duration = Number(format?.duration);
   const size = Number(format?.size);
   const formats = (format?.format_name ?? '').split(',');
-  const extension = file.split('.').at(-1).toLowerCase();
   if (!streams.some(track => track.codec_type === expectedTrack && Number(track.nb_read_packets) > 0) ||
       !(duration > 0 && Number.isSafeInteger(size) && size > 0) ||
       expectedDuration > 0 && duration + Math.max(1, expectedDuration * 0.02) < expectedDuration) {

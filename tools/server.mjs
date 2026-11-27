@@ -3,9 +3,14 @@ import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import * as downloads from './media-downloads.mjs';
-import { configureMediaProxy } from './media-proxy.mjs';
+import { configureMediaProxy, diagnoseNetwork, networkPreferences } from './media-proxy.mjs';
 import { localPairingCode } from './preferences.mjs';
+import { activity, approveGrant, auditSettings, authenticateClient, clientAccess, listClients, listGrants, renewGrant, revokeGrant,
+  saveClient, sitePreferences, updateClientAccess, updateGrantSnapshot } from './mcp-control.mjs';
+import { invokeManaged, managedTools } from './managed-mcp.mjs';
+import { compatibilityRules } from './compatibility-policy.mjs';
 
 configureMediaProxy();
 const { ApiError, VERSION } = downloads;
@@ -96,15 +101,70 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
       res.writeHead(204, {'access-control-allow-methods':'GET, POST', 'access-control-allow-headers':'authorization, content-type'});
       return res.end();
     }
-    if (!authorized(req)) throw new ApiError('UNAUTHORIZED', '配对码无效', 401);
     if (!/^\/(?![\/\\])/.test(req.url) || req.url.includes('\\')) {
       throw new ApiError('INVALID_REQUEST_TARGET', '仅接受本机接口路径');
     }
     const { pathname, searchParams } = new URL(req.url, 'http://127.0.0.1');
     const route = req.method + ' ' + pathname;
+    if (route === 'POST /api/ai/call' || route === 'GET /api/ai/tools') {
+      const managed = () => authenticateClient(req.headers.authorization,pairingCode);
+      const client = origin ? null : managed();
+      if (!client) throw new ApiError('UNAUTHORIZED','Managed MCP authentication required',401);
+      if (req.method === 'GET') return reply(res,200,{tools:managedTools(client)});
+      const signal = responseSignal(res);
+      const invocation = await body(req);
+      const current = managed();
+      if (!current) throw new ApiError('UNAUTHORIZED','Managed MCP client is disabled',401);
+      const result = await invokeManaged(current,invocation,signal);
+      if (!res.destroyed) {
+        const latest = managed();
+        if (!latest) throw new ApiError('UNAUTHORIZED','Managed MCP client is disabled',401);
+        if (latest.scopes.join() !== current.scopes.join()) throw new ApiError('MCP_PERMISSION_CHANGED','Client permissions changed during the call',403);
+        reply(res,200,result);
+      }
+      return;
+    }
+    if (!authorized(req)) throw new ApiError('UNAUTHORIZED', '配对码无效', 401);
     switch (route) {
+      case 'GET /api/ai/clients': return reply(res,200,listClients());
+      case 'GET /api/ai/config': {
+        const id = searchParams.get('id');
+        if (!listClients().items.some(client => client.id === id && !client.disabled)) {
+          throw new ApiError('MCP_CLIENT_NOT_FOUND','Active client not found',404);
+        }
+        if (process.env.MEDIA_TOOLKIT_TOKEN || process.env.MEDIA_TOOLKIT_LOCAL_PAIRING !== '1') {
+          throw new ApiError('MCP_CONFIG_UNAVAILABLE','Start the companion with the Windows launcher to generate this configuration',409);
+        }
+        const env = {MEDIA_TOOLKIT_URL:'http://127.0.0.1:' + localPort,MEDIA_TOOLKIT_LOCAL_PAIRING:'1',MEDIA_TOOLKIT_MCP_CLIENT:id};
+        if (process.env.MEDIA_TOOLKIT_SETTINGS) env.MEDIA_TOOLKIT_SETTINGS = process.env.MEDIA_TOOLKIT_SETTINGS;
+        return reply(res,200,{mcpServers:{videosave:{command:process.execPath,
+          args:[fileURLToPath(new URL('./mcp-server.mjs',import.meta.url))],env}}});
+      }
+      case 'POST /api/ai/clients': return reply(res,200,saveClient(await body(req)));
+      case 'GET /api/ai/access': return reply(res,200,clientAccess(searchParams.get('id')));
+      case 'POST /api/ai/access': return reply(res,200,updateClientAccess(await body(req)));
+      case 'GET /api/ai/authorizations': return reply(res,200,listGrants());
+      case 'POST /api/ai/approve': return reply(res,200,approveGrant(await body(req)));
+      case 'POST /api/ai/renew': return reply(res,200,renewGrant((await body(req)).id));
+      case 'POST /api/ai/snapshot': return reply(res,200,updateGrantSnapshot(await body(req)));
+      case 'POST /api/ai/revoke': return reply(res,200,revokeGrant((await body(req)).id));
+      case 'GET /api/ai/site': return reply(res,200,sitePreferences(searchParams.get('origin')));
+      case 'POST /api/ai/site': {
+        const {origin:site,settings} = await body(req);
+        return reply(res,200,sitePreferences(site,settings));
+      }
+      case 'GET /api/ai/activity': return reply(res,200,activity());
+      case 'POST /api/ai/activity': {
+        const options = await body(req);
+        return reply(res,200,options.clear === true ? activity(true) : auditSettings(options));
+      }
+      case 'GET /api/ai/network': return reply(res,200,networkPreferences());
+      case 'POST /api/ai/network': return reply(res,200,networkPreferences(await body(req)));
+      case 'GET /api/ai/network/check': return reply(res,200,await diagnoseNetwork());
+      case 'GET /api/ai/compatibility': return reply(res,200,compatibilityRules());
+      case 'POST /api/ai/compatibility': return reply(res,200,compatibilityRules(await body(req)));
       case 'GET /api/health':
-        return reply(res, 200, { ok: true, version: VERSION, outDir: downloads.getSettings().settings.outDir,
+        return reply(res, 200, { ok: true, version: VERSION, mcpControl:true, outDir: downloads.getSettings().settings.outDir,
           ...(downloads.platformDownloadsEnabled() && {platformDownloads:true}) });
       case 'GET /api/settings':
         return reply(res, 200, downloads.getSettings());
@@ -131,6 +191,8 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
       }
       case 'POST /api/queue':
         return reply(res, 200, downloads.queue(await body(req)));
+      case 'POST /api/queue/batch':
+        return reply(res, 200, downloads.queueBatch(await body(req)));
       case 'POST /api/queue/original':
         return reply(res, 200, downloads.queueOriginal(await body(req)));
       case 'GET /api/recent':
