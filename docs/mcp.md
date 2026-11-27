@@ -1,5 +1,13 @@
 # VideoSave MCP
 
+## 高级授权和兼容性
+
+配对本机服务后，在扩展的「AI 与 MCP」选择客户端权限。点击「一键授权全部」并确认可启用 Full Access。「长期站点授权与隐私」可从当前窗口填入来源，或加载保存的站点组。选定有效期，并按需要分别允许下载和登录会话。站点设置中的明确拒绝优先。可以用「一键撤销全部」停用客户端，或用「恢复默认权限」清除长期授权并恢复受限模式。
+
+托管客户端用 `request_site_authorization` 申请目标站点。目标标签页处于活动状态时，可使用 `probe_active_tab` 等待新候选，使用 `select_media` 判断是否有明确推荐，再通过 `start_auto_download` 提交任务。遇到多个可靠候选时，调用结果会列出可供选择的 ID。登录信息和签名地址留在浏览器及本机服务内。隐私模式关闭该客户端的新下载历史和活动记录，已保存的媒体文件继续保留。
+
+独立 MCP 的 `probe_page` 支持 `compatibility: "maximum"` 和 `waitForMediaMs`。常规观测没有发现媒体时，剩余时间用于嵌入播放器和公开 JSON。开启 `learnCompatibility` 后，本机 SQLite 记录站点来源、探测策略及聚合指标。扩展控制中心提供规则导入、导出和重置。
+
 Run `Start VideoSave.cmd -McpConfig` in the desktop package. The output gives an absolute executable and stdio server path. For a companion already running, use `-McpConfig -SharedQueue` to reuse its queue and local database pairing. The HTTP API uses the same core operations and documents its routes in the [README](../README.md).
 
 Use the generated stdio entry under the client's MCP servers. For Codex CLI, register the same executable and arguments under a local MCP server. DSH and Codex CLI completed local probe and download tests with a Windows candidate package. Claude Code negotiated the protocol and listed tools. Cursor recognized a local configuration in testing. Its stdio handshake remains unverified.
@@ -10,9 +18,23 @@ Use the generated stdio entry under the client's MCP servers. For Codex CLI, reg
 4. Pass the batch ID to `wait_for_download`. Timeouts leave the job running. Read per-item status, `errorCode`, verified media properties and output paths before reporting success.
 5. For resumable interrupted batches, resubmit the same request using the documented options and any needed session credential. Use `retry_download` for a failed or cancelled batch still held by the process.
 
+### Serial batches and HLS recovery
+
+`start_batch` defaults to one active item per batch. A page resolves when its turn starts. Pass page or stream URLs, or pass `{kind:"code", code:"TEST-100"}` with a `codeUrlTemplate` such as `https://example.org/watch/{code}`. Set batch defaults with `perItem.quality` and `perItem.headers`. Each item reports its own result through `get_progress` and `wait_for_download`.
+
+When a matching item already has a recorded output in the configured directory at its saved size, `start_batch` reports `items[].alreadySaved`. Replaying an entire completed batch can return its previous ID with `alreadySaved:true`. Use `skipExisting:false` to save another copy. These tools are available in standalone and shared-queue MCP configurations.
+
+On supported HLS downloads, `items[].segments` reports `completed`, `total`, and `restored`. The downloader validates the MPEG-TS format before staging segments with nonstandard extensions. If a segment transfer exhausts its transient retries, the batch reports `HLS_TRANSFER_INTERRUPTED` and `resumable:true`. Resubmit the original request to reuse complete segments after the playlist and encryption key identity are checked. The checkpoint's `failed.json` lists missing zero-based part indices. Cancelling the interrupted batch discards its checkpoint. Set `resume:false` to disable checkpointing. With `keepSegments:true` and resume enabled, successful discrete HLS downloads report `segmentDirectory` and retain the completed parts there. These retained parts consume additional disk space.
+
+For a single local HLS stream, use `refresh:{pageUrl: "https://example.org/watch/film"}` to re-probe its public player page once on HTTP `410` or a recognized expiry timestamp. Public page items can retry once from the original page. The new playlist must belong to the original stream's origin. A changed playlist starts a new transfer. If the page yields no eligible replacement, progress reports `STREAM_EXPIRED` and the page URL without its query string. HTTP `403` stops with `MEDIA_ACCESS_RESTRICTED`.
+
+Set `items[].quality` to `"max"` for the highest declared quality or pass a numeric height. The HLS prefetcher can try a lower declared variant when its preferred playlist returns `404`. An access denial stops the download. `probe_page` returns `qualities` for the selected HLS stream and can extract up to 50 visible reference codes with `harvestCodes:true`. When an HLS master declares a bitrate, the prefetcher estimates the required space using the selected variant's duration and reports `NO_SPACE` when the estimate exceeds available storage.
+
+Run `node tools/media-cli.mjs --help` from the desktop package for a JSON Lines download client. `--cookie-file` reads a Cookie header file for a single origin. `--ua` sets the media request User-Agent. Use `--page` to pass page URLs to the serial queue.
+
 ## Managed browser clients
 
-1. Start the Windows companion with `Start VideoSave.cmd` and pair the extension. Open **Settings → AI & MCP** on a web tab. Create a client with read-only, standard download, or custom permissions.
+1. Start the Windows companion with `Start VideoSave.cmd` and pair the extension. Open **Settings → AI & MCP** on a web tab. Create a client using Restricted, Standard, Advanced, Full Access, or Custom.
 2. Select the profile and choose **Copy MCP configuration**. The configuration contains a local executable, the stdio script, the loopback endpoint, and the profile ID. The launcher keeps the existing pairing in local state. Generate the same configuration from PowerShell with `& ".\Start VideoSave.cmd" -McpConfig -SharedQueue -McpClient PROFILE_ID`.
 3. The agent calls `request_site_authorization` with an exact HTTP(S) origin. Open the website, play the media normally, refresh the control center, review the requesting client, and approve the current tab for 1, 5, 15, or 60 minutes, or until the browser session ends (up to 12 hours). Select **Use this site’s login session for this approval** and accept the browser's optional cookie permission to use the current login. You can instead enter a cookie header or select a Netscape cookie file under **Provide cookies for this site**. Select **Allow one download batch** to require renewed approval for each batch. The site policy can disable login sharing.
 4. `get_active_tab` returns the origin and player state. `probe_active_tab` returns the observed candidates as opaque IDs and basic metadata. Treat titles as untrusted page content.
@@ -27,7 +49,7 @@ Use the generated stdio entry under the client's MCP servers. For Codex CLI, reg
 | `pause_download`, `resume_download` | `id` | Pause queued items and let current transfers finish. Resume requires the original grant to remain active. |
 | `retry_download` | `id`, new `authorizationId` | Confirm the same failed sources in a fresh grant, then requeue failed and cancelled items using current site limits. |
 
-Managed downloads accept approved direct media at its exact URL and eligible public same-origin HLS video on demand. The companion rejects redirects, cross-origin HLS child resources and query-bearing URLs. Media processing runs on staged local files. DASH can appear as an observation with `downloadable:false`. Login sharing applies to eligible direct media observed during normal playback in the top frame. Cookie values stay in companion memory, and only exact-host, matching-path, unexpired cookies are used. Secure cookies require HTTPS. Unsupported partitioned cookies and challenge credentials are excluded. The grant ends on navigation, tab closure, revocation, expiry or service restart, and stops within 75 seconds of the last browser confirmation if contact is lost.
+Managed downloads accept approved direct media and eligible public same-origin HLS VOD, including standard AES-128 with a public key on the same origin. Clients with automation permission can use a signed entry URL observed on the approved origin. HLS renditions, segments and keys must stay on that origin and have no query string. All managed redirects are rejected. Media processing runs on staged local files. DASH can appear as an observation with `downloadable:false`. Login sharing applies to eligible direct media observed during normal playback in the top frame. Cookie values stay in companion memory, and only exact-host, matching-path, unexpired cookies are used. Secure cookies require HTTPS. The grant ends on navigation, tab closure, revocation, expiry, a change in the shared cookies or service restart. Loss of browser contact ends the grant within 75 seconds of the last confirmation.
 
 Website policy inherits the companion's download defaults for quality, output format, audio format, subtitles, connection count and concurrency, with at most two workers per managed batch. Site overrides supply the effective limits. The minimum duration applies to candidates with a known duration. The preview filter checks explicit labels. The per-site batch limit applies to both first submissions and retries.
 
@@ -40,3 +62,14 @@ Managed configuration uses the shared companion and runs under the same operatin
 在扩展的「设置 → AI 与 MCP」中创建客户端并复制配置。在当前站点设置保存画质和并发等上限，需要下载时打开允许下载的开关。AI 发起授权请求后，打开对应网站，正常播放并扫描，再在控制中心批准当前页。如果同源直链媒体需要登录，可以勾选「本次授权同时使用当前站点的登录会话」并接受浏览器的可选权限提示。也可在「手动提供本站 Cookie」中输入 Cookie 或选择 Netscape 格式文件。勾选「仅允许一个下载批次」可限制本次授权的用途。用 `probe_active_tab` 取得标记为 `downloadable` 的候选编号，用 `wait_for_download` 等待结果。浏览器可以撤销授权、停用客户端或导出脱敏活动记录。当前页可授权 1、5、15 或 60 分钟，也可随浏览器会话结束，最长 12 小时。下载过程中，`pause_download` 暂停剩余排队项目，已开始的项目继续。`resume_download` 要求原授权有效，`retry_download` 要求新授权重新观察到失败源。站点规则可继承本机默认值，也可限制批量大小、已知时长和明确标识的广告或预告。代理设置重启本机服务后生效，扩展本身使用浏览器网络设置。
 
 The local server accepts the 2024-11-05, 2025-03-26, 2025-06-18 and 2025-11-25 protocol versions. Newer supported versions also return JSON as `structuredContent`. The Windows ZIP supplies a stdio server but no package-registry coordinate. Official registry publication requires an approved distribution method and verified publisher namespace. VideoSave has a GitHub release distribution path.
+### Full Access and standing approvals
+
+Select a registered client and use **Grant full access** to confirm the expanded permissions. Under **Standing site approvals and privacy**, enter exact site origins, fill the list from your current window, or select a saved site group. Choose an expiry of 1–90 days and explicitly select download and login permissions for the group. An explicit site policy can still deny access. **Revoke all access** disables the client. **Restore default permissions** returns it to Restricted and clears standing approvals.
+
+The client calls `request_site_authorization` with the origin. Keep the relevant page active in the browser and start playback using the website's controls. A standing approval attaches to that browser document, and the extension updates the candidates as media requests arrive. A page requiring login or other authorization leaves the request pending. `get_authorization_status` reports the detected blocker and next action. The client can use `probe_active_tab` with `compatibility: "maximum"` to wait for candidates, `select_media` to inspect the recommendation, and `start_auto_download` to start a clear selection. An ambiguous result lists candidate IDs for explicit selection. Site download settings and sanitized network status are available through `update_download_preferences` and `get_network_status`.
+
+The optional login session applies to eligible direct media observed on the approved origin. Candidate responses carry opaque IDs. Privacy mode suppresses SQLite batch history and activity records for new managed operations and clears the client's prior activity records. Completed files remain available, and managed work in the running companion remains visible until its in-memory state is cleared.
+
+### Maximum Compatibility
+
+Standalone and shared-queue `probe_page` accept `compatibility: "maximum"`. The probe first observes normal playback and, if needed, uses the remaining observation budget for iframe and public JSON inspection. `waitForMediaMs` sets the observation budget, with a separate bounded metadata phase. `probeStrategy` reports the stage and attempt count. Set `learnCompatibility: true` to store the site origin, strategy and aggregate results in local SQLite. The control center can import, export and reset rules. Set the `preferred` field to `standard` or `deep` before importing to change the preferred strategy for an origin.

@@ -1,18 +1,156 @@
 import assert from 'node:assert/strict';
-import { execFileSync, spawn } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { createCipheriv } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import test from 'node:test';
 
 const entry = fileURLToPath(new URL('../tools/mcp-server.mjs', import.meta.url));
 const ffmpeg = process.env.FFMPEG_BIN || 'ffmpeg';
+
+test('MCP validates nonstandard HLS parts and resumes a transient failure without repeating committed parts', {timeout:40_000}, async t => {
+  const root = await mkdtemp(path.join(tmpdir(),'videosave-hls-parts-'));
+  const env = {...process.env,OUT_DIR:path.join(root,'saved'),MEDIA_TOOLKIT_SETTINGS:path.join(root,'state.sqlite'),MEDIA_TOOLKIT_URL:''};
+  execFileSync(ffmpeg,['-v','error','-f','lavfi','-i','testsrc2=s=160x90:r=10','-c:v','libx264','-g','10','-sc_threshold','0',
+    '-t','8','-hls_time','1','-hls_list_size','0','film.m3u8'],{cwd:root,windowsHide:true});
+  const manifest = await readFile(path.join(root,'film.m3u8'),'utf8');
+  const segments = await Promise.all(Array.from({length:8},(_,idx) => readFile(path.join(root,`film${idx}.ts`))));
+  const counts = Array(8).fill(0);
+  const manifests = [];
+  const cliHeaders = [];
+  let refreshVisits = 0;
+  let rotatingVisits = 0;
+  let highStatus = 404;
+  let unavailable = true;
+  let corrupt = false;
+  const server = createServer((req,res) => {
+    if (req.headers.cookie || req.headers['user-agent'] === 'VideoSave-Test') {
+      cliHeaders.push([req.headers.cookie,req.headers['user-agent']]);
+    }
+    if (req.url === '/watch/fixture' || req.url === '/watch/TEST-100') {
+      refreshVisits++;
+      return res.writeHead(200,{'content-type':'text/html'}).end(
+        '<title>Recovery fixture</title><video controls preload="none" src="/film.m3u8"></video>');
+    }
+    if (req.url === '/watch/rotating') {
+      const stream = ++rotatingVisits === 1 ? 'gone' : 'film';
+      return res.writeHead(200,{'content-type':'text/html'}).end(
+        `<title>Rotating stream fixture</title><video controls preload="none" src="/${stream}.m3u8"></video>`);
+    }
+    if (req.url === '/gone.m3u8') return res.end(manifest.replaceAll(/film(\d+)\.ts/g,'gone$1.jpeg'));
+    if (/^\/gone\d+\.jpeg$/.test(req.url)) return res.writeHead(410).end();
+    if (req.url === '/master.m3u8') return res.end('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=200000,RESOLUTION=1920x1080\nhigh.m3u8\n' +
+      '#EXT-X-STREAM-INF:BANDWIDTH=100000,RESOLUTION=1280x720\nfilm.m3u8\n');
+    if (req.url === '/huge.m3u8') return res.end('#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=800000000000000,RESOLUTION=1280x720\nfilm.m3u8\n');
+    if (req.url === '/high.m3u8') {
+      manifests.push('high');
+      return res.writeHead(highStatus).end();
+    }
+    if (req.url === '/film.m3u8') {
+      manifests.push('film');
+      return res.end(manifest.replaceAll('.ts','.jpeg'));
+    }
+    const idx = Number(/^\/film(\d+)\.jpeg$/.exec(req.url)?.[1]);
+    if (!Number.isInteger(idx)) return res.writeHead(404).end();
+    counts[idx]++;
+    if (unavailable && idx === 7) return res.writeHead(503).end();
+    res.writeHead(200,{'content-type':'image/jpeg'}).end(corrupt && idx === 7 ? Buffer.alloc(1400) : segments[idx]);
+  }).listen(0,'127.0.0.1');
+  await once(server,'listening');
+  let mcp = await startMcp(env);
+  t.after(async () => {
+    await mcp.stop();
+    await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
+    await rm(root,{recursive:true,force:true,maxRetries:5});
+  });
+  const request = {items:[{kind:'stream',url:`http://127.0.0.1:${server.address().port}/film.m3u8`,title:'Recovery fixture'}],
+    concurrency:1,connections:4};
+  const wait = id => mcp.tool('wait_for_download',{id,timeoutMs:5000});
+  const {id} = await mcp.tool('start_download',request);
+  const failed = await wait(id);
+  assert.equal(failed.items[0].errorCode,'HLS_TRANSFER_INTERRUPTED');
+  assert.equal(failed.resumable,true);
+  assert.deepEqual(counts,[1,1,1,1,1,1,1,3]);
+  assert.equal(failed.items[0].segments.completed,7);
+  const recovery = path.join(env.OUT_DIR,`.media-toolkit-${id}-0`);
+  const checkpoint = (await readdir(recovery)).find(name => name.startsWith('segments-'));
+  assert.deepEqual(JSON.parse(await readFile(path.join(recovery,checkpoint,'failed.json'),'utf8')),
+    {total:8,missing:[7]});
+  await mcp.stop();
+  mcp = await startMcp(env);
+  unavailable = false;
+  assert.equal((await mcp.tool('start_download',request)).id,id);
+  const done = await wait(id);
+  assert.equal(done.status,'done');
+  assert.equal(done.items[0].prefetch,true);
+  assert.equal(done.items[0].info.duration,8);
+  assert.deepEqual(counts,[1,1,1,1,1,1,1,4]);
+  const target = new URL(request.items[0].url);
+  const item = (name,title) => ({kind:'stream',url:new URL(name,target).href,title,quality:'max'});
+  const replay = await mcp.tool('start_batch',request);
+  assert.deepEqual(replay,{id,total:1,alreadySaved:true});
+  assert.deepEqual(counts,[1,1,1,1,1,1,1,4]);
+  const {id:serial} = await mcp.tool('start_batch',{items:[
+    request.items[0],item('/master.m3u8','First'),item('/huge.m3u8','Second'),item('/film.m3u8','Third'),
+  ],connections:4});
+  const completed = await wait(serial);
+  assert.equal(completed.status,'partial');
+  assert.deepEqual(completed.items.map(item => [item.status,item.errorCode]),
+    [['done',undefined],['done',undefined],['error','NO_SPACE'],['done',undefined]]);
+  assert.equal(completed.items[0].file,done.items[0].file);
+  assert.equal(completed.items[0].alreadySaved,true);
+  assert.deepEqual(manifests.slice(-4),['high','film','film','film']);
+  highStatus = 403;
+  const refresh = {pageUrl:new URL('/watch/fixture',target).href};
+  const {id:denied} = await mcp.tool('start_download',{items:[item('/master.m3u8','Denied')],refresh});
+  assert.equal((await wait(denied)).items[0].errorCode,'MEDIA_ACCESS_RESTRICTED');
+  assert.equal(manifests.at(-1),'high');
+  assert.equal(refreshVisits,0);
+  const {id:expiredId} = await mcp.tool('start_download',{items:[item('/gone.m3u8','Gone')]});
+  assert.equal((await wait(expiredId)).items[0].errorCode,'STREAM_EXPIRED');
+  const {id:refreshedId} = await mcp.tool('start_download',{items:[item('/gone.m3u8','Refreshed')],refresh,keepSegments:true});
+  const refreshed = await mcp.tool('wait_for_download',{id:refreshedId,timeoutMs:15_000});
+  assert.equal(refreshed.status,'done',JSON.stringify(refreshed));
+  assert.equal(refreshed.items[0].info.duration,8);
+  assert.equal((await readdir(refreshed.items[0].segmentDirectory)).filter(name => name.endsWith('.ts')).length,8);
+  assert.equal(refreshVisits,1);
+  const queuedCode = await mcp.tool('start_batch',{items:[{kind:'code',code:'TEST-100'}],
+    codeUrlTemplate:`${target.origin}/watch/{code}`,perItem:{quality:'max'}});
+  const coded = await mcp.tool('wait_for_download',{id:queuedCode.id,timeoutMs:15_000});
+  assert.equal(coded.status,'done',JSON.stringify(coded));
+  assert.equal(coded.items[0].info.duration,8);
+  assert.equal(refreshVisits,2);
+  const queuedPage = await mcp.tool('start_batch',{items:[{kind:'page',url:new URL('/watch/rotating',target).href}]});
+  const rotated = await mcp.tool('wait_for_download',{id:queuedPage.id,timeoutMs:20_000});
+  assert.equal(rotated.status,'done',JSON.stringify(rotated));
+  assert.equal(rotated.items[0].info.duration,8);
+  assert.equal(rotatingVisits,2);
+  const cli = fileURLToPath(new URL('../tools/media-cli.mjs',import.meta.url));
+  const cookieFile = path.join(root,'cookies.txt');
+  const cliArgs = [cli,'--cookie-file',cookieFile,'--ua','VideoSave-Test','--connections','4',target.href];
+  const exec = promisify(execFile);
+  await writeFile(cookieFile,'fixture=not-in-output');
+  const cliResult = await exec(process.execPath,cliArgs,{env,windowsHide:true});
+  assert.doesNotMatch(cliResult.stdout,/not-in-output/);
+  const cliDone = JSON.parse(cliResult.stdout.trim().split('\n').at(-1));
+  assert.equal(cliDone.status,'done');
+  assert.equal(cliDone.items[0].segments.completed,8);
+  assert.ok(cliHeaders.length >= 9);
+  assert.ok(cliHeaders.every(([cookie,ua]) => cookie === 'fixture=not-in-output' && ua === 'VideoSave-Test'));
+  await writeFile(cookieFile,'cf_clearance=not-in-output');
+  await assert.rejects(exec(process.execPath,cliArgs,{env,windowsHide:true}),error =>
+    JSON.parse(error.stdout).code === 'INVALID_COOKIE' && !error.stdout.includes('not-in-output'));
+  corrupt = true;
+  const invalid = await mcp.tool('start_download',request);
+  assert.equal((await wait(invalid.id)).items[0].errorCode,'INVALID_HLS_SEGMENT');
+});
 
 async function startMcp(env) {
   const child = spawn(process.execPath, [entry], {env,windowsHide:true,stdio:['pipe','pipe','inherit']});

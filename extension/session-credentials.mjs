@@ -1,4 +1,6 @@
 export const maxCredentialFileBytes = 64 * 1024;
+const securityCookie = /^(?:cf_clearance|__cf_bm|__cflb|cf_chl_|__cf_chl_|_px|datadome|ak_bmsc|bm_sv|bm_sz)/i;
+export const isChallengeCookie = name => securityCookie.test(name);
 const invalid = () => new Error('Invalid site credentials');
 
 export function importedCookies(text, origin, {file = false} = {}) {

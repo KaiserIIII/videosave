@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { createCipheriv } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -7,6 +8,7 @@ import { createInterface } from 'node:readline';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { connectCdp, withChromium, withEdge } from '../tools/edge-session.mjs';
 import { executable } from './compatibility-browsers.mjs';
@@ -35,6 +37,7 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
     return createInterface({input:child.stdout})[Symbol.asyncIterator]();
   };
   const nativeCookies = [];
+  const companionMedia = [];
   let mediaRedirect;
   let receivedRedirect = 0;
   const destination = createServer((_req,res) => {
@@ -46,8 +49,11 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
   const hls = new Map();
   const origin = createServer((req,res) => {
     if (hls.has(req.url)) return res.writeHead(200,{'content-type':req.url.endsWith('.m3u8') ? 'application/vnd.apple.mpegurl' : 'video/mp2t'}).end(hls.get(req.url));
-    if (req.url === '/film.mp4') {
-      if (req.headers['user-agent']?.startsWith('VideoSave') || !req.headers['sec-fetch-mode']) nativeCookies.push(req.headers.cookie);
+    if (req.url === '/film.mp4' || req.url === '/film.mp4?ticket=fixture-session') {
+      if (req.headers['user-agent']?.startsWith('VideoSave') || !req.headers['sec-fetch-mode']) {
+        nativeCookies.push(req.headers.cookie);
+        companionMedia.push(req.url);
+      }
       if (req.headers.cookie !== login) return res.writeHead(401).end('Sign in');
       if (mediaRedirect) return res.writeHead(302,{location:mediaRedirect}).end();
       return res.writeHead(200,{'content-type':'video/mp4','content-length':bytes.length}).end(bytes);
@@ -56,11 +62,12 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
     if (req.url === '/watch' && req.headers.cookie === login) {
       return res.writeHead(200,{'content-type':'text/html'}).end('<title>VideoSave QA film</title><video width="640" controls muted autoplay preload="auto" src="/film.mp4"></video>');
     }
+    if (req.url === '/empty') return res.writeHead(200,{'content-type':'text/html'}).end('<title>Waiting for player</title>');
     if (req.url === '/watch') return res.writeHead(401).end('Sign in');
     return res.writeHead(404).end();
   });
   async function until(fn, describe = () => 'waiting for browser state') {
-    const deadline = Date.now() + 8000;
+    const deadline = Date.now() + 12_000;
     while (!signal.aborted && Date.now() < deadline) {
       const result = await fn();
       if (result) return result;
@@ -76,6 +83,16 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
     execFileSync(process.env.FFMPEG_BIN || 'ffmpeg',['-v','error','-i',film,'-c','copy',
       '-hls_time','1','-hls_list_size','0','public.m3u8'],{cwd:dir,windowsHide:true,timeout:15000});
     for (const file of ['public.m3u8','public0.ts','public1.ts']) hls.set('/'+file,await readFile(path.join(dir,file)));
+    const key = Buffer.alloc(16,1);
+    const iv = Buffer.alloc(16,2);
+    hls.set('/local-aes.key',key);
+    const encryptedPlaylist = hls.get('/public.m3u8').toString().replace('#EXTINF:',
+      `#EXT-X-KEY:METHOD=AES-128,URI="local-aes.key",IV=0x${iv.toString('hex')}\n#EXTINF:`).replaceAll('public','encrypted');
+    hls.set('/encrypted.m3u8',Buffer.from(encryptedPlaylist));
+    for (const i of [0,1]) {
+      const cipher = createCipheriv('aes-128-cbc',key,iv);
+      hls.set(`/encrypted${i}.ts`,Buffer.concat([cipher.update(hls.get(`/public${i}.ts`)),cipher.final()]));
+    }
     origin.listen(0,'127.0.0.1');
     await once(origin,'listening');
     mediaUrl = 'http://127.0.0.1:' + origin.address().port;
@@ -236,6 +253,74 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
         assert.ok(savedHls.items[0].prefetch);
         assert.ok(savedHls.items[0].info.audioCodec);
         assert.equal((await call('start_download',{authorizationId:publicGrant.id,items:[{candidateId:publicTab.streams[0].candidateId}]})).code,'MCP_AUTHORIZATION_USED');
+
+        if (browserName === 'edge') {
+          await admin('revoke',{id:publicGrant.id});
+          const aesGrant = await call('request_site_authorization',{origin:mediaUrl});
+          await admin('approve',{id:aesGrant.id,singleTask:true,tab:{url:mediaUrl,streams:[{url:mediaUrl+'/encrypted.m3u8',kind:'m3u8'}]}});
+          const aesTab = await call('probe_active_tab',{authorizationId:aesGrant.id});
+          const aesBatch = await call('start_download',{authorizationId:aesGrant.id,items:[{candidateId:aesTab.streams[0].candidateId}]});
+          const aes = await call('wait_for_download',{id:aesBatch.id,timeoutMs:20_000});
+          assert.equal(aes.status,'done',JSON.stringify(aes));
+          assert.ok(aes.items[0].info.audioCodec && aes.items[0].info.codec);
+          assert.equal(aes.items[0].info.duration,savedHls.items[0].info.duration);
+          await admin('revoke',{id:aesGrant.id});
+          await popup.evaluate('window.confirm = () => true; document.querySelector("#mcp-refresh").click(); true');
+          const edit = 'Array.from(document.querySelectorAll("#mcp-clients li")).find(row => row.querySelector("strong").textContent === "VideoSave QA").querySelector("button")';
+          await popup.evaluate(edit + '.click(); true');
+          await until(() => popup.evaluate('document.querySelector("#mcp-client-name").value === "VideoSave QA"'));
+          await popup.evaluate('document.querySelector("#mcp-full-access").click(); true');
+          await until(() => popup.evaluate('!document.querySelector("#mcp-trust").hidden'));
+          await popup.send('Runtime.evaluate',{expression:`
+            document.querySelector('#mcp-trusted-origins').value = ${JSON.stringify(mediaUrl)};
+            document.querySelector('#mcp-trust-session').checked = true;
+            document.querySelector('#mcp-trust-download').checked = true;
+            document.querySelector('#mcp-privacy').checked = true;
+            document.querySelector('#mcp-save-trust').click();
+          `,userGesture:true});
+          await until(async () => (await admin('access?id=' + profile.id)).privacy,
+            () => popup.evaluate('document.querySelector("#mcp-message").textContent'));
+          await until(() => worker.evaluate('chrome.storage.local.get("standingMcp").then(state => state.standingMcp)'));
+          const standing = await call('request_site_authorization',{origin:mediaUrl});
+          assert.equal(standing.automatic,true);
+          await popup.evaluate('chrome.runtime.sendMessage({type:"videosave-standing-mcp"}).catch(() => {})');
+          await until(async () => (await call('get_authorization_status',{id:standing.id})).status === 'approved');
+          const before = await call('probe_active_tab',{authorizationId:standing.id});
+          const originalId = before.streams[0]?.candidateId;
+          await page.evaluate('document.querySelector("video").src = "/film.mp4?ticket=fixture-session"; true');
+          const signedUrl = mediaUrl + '/film.mp4?ticket=fixture-session';
+          await until(() => worker.evaluate('chrome.storage.session.get(null).then(rows => Object.values(rows).flat().some(row => row?.url === ' + JSON.stringify(signedUrl) + '))'));
+          await popup.evaluate('chrome.runtime.sendMessage({type:"videosave-standing-mcp"}).catch(() => {})');
+          const next = await until(async () => {
+            const current = await call('probe_active_tab',{authorizationId:standing.id});
+            if (!current.streams.length || !current.tab.sessionShared) return false;
+            const selected = await call('select_media',{authorizationId:standing.id});
+            return selected.status === 'selected' && selected.candidateId !== originalId ? selected : false;
+          },async () => JSON.stringify({tab:await call('probe_active_tab',{authorizationId:standing.id}),
+            selected:await call('select_media',{authorizationId:standing.id})}));
+          assert.ok(next.candidateId);
+          const automatic = await call('start_auto_download',{authorizationId:standing.id});
+          assert.ok(automatic.id,JSON.stringify(automatic));
+          assert.equal((await call('wait_for_download',{id:automatic.id,timeoutMs:20_000})).status,'done');
+          assert.equal(companionMedia.at(-1),'/film.mp4?ticket=fixture-session');
+          assert.equal((await admin('activity')).items.some(row => row.client === profile.id),false);
+          const state = new DatabaseSync(env.MEDIA_TOOLKIT_SETTINGS,{readOnly:true});
+          try {
+            assert.equal(state.prepare('SELECT id FROM download_batches WHERE id = ?').get(automatic.id),undefined);
+          } finally { state.close(); }
+          await browser.send('Storage.clearCookies');
+          await until(async () => (await call('get_authorization_status',{id:standing.id})).status === 'revoked');
+          await page.send('Page.navigate',{url:mediaUrl+'/empty'});
+          await until(() => page.evaluate('location.pathname === "/empty" && document.readyState === "complete"'));
+          await page.send('Network.setCookie',{name:'fixture',value:'local-test-login',url:mediaUrl,path:'/',httpOnly:true});
+          const empty = await call('request_site_authorization',{origin:mediaUrl});
+          await popup.evaluate('chrome.runtime.sendMessage({type:"videosave-standing-mcp"}).catch(() => {})');
+          await until(async () => (await call('get_authorization_status',{id:empty.id})).status === 'approved');
+          assert.equal((await call('probe_active_tab',{authorizationId:empty.id})).streams.length,0);
+          await browser.send('Storage.clearCookies');
+          await until(async () => (await call('get_authorization_status',{id:empty.id})).status === 'revoked',
+            () => 'waiting for revocation after logout before media is observed');
+        }
       } finally {
         popup?.close();
         page?.close();

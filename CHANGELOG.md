@@ -15,6 +15,16 @@
 - Pause and resume queued items, or reapprove failed sources to retry them. Audit records can be filtered by client and outcome.
 - Configure direct, environment or unauthenticated HTTP proxy routing for the companion, with a restart pending indicator and connection check.
 - Exercise Edge and Chrome login approval, denied access, redirect rejection, dual-track output and same-URL reload revocation through MCP in CI.
+- Stage MPEG-TS HLS segments with nonstandard extensions after validating their contents. Resume interrupted transfers from completed parts, track missing indices and optionally retain completed parts.
+- Queue serial batches through MCP and HTTP, resolve page links or explicit reference codes when their turn starts, and reuse existing outputs from matching requests.
+- Report HLS variants and free-space errors, try the next quality when a variant playlist is missing, and re-probe a public player once after explicit stream expiry.
+- Add a local CLI with JSON Lines progress, a single-origin cookie file and a media request User-Agent.
+- Add Advanced and Full Access presets, standing approvals for selected site groups, optional private batch history, and explicit reset and revocation controls.
+- Update standing browser grants with observed media, preserve IDs for unchanged candidates, and select or download a clear recommendation with managed MCP.
+- Require each standing client to opt into unattended downloads. Revoke shared login access when its cookie state changes, including before the first media observation.
+- Stage public same-origin AES-128 HLS VOD with validated key length, while preserving managed resource boundaries and DRM diagnostics.
+- Add bounded Maximum Compatibility probing, optional local strategy learning, and rule import, export, and reset controls.
+- Recognize FLV sources declared in structured page data and extend compatibility coverage across browser and MCP paths.
 
 ## 0.9.0
 

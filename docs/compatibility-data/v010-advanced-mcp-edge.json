@@ -1,0 +1,2489 @@
+{
+  "version": "0.10.0",
+  "browser": "mcp-edge",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "sample": "local fixtures",
+  "scenarioCount": 104,
+  "count": {
+    "scenarios": 104,
+    "positive": 95,
+    "detected": 95,
+    "casesWithFalsePositives": 0,
+    "selectionTests": 2,
+    "selectionCorrect": 2,
+    "downloads": 11,
+    "downloaded": 11,
+    "firstProbeMedianMs": 4918,
+    "browserTaskMedianMs": null,
+    "browserHeapMedianBytes": null,
+    "fixtureRequests": 688,
+    "fixtureBytes": 12423360,
+    "restrictedRequests": 0
+  },
+  "rows": [
+    {
+      "id": "mp4",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3687,
+      "firstProbeMs": 3687,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 7,
+      "fixtureBytes": 208157,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "selection": "selected",
+      "selected": "film.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3753,
+      "firstProbeMs": 3753,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 187840,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "audio-element",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "sound.m4a"
+      ],
+      "names": [
+        "sound.m4a"
+      ],
+      "selection": "selected",
+      "selected": "sound.m4a",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3206,
+      "firstProbeMs": 3206,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "audio"
+        ],
+        "duration": 3
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 7,
+      "fixtureBytes": 110589,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "audio-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "sound.m4a"
+      ],
+      "names": [
+        "sound.m4a"
+      ],
+      "selection": "selected",
+      "selected": "sound.m4a",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3644,
+      "firstProbeMs": 3644,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 82941,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "source-elements",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.webm",
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3409,
+      "firstProbeMs": 3409,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 202346,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "extensionless-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "raw"
+      ],
+      "names": [
+        "raw"
+      ],
+      "selection": "selected",
+      "selected": "raw",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3575,
+      "firstProbeMs": 3575,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "extensionless-network",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "raw"
+      ],
+      "names": [
+        "raw"
+      ],
+      "selection": "selected",
+      "selected": "raw",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5067,
+      "firstProbeMs": 5067,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 136846,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-webm",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "raw-webm"
+      ],
+      "names": [
+        "raw-webm"
+      ],
+      "selection": "selected",
+      "selected": "raw-webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4994,
+      "firstProbeMs": 4994,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 125226,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "native-hls-url",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3415,
+      "firstProbeMs": 3415,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.041814
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 16,
+      "fixtureBytes": 228701,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-hls",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5095,
+      "firstProbeMs": 5095,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 9,
+      "fixtureBytes": 76628,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-hls-mime",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "manifest"
+      ],
+      "names": [
+        "manifest"
+      ],
+      "selection": "selected",
+      "selected": "manifest",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4957,
+      "firstProbeMs": 4957,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 9,
+      "fixtureBytes": 76628,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-dash",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "selection": "selected",
+      "selected": "film.mpd",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5261,
+      "firstProbeMs": 5261,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.022982
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 29,
+      "fixtureBytes": 171439,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-dash-mime",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "dashmanifest"
+      ],
+      "names": [
+        "dashmanifest"
+      ],
+      "selection": "selected",
+      "selected": "dashmanifest",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5177,
+      "firstProbeMs": 5177,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 11,
+      "fixtureBytes": 51106,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "external-audio-hls",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "separate.m3u8"
+      ],
+      "names": [
+        "separate.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "separate.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5096,
+      "firstProbeMs": 5096,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.133
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 26,
+      "fixtureBytes": 158918,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mse-hls-blob",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3221,
+      "firstProbeMs": 3221,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 9,
+      "fixtureBytes": 76628,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mse-dash-blob",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "selection": "selected",
+      "selected": "film.mpd",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3756,
+      "firstProbeMs": 3756,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 11,
+      "fixtureBytes": 51106,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mse-sourcebuffer",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "fmp4.m3u8"
+      ],
+      "names": [
+        "fmp4.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "fmp4.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3408,
+      "firstProbeMs": 3408,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 14,
+      "fixtureBytes": 138474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "fmp4-hls",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "fmp4.m3u8"
+      ],
+      "names": [
+        "fmp4.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "fmp4.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5021,
+      "firstProbeMs": 5021,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.02322
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 15,
+      "fixtureBytes": 138680,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "only-fragments",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "no-player",
+      "diagnostic": "unsupported-format",
+      "blockers": [],
+      "probeMs": 5020,
+      "falsePositives": [],
+      "expectedDiagnostic": "unsupported-format",
+      "diagnosticCorrect": true,
+      "fixtureRequests": 4,
+      "fixtureBytes": 136846,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "same-origin-iframe",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5195,
+      "firstProbeMs": 5195,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "cross-origin-iframe",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5341,
+      "firstProbeMs": 5341,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "nested-iframe",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5079,
+      "firstProbeMs": 5079,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 7,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "srcdoc-player",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5027,
+      "firstProbeMs": 5027,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3626,
+      "firstProbeMs": 3626,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "nested-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3184,
+      "firstProbeMs": 3184,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "shadow-delayed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4937,
+      "firstProbeMs": 4937,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "shadow-attach-late",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4723,
+      "firstProbeMs": 4723,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 68423,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "structured-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5052,
+      "firstProbeMs": 5052,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 68423,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "structured-graph",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "selection": "selected",
+      "selected": "film.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4999,
+      "firstProbeMs": 4999,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "open-graph-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5035,
+      "firstProbeMs": 5035,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 68423,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "player-json",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5043,
+      "firstProbeMs": 5043,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 76459,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dynamic-json",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4894,
+      "firstProbeMs": 4894,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 9,
+      "fixtureBytes": 76459,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "delay-early",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4046,
+      "firstProbeMs": 4046,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "delay-late",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4823,
+      "firstProbeMs": 4823,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "spa-route",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4962,
+      "firstProbeMs": 4962,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "play-event",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3779,
+      "firstProbeMs": 3779,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 136846,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "preroll",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3457,
+      "firstProbeMs": 3457,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 208156,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "long-trailer",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4",
+        "trailer.mp4"
+      ],
+      "names": [
+        "trailer.mp4",
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3932,
+      "firstProbeMs": 3932,
+      "detected": true,
+      "falsePositives": [],
+      "selectionCorrect": true,
+      "fixtureRequests": 8,
+      "fixtureBytes": 329692,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "multi-ambiguous",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4",
+        "other.mp4"
+      ],
+      "names": [
+        "film.mp4",
+        "other.mp4"
+      ],
+      "selection": "ambiguous",
+      "selected": "[invalid]",
+      "diagnostic": "multiple-candidates",
+      "blockers": [],
+      "probeMs": 3551,
+      "firstProbeMs": 3551,
+      "detected": true,
+      "falsePositives": [],
+      "selectionCorrect": true,
+      "fixtureRequests": 8,
+      "fixtureBytes": 279466,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "html-fake-mp4",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "no-player",
+      "diagnostic": "no-player",
+      "blockers": [],
+      "probeMs": 4683,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "empty",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "no-player",
+      "diagnostic": "no-player",
+      "blockers": [],
+      "probeMs": 4833,
+      "falsePositives": [],
+      "expectedReason": "no-player",
+      "reasonCorrect": true,
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "player-empty",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "no-playlist-request",
+      "diagnostic": "media-not-loaded",
+      "blockers": [],
+      "probeMs": 4901,
+      "falsePositives": [],
+      "expectedReason": "no-playlist-request",
+      "reasonCorrect": true,
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "http-login",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "blocked",
+      "diagnostic": "login-required",
+      "blockers": [
+        "login-required"
+      ],
+      "probeMs": 1296,
+      "falsePositives": [],
+      "expectedReason": "blocked",
+      "reasonCorrect": true,
+      "expectedBlocker": "login-required",
+      "blockerCorrect": true,
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "http-paywall",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "blocked",
+      "diagnostic": "paywall",
+      "blockers": [
+        "paywall"
+      ],
+      "probeMs": 1053,
+      "falsePositives": [],
+      "expectedReason": "blocked",
+      "reasonCorrect": true,
+      "expectedBlocker": "paywall",
+      "blockerCorrect": true,
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "http-restricted",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "blocked",
+      "diagnostic": "forbidden",
+      "blockers": [
+        "forbidden"
+      ],
+      "probeMs": 1278,
+      "falsePositives": [],
+      "expectedReason": "blocked",
+      "reasonCorrect": true,
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "challenge-header",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "blocked",
+      "diagnostic": "cloudflare-challenge",
+      "blockers": [
+        "cloudflare-challenge"
+      ],
+      "probeMs": 1170,
+      "falsePositives": [],
+      "expectedReason": "blocked",
+      "reasonCorrect": true,
+      "expectedBlocker": "cloudflare-challenge",
+      "blockerCorrect": true,
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "protected-hls",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "blocked",
+      "diagnostic": "drm",
+      "blockers": [
+        "drm"
+      ],
+      "probeMs": 4753,
+      "falsePositives": [],
+      "expectedBlocker": "drm",
+      "blockerCorrect": true,
+      "fixtureRequests": 3,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "complete-transport-stream",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.ts"
+      ],
+      "names": [
+        "film.ts"
+      ],
+      "selection": "selected",
+      "selected": "film.ts",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3358,
+      "firstProbeMs": 3358,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.041814
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 7,
+      "fixtureBytes": 336897,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 2981,
+      "firstProbeMs": 2981,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4046,
+      "firstProbeMs": 4046,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3898,
+      "firstProbeMs": 3898,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5107,
+      "firstProbeMs": 5107,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 7,
+      "fixtureBytes": 139733,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5100,
+      "firstProbeMs": 5100,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 136846,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mp4"
+      ],
+      "names": [
+        "body-mp4"
+      ],
+      "selection": "selected",
+      "selected": "body-mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4872,
+      "firstProbeMs": 4872,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 136846,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5225,
+      "firstProbeMs": 5225,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 68423,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selection": "selected",
+      "selected": "film.mp4",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5069,
+      "firstProbeMs": 5069,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 68423,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "selection": "selected",
+      "selected": "film.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3709,
+      "firstProbeMs": 3709,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 125226,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "selection": "selected",
+      "selected": "film.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4204,
+      "firstProbeMs": 4204,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 125226,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "selection": "selected",
+      "selected": "film.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3145,
+      "firstProbeMs": 3145,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 125226,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "selection": "selected",
+      "selected": "film.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4918,
+      "firstProbeMs": 4918,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 125226,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "selection": "selected",
+      "selected": "film.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4833,
+      "firstProbeMs": 4833,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 125226,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-webm"
+      ],
+      "names": [
+        "body-webm"
+      ],
+      "selection": "selected",
+      "selected": "body-webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4919,
+      "firstProbeMs": 4919,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 125226,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "selection": "selected",
+      "selected": "film.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5009,
+      "firstProbeMs": 5009,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "selection": "selected",
+      "selected": "film.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5090,
+      "firstProbeMs": 5090,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "selection": "selected",
+      "selected": "film.mov",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3970,
+      "firstProbeMs": 3970,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139927,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "selection": "selected",
+      "selected": "film.mov",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4213,
+      "firstProbeMs": 4213,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 208401,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "selection": "selected",
+      "selected": "film.mov",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4627,
+      "firstProbeMs": 4627,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 208401,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "selection": "selected",
+      "selected": "film.mov",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5378,
+      "firstProbeMs": 5378,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 208401,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "selection": "selected",
+      "selected": "film.mov",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5231,
+      "firstProbeMs": 5231,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 276876,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mov"
+      ],
+      "names": [
+        "body-mov"
+      ],
+      "selection": "selected",
+      "selected": "body-mov",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5180,
+      "firstProbeMs": 5180,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 208401,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "selection": "selected",
+      "selected": "film.mov",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4998,
+      "firstProbeMs": 4998,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139927,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "selection": "selected",
+      "selected": "film.mov",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4971,
+      "firstProbeMs": 4971,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 139927,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "selection": "selected",
+      "selected": "film.mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3426,
+      "firstProbeMs": 3426,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 135282,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "selection": "selected",
+      "selected": "film.mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4143,
+      "firstProbeMs": 4143,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 135282,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "selection": "selected",
+      "selected": "film.mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3348,
+      "firstProbeMs": 3348,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 135282,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "selection": "selected",
+      "selected": "film.mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5037,
+      "firstProbeMs": 5037,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 135282,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "selection": "selected",
+      "selected": "film.mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5286,
+      "firstProbeMs": 5286,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.041383
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 202924,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mkv"
+      ],
+      "names": [
+        "body-mkv"
+      ],
+      "selection": "selected",
+      "selected": "body-mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5100,
+      "firstProbeMs": 5100,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 135282,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "selection": "selected",
+      "selected": "film.mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4962,
+      "firstProbeMs": 4962,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "selection": "selected",
+      "selected": "film.mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5052,
+      "firstProbeMs": 5052,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "selection": "selected",
+      "selected": "film.flv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4131,
+      "firstProbeMs": 4131,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "selection": "selected",
+      "selected": "film.flv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4150,
+      "firstProbeMs": 4150,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 138116,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "selection": "selected",
+      "selected": "film.flv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3610,
+      "firstProbeMs": 3610,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 138116,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "selection": "selected",
+      "selected": "film.flv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5080,
+      "firstProbeMs": 5080,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 138116,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "selection": "selected",
+      "selected": "film.flv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5016,
+      "firstProbeMs": 5016,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.041383
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 345291,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-flv"
+      ],
+      "names": [
+        "body-flv"
+      ],
+      "selection": "selected",
+      "selected": "body-flv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5098,
+      "firstProbeMs": 5098,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 138116,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "selection": "selected",
+      "selected": "film.flv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4829,
+      "firstProbeMs": 4829,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "selection": "selected",
+      "selected": "film.flv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4940,
+      "firstProbeMs": 4940,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3791,
+      "firstProbeMs": 3791,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 12,
+      "fixtureBytes": 152580,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4705,
+      "firstProbeMs": 4705,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 12,
+      "fixtureBytes": 152580,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3738,
+      "firstProbeMs": 3738,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 12,
+      "fixtureBytes": 152580,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5017,
+      "firstProbeMs": 5017,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 14,
+      "fixtureBytes": 152580,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4846,
+      "firstProbeMs": 4846,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 9,
+      "fixtureBytes": 76628,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-hls"
+      ],
+      "names": [
+        "body-hls"
+      ],
+      "selection": "selected",
+      "selected": "body-hls",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5146,
+      "firstProbeMs": 5146,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 9,
+      "fixtureBytes": 76628,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5017,
+      "firstProbeMs": 5017,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 76459,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "film.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5018,
+      "firstProbeMs": 5018,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 76459,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "selection": "selected",
+      "selected": "film.mpd",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3521,
+      "firstProbeMs": 3521,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 10,
+      "fixtureBytes": 49153,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "selection": "selected",
+      "selected": "film.mpd",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4062,
+      "firstProbeMs": 4062,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 11,
+      "fixtureBytes": 51106,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "selection": "selected",
+      "selected": "film.mpd",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3656,
+      "firstProbeMs": 3656,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 11,
+      "fixtureBytes": 51106,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "selection": "selected",
+      "selected": "film.mpd",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5222,
+      "firstProbeMs": 5222,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 13,
+      "fixtureBytes": 51106,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "selection": "selected",
+      "selected": "film.mpd",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5015,
+      "firstProbeMs": 5015,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 11,
+      "fixtureBytes": 51106,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-dash"
+      ],
+      "names": [
+        "body-dash"
+      ],
+      "selection": "selected",
+      "selected": "body-dash",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5146,
+      "firstProbeMs": 5146,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 11,
+      "fixtureBytes": 51106,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "selection": "selected",
+      "selected": "film.mpd",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4863,
+      "firstProbeMs": 4863,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 10,
+      "fixtureBytes": 49153,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "selection": "selected",
+      "selected": "film.mpd",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5101,
+      "firstProbeMs": 5101,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 10,
+      "fixtureBytes": 49153,
+      "restrictedRequests": 0
+    }
+  ]
+}

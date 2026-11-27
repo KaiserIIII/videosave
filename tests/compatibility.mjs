@@ -189,13 +189,14 @@ async function withMcp(run) {
 }
 
 async function testMcp(tool) {
+  const maximum = process.argv.includes('--maximum');
   for (const entry of requested) {
     const isPublic = publicCases.includes(entry);
     const before = fixtures.stats();
     const started = performance.now();
     const response = await tool('probe_page',{
-      url:fixtures.page(entry),waitForMediaMs:isPublic ? 9500 : 3900,
-      includeFrames:true,captureXhrBody:true,clickPlay:Boolean(entry.browserAction),
+      url:fixtures.page(entry),waitForMediaMs:isPublic ? 9500 : maximum ? 12_000 : 3900,
+      ...(maximum ? {compatibility:'maximum'} : {includeFrames:true,captureXhrBody:true}),clickPlay:Boolean(entry.browserAction),
     });
     const probeMs = Math.round(performance.now() - started);
     const candidates = response.streams ?? [];
@@ -226,7 +227,7 @@ async function testMcp(tool) {
     }
     record(entry,{names,selection:response.selection?.status,selected:relativeName(response.selection?.url),
       reason:response.selection?.reason,diagnostic:response.diagnostic?.code,blockers:response.blockers ?? [],probeMs,
-      firstProbeMs:names.length ? probeMs : undefined,download,downloadError,verified},before);
+      firstProbeMs:names.length ? probeMs : undefined,download,downloadError,verified,probeStrategy:response.probeStrategy},before);
   }
 }
 

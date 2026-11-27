@@ -40,7 +40,7 @@ jobs:
         run: >-
           node --test tests/detection.test.mjs tests/media.test.mjs tests/media-source.test.mjs
           tests/http-boundaries.test.mjs tests/download-proxy.test.mjs tests/platform-download.test.mjs tests/range-performance.test.mjs
-          tests/mcp-control.test.mjs
+          tests/mcp-control.test.mjs tests/compatibility-policy.test.mjs
 
   verify:
     name: Windows ${{ matrix.target }}

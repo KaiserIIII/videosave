@@ -1,33 +1,39 @@
 import { browserApi } from './browser.mjs';
 import { companion } from './downloads.mjs';
-import { assessCandidates } from './detection.mjs';
-import { importedCookies, maxCredentialFileBytes } from './session-credentials.mjs';
+import { assessCandidates, detectionDiagnostic } from './detection.mjs';
+import { importedCookies, isChallengeCookie, maxCredentialFileBytes } from './session-credentials.mjs';
+import { pageStreams, scanDocument, selectPageStream } from './media.mjs';
 
 const grantPrefix = 'mcp-grant:';
 const grantAlarm = 'mcp-tab-authorizations';
+let observationTimer;
 const cleanUrl = value => {
   const url = URL.parse(value ?? '');
   return url && ['http:','https:'].includes(url.protocol) && !url.username && !url.password ? url : null;
 };
 
-async function getTabCookies(tabId, candidates) {
+async function cookieState(tabId, pageUrl) {
+  const {hostname} = new URL(pageUrl);
   const stores = await browserApi.cookies.getAllCookieStores();
   const store = stores.find(entry => entry.tabIds.includes(tabId));
   if (!store) throw new Error('The current tab’s cookie store is unavailable.');
-  const cookies = new Map();
-  await Promise.all(candidates.filter(stream => !['m3u8','mpd'].includes(stream.kind)).map(async stream => {
-    const hostname = new URL(stream.url).hostname;
-    const entries = await browserApi.cookies.getAll({url:stream.url,storeId:store.id});
-    cookies.set(stream.url,entries.filter(item => item.domain.replace(/^\./,'') === hostname).slice(0,20));
-  }));
-  return cookies;
+  const entries = await browserApi.cookies.getAll({domain:hostname,storeId:store.id});
+  const cookies = entries.filter(cookie => cookie.domain.replace(/^\./,'') === hostname &&
+    !cookie.partitionKey && !cookie.firstPartyDomain && !isChallengeCookie(cookie.name));
+  const values = cookies.map(({name,value,path,secure}) => JSON.stringify([name,value,path,secure])).sort();
+  const bytes = new TextEncoder().encode(JSON.stringify([store.id,values]));
+  const digest = await crypto.subtle.digest('SHA-256',bytes);
+  return {cookies,storeId:store.id,digest:Array.from(new Uint8Array(digest)).join(',')};
 }
 
-async function cookieState(tabId, candidates) {
-  const cookies = await getTabCookies(tabId,candidates);
-  const bytes = new TextEncoder().encode(JSON.stringify([...cookies].sort(([left],[right]) => left.localeCompare(right))));
-  const digest = await crypto.subtle.digest('SHA-256',bytes);
-  return {cookies,digest:Array.from(new Uint8Array(digest)).join(',')};
+function applyBrowserCookies(streams, cookies) {
+  for (const stream of streams) {
+    if (!stream.observedTopFrame || ['m3u8','mpd'].includes(stream.kind)) continue;
+    const url = new URL(stream.url);
+    stream.cookies = cookies.filter(cookie => (!cookie.secure || url.protocol === 'https:') &&
+      (url.pathname === cookie.path || url.pathname.startsWith(cookie.path.endsWith('/') ? cookie.path : cookie.path + '/')))
+      .sort((left,right) => right.path.length - left.path.length).slice(0,20);
+  }
 }
 
 async function tabDocument(tabId) {
@@ -41,16 +47,121 @@ function sameDocument(left,right) {
   return left && right && left.url === right.url && left.timeOrigin === right.timeOrigin && left.id === right.id;
 }
 
+function shareableStreams(streams, origin, advanced) {
+  if (advanced) {
+    const resourcePath = stream => {
+      const url = cleanUrl(stream.url);
+      return url && url.origin + url.pathname;
+    };
+    const livePaths = new Set(streams.filter(stream => stream.mediaElement && stream.currentSource && stream.observed).map(resourcePath));
+    streams = streams.filter(stream => stream.mediaElement || stream.fromPlayer || !livePaths.has(resourcePath(stream)));
+  }
+  const choice = selectPageStream(streams);
+  const suggested = streams.filter(stream => stream.recommended);
+  const recommendation = choice.url ?? (suggested.length === 1 ? suggested[0].url : null);
+  return streams.flatMap(stream => [stream,...(stream.alternates ?? [])]).filter(stream => {
+    const source = cleanUrl(stream.url);
+    return source?.origin === origin && (!source.search || advanced && stream.observed) &&
+      !source.hash && !stream.drm && !stream.restricted;
+  }).slice(0,40).map(stream => {
+    const {url,kind,duration,height,size,sizeEstimated,observed,observedTopFrame} = stream;
+    return {url,kind,duration,height,observed,observedTopFrame,...(size && !sizeEstimated && {size}),
+      recommended:recommendation === url,preview:assessCandidates([stream])[0].evidence.includes('preview-label')};
+  });
+}
+
+async function standingSnapshot(tab) {
+  const frames = await browserApi.scripting.executeScript({target:{tabId:tab.id,allFrames:true},func:scanDocument,args:[true]})
+    .catch(() => browserApi.scripting.executeScript({target:{tabId:tab.id},func:scanDocument,args:[true]}));
+  const readable = frames.filter(frame => frame.result);
+  const top = readable.find(frame => frame.frameId === 0);
+  if (!top) return null;
+  const {documentUrl,documentTimeOrigin,pageTitle,encrypted,blocker} = top.result;
+  const page = cleanUrl(documentUrl);
+  if (!page || documentUrl !== tab.url) return null;
+  const document = {url:documentUrl,timeOrigin:documentTimeOrigin,id:top.documentId ?? null};
+  const key = 'media:' + tab.id;
+  const rows = (await browserApi.storage.session.get(key))[key] ?? [];
+  const requests = rows.filter(row => {
+    const frame = readable.find(item => item.frameId === row.frameId);
+    return frame && (row.url || row.fragment) && !row.playerJson &&
+      (!row.documentId || row.documentId === frame.documentId) &&
+      (!row.documentUrl || row.documentUrl === frame.result.documentUrl) &&
+      row.timeStamp >= (frame.result.routeStartedAt || frame.result.documentTimeOrigin);
+  });
+  const blockers = [...new Set([...rows.filter(row => row.blocker).map(row => row.blocker),blocker,encrypted && 'drm'].filter(Boolean))];
+  const streams = blockers.length ? [] : pageStreams(readable,requests);
+  const candidates = shareableStreams(streams,page.origin,true);
+  const diagnostic = detectionDiagnostic({streams:candidates,blockers,selection:selectPageStream(streams),
+    players:readable.reduce((sum,frame) => sum + frame.result.playerCount,0),
+    unloaded:readable.reduce((sum,frame) => sum + frame.result.unloaded,0),
+    blockedFrames:Math.max(0,top.result.iframeCount - readable.length + 1)});
+  return {document,snapshot:{url:page.origin,title:pageTitle,playing:streams.some(stream => stream.playing),
+    restricted:blockers.length > 0,diagnostic,streams:candidates}};
+}
+
+let reconcilingStanding = false;
+async function reconcileStanding() {
+  if (reconcilingStanding) return;
+  reconcilingStanding = true;
+  try {
+    const {connection,standingMcp} = await browserApi.storage.local.get(['connection','standingMcp']);
+    if (!standingMcp || !connection?.token) return;
+    const [tab] = await browserApi.tabs.query({active:true,lastFocusedWindow:true});
+    const origin = cleanUrl(tab?.url)?.origin;
+    if (!origin || tab.incognito || tab.status === 'loading') return;
+    const {items} = await companion(connection,'/api/ai/authorizations');
+    const matches = items.filter(grant => grant.origin === origin && grant.automatic && ['pending','approved'].includes(grant.status)).slice(0,5);
+    if (!matches.length) return;
+    const cookiePermission = matches.some(grant => grant.shareAllowed) && await browserApi.permissions.contains({permissions:['cookies']});
+    const context = await standingSnapshot(tab);
+    if (!context || !sameDocument(await tabDocument(tab.id).catch(() => null),context.document)) return;
+    for (const grant of matches) {
+      const key = grantPrefix + grant.id;
+      const lease = (await browserApi.storage.session.get(key))[key];
+      if (grant.status === 'approved' && (lease?.tabId !== tab.id || !sameDocument(lease.document,context.document))) continue;
+      if (context.snapshot.restricted) {
+        await companion(connection,'/api/ai/snapshot',{id:grant.id,tab:{url:origin,restricted:true,streams:[],
+          diagnostic:context.snapshot.diagnostic}});
+        continue;
+      }
+      const shareSession = grant.status === 'approved' ? lease.shareSession : Boolean(cookiePermission && grant.shareAllowed);
+      const state = shareSession && cookiePermission ? await cookieState(tab.id,context.document.url).catch(() => null) : null;
+      if (shareSession && (!state || grant.status === 'approved' && state.digest !== lease.sessionScope?.digest)) {
+        await companion(connection,'/api/ai/revoke',{id:grant.id});
+        await browserApi.storage.session.remove(key);
+        continue;
+      }
+      const snapshot = {...context.snapshot,streams:context.snapshot.streams.map(stream => ({...stream}))};
+      if (state) applyBrowserCookies(snapshot.streams,state.cookies);
+      const sessionScope = state && {storeId:state.storeId,digest:state.digest};
+      if (!sameDocument(await tabDocument(tab.id).catch(() => null),context.document)) break;
+      const next = grant.status === 'approved'
+        ? await companion(connection,'/api/ai/snapshot',{id:grant.id,tab:snapshot})
+        : await companion(connection,'/api/ai/approve',{id:grant.id,tab:snapshot,automatic:true,shareSession,sessionMode:'browser'});
+      if (next.status !== 'approved') continue;
+      await browserApi.storage.session.set({[key]:{tabId:tab.id,document:context.document,shareSession,sessionScope,
+        expiresAt:Date.parse(next.expiresAt)}});
+      if (!sameDocument(await tabDocument(tab.id).catch(() => null),context.document) || state &&
+          (await cookieState(tab.id,context.document.url).catch(() => null))?.digest !== state.digest) {
+        await companion(connection,'/api/ai/revoke',{id:grant.id});
+        await browserApi.storage.session.remove(key);
+      }
+    }
+  } finally { reconcilingStanding = false; }
+}
+
 export function startTabGrantCleanup() {
   async function reconcile(tabId, forceRevoke = false) {
     const [session,local] = await Promise.all([browserApi.storage.session.get(null),browserApi.storage.local.get('connection')]);
     const grants = Object.entries(session).filter(([key,value]) => key.startsWith(grantPrefix) && (tabId === undefined || tabId === value.tabId));
-    await Promise.allSettled(grants.map(async ([key,{tabId,document,expiresAt,sessionScope}]) => {
+    await Promise.allSettled(grants.map(async ([key,{tabId,document,expiresAt,sessionScope,shareSession}]) => {
       const id = key.slice(grantPrefix.length);
       if (expiresAt <= Date.now()) return browserApi.storage.session.remove(key);
       const current = forceRevoke ? null : await tabDocument(tabId).catch(() => null);
-      const valid = sameDocument(current,document) && (!sessionScope ||
-        (await cookieState(tabId,sessionScope.candidates).catch(() => null))?.digest === sessionScope.digest);
+      const valid = sameDocument(current,document) && (!shareSession && !sessionScope ||
+        await browserApi.permissions.contains({permissions:['cookies']})) && (!sessionScope ||
+        (await cookieState(tabId,document.url).catch(() => null))?.digest === sessionScope.digest);
       try {
         const grant = await companion(local.connection,valid ? '/api/ai/renew' : '/api/ai/revoke',{id});
         if (grant.status !== 'approved') await browserApi.storage.session.remove(key);
@@ -63,9 +174,43 @@ export function startTabGrantCleanup() {
   browserApi.tabs.onRemoved.addListener(invalidate);
   browserApi.tabs.onUpdated.addListener((id,change) => {
     if (change.url || change.status === 'loading') invalidate(id);
+    if (change.status === 'complete') void reconcileStanding().catch(() => {});
+  });
+  browserApi.tabs.onActivated.addListener(() => { void reconcileStanding().catch(() => {}); });
+  function cookieChanged({cookie}) {
+    void browserApi.storage.session.get(null).then(state => {
+      const tabs = new Set(Object.entries(state).filter(([key,lease]) => key.startsWith(grantPrefix) && lease.sessionScope &&
+        lease.sessionScope.storeId === cookie.storeId &&
+        cleanUrl(lease.document?.url)?.hostname === cookie.domain.replace(/^\./,'')).map(([,lease]) => lease.tabId));
+      return Promise.allSettled([...tabs].map(tabId => reconcile(tabId)));
+    }).catch(() => {});
+  }
+  function watchCookies() {
+    const events = browserApi.cookies?.onChanged;
+    if (events && !events.hasListener(cookieChanged)) events.addListener(cookieChanged);
+  }
+  watchCookies();
+  browserApi.permissions.onAdded.addListener(({permissions}) => {
+    if (permissions?.includes('cookies')) watchCookies();
+  });
+  browserApi.permissions.onRemoved.addListener(({permissions}) => {
+    if (permissions?.includes('cookies')) void reconcile().catch(() => {});
   });
   browserApi.alarms.onAlarm.addListener(event => {
-    if (event.name === grantAlarm) void reconcile().catch(() => {});
+    if (event.name === grantAlarm) {
+      void reconcile().catch(() => {});
+      void reconcileStanding().catch(() => {});
+    }
+  });
+  browserApi.runtime.onMessage.addListener(message => {
+    if (message?.type === 'videosave-standing-mcp') void reconcileStanding().catch(() => {});
+  });
+  browserApi.storage.onChanged.addListener((changes,area) => {
+    if (area !== 'session' || observationTimer || !Object.keys(changes).some(key => key.startsWith('media:'))) return;
+    observationTimer = setTimeout(() => {
+      observationTimer = undefined;
+      void reconcileStanding().catch(() => {});
+    },1500);
   });
 }
 
@@ -95,6 +240,7 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
   let selectedClient;
   let configText;
   let epoch = 0;
+  let accessEpoch = 0;
   let rawCookieOrigin;
   const scopes = [...root.querySelectorAll('[data-mcp-scope]')];
   byId('mcp-session-text').addEventListener('input',event => {
@@ -118,16 +264,32 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
     return button;
   }
   async function loadClient(client) {
+    const turn = ++accessEpoch;
     selectedId = client.id;
     selectedClient = client;
     configText = undefined;
     profileName.value = client.name;
     preset.value = client.preset;
+    if (client.preset === 'read-only') preset.value = 'restricted';
     for (const scope of scopes) scope.checked = client.scopes.includes(scope.value);
     byId('mcp-scopes').hidden = client.preset !== 'custom';
     byId('mcp-editing').textContent = client.name;
-    const config = await call('config?id=' + encodeURIComponent(client.id)).catch(() => null);
-    if (selectedId === client.id && config) configText = JSON.stringify(config,null,2);
+    const trust = byId('mcp-trust');
+    trust.hidden = true;
+    const editable = !client.disabled && client.scopes.includes('automation');
+    const suffix = '?id=' + encodeURIComponent(client.id);
+    const [config,access] = await Promise.all([call('config' + suffix).catch(() => null),editable ? call('access' + suffix) : null]);
+    if (turn !== accessEpoch) return;
+    if (config) configText = JSON.stringify(config,null,2);
+    if (access) {
+      const sites = access.sites.filter(site => site.expiresAt > Date.now());
+      byId('mcp-trusted-origins').value = sites.map(site => site.origin).join('\n');
+      byId('mcp-trust-session').checked = sites.some(site => site.shareSession);
+      byId('mcp-trust-download').checked = sites.some(site => site.allowDownload);
+      byId('mcp-privacy').checked = access.privacy;
+      byId('mcp-trust-days').value = sites.length ? Math.max(1,Math.ceil((sites[0].expiresAt-Date.now())/86400_000)) : 30;
+      trust.hidden = false;
+    }
   }
 
   async function approve(grant) {
@@ -155,24 +317,15 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
       rawCookieOrigin = undefined;
       throw new Error(label('当前站点已更改，请重新输入本站 Cookie。','The site changed. Re-enter its cookies.'));
     }
-    const streams = snapshot.streams.flatMap(stream => [stream,...(stream.alternates ?? [])]).filter(stream => {
-      const source = cleanUrl(stream.url);
-      return source?.origin === page.origin && !source.search && !source.hash && !stream.drm && !stream.restricted;
-    }).slice(0,40).map(stream => {
-      const {url,kind,duration,height,size,sizeEstimated,observedTopFrame} = stream;
-      return {url,kind,duration,height,observedTopFrame,...(size && !sizeEstimated && {size}),
-        preview:assessCandidates([stream])[0].evidence.includes('preview-label')};
-    });
-    const sessionCandidates = streams.filter(stream => stream.observedTopFrame)
-      .map(({url,kind}) => ({url,kind}));
+    const streams = shareableStreams(snapshot.streams,page.origin,grant.automatic);
     if (file?.size > maxCredentialFileBytes) throw new Error(label('Cookie 文件超过 64 KB。','The cookie file exceeds 64 KB.'));
-    const state = shareBrowser ? await cookieState(tab.id,sessionCandidates) : null;
+    const state = shareBrowser ? await cookieState(tab.id,document.url) : null;
     const manual = file || raw ? await (async () => {
       try { return importedCookies(file ? await file.text() : raw,page,{file:Boolean(file)}); }
       catch { throw new Error(label('本站 Cookie 格式无效或已过期。','The cookies for this site are invalid or expired.')); }
     })() : null;
-    const sessionScope = state && {digest:state.digest,candidates:sessionCandidates};
-    if (state) for (const stream of streams) stream.cookies = state.cookies.get(stream.url);
+    const sessionScope = state && {storeId:state.storeId,digest:state.digest};
+    if (state) applyBrowserCookies(streams,state.cookies);
     if (manual) for (const stream of streams) {
       if (stream.observedTopFrame && !['m3u8','mpd'].includes(stream.kind)) stream.cookies = manual;
     }
@@ -322,7 +475,12 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
     alert(label('本机服务已连接 · ','Companion connected · ') + health.version);
     byId('mcp-clients').replaceChildren(...clients.items.map(client => {
       const row = node('li');
-      row.append(node('strong',client.name),node('small',({ 'read-only':label('只读','Read only'),standard:label('标准下载','Standard downloads'),custom:label('自定义','Custom') })[client.preset]),
+      const names = {
+        'read-only':label('受限模式','Restricted'),restricted:label('受限模式','Restricted'),
+        standard:label('标准下载','Standard downloads'),advanced:label('高级模式','Advanced'),
+        'full-access':'Full Access',custom:label('自定义','Custom'),
+      };
+      row.append(node('strong',client.name),node('small',names[client.preset]),
         inlineButton('编辑','Edit',() => loadClient(client)),
         inlineButton(client.disabled ? '启用' : '停用',client.disabled ? 'Enable' : 'Disable',
           async () => { await call('clients',{id:client.id,disabled:!client.disabled}); await refresh(); }));
@@ -354,22 +512,114 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
   }
 
   safeClick(byId('mcp-refresh'),refresh);
-  safeClick(byId('mcp-save-client'),async () => {
+  async function saveProfile(role) {
     const scopesSelected = scopes.filter(input => input.checked).map(input => input.value);
-    const extendsPermissions = selectedClient && (preset.value === 'standard' && selectedClient.preset !== 'standard' ||
-      preset.value === 'custom' && scopesSelected.some(scope => !selectedClient.scopes.includes(scope)));
+    const extendsPermissions = ['advanced','full-access'].includes(role) && selectedClient?.preset !== role ||
+      role === 'standard' && selectedClient && !selectedClient.scopes.includes('download') ||
+      role === 'custom' && scopesSelected.some(scope => !selectedClient?.scopes.includes(scope));
     if (extendsPermissions && !globalThis.confirm(label('确认扩大此客户端权限？','Expand permissions for this client?'))) return;
-    const client = await call('clients',{id:selectedId,name:profileName.value,preset:preset.value,
-      ...(preset.value === 'custom' && {scopes:scopesSelected})});
+    const client = await call('clients',{id:selectedId,name:profileName.value,preset:role,confirm:extendsPermissions === true,
+      ...(role === 'custom' && {scopes:scopesSelected})});
+    await refresh();
+    await loadClient(client);
+  }
+  safeClick(byId('mcp-save-client'),() => saveProfile(preset.value));
+  safeClick(byId('mcp-full-access'),() => saveProfile('full-access'));
+  for (const action of ['revoke','reset']) safeClick(byId('mcp-' + action + '-access'),async () => {
+    if (!selectedId) throw new Error(label('先选择客户端。','Select a client first.'));
+    const client = await call('access',{id:selectedId,action});
     await refresh();
     await loadClient(client);
   });
+  safeClick(byId('mcp-window-sites'),async () => {
+    const tabs = await browserApi.tabs.query({currentWindow:true});
+    byId('mcp-trusted-origins').value = [...new Set(tabs.filter(tab => !tab.incognito)
+      .map(tab => cleanUrl(tab.url)?.origin).filter(Boolean))].slice(0,24).join('\n');
+  });
+  const groups = byId('mcp-site-group');
+  const originsField = byId('mcp-trusted-origins');
+  const parseOrigins = () => originsField.value.split(/\s+/).filter(Boolean);
+  const loadGroups = async () => (await browserApi.storage.local.get('mcpSiteGroups')).mcpSiteGroups ?? [];
+  async function renderGroups(selection = groups.value) {
+    groups.replaceChildren(node('option',''),...(await loadGroups()).map(({name}) => {
+      const option = node('option',name);
+      option.value = name;
+      return option;
+    }));
+    groups.value = selection;
+  }
+  groups.addEventListener('focus',() => { void renderGroups().catch(error => alert(error.message)); });
+  groups.addEventListener('change', async () => {
+    const selected = (await loadGroups()).find(group => group.name === groups.value);
+    if (selected) originsField.value = selected.origins.join('\n');
+  });
+  safeClick(byId('mcp-save-group'),async () => {
+    const name = byId('mcp-site-group-name').value.trim();
+    const urls = parseOrigins();
+    const origins = [...new Set(urls.map(url => cleanUrl(url)?.origin))];
+    const current = (await loadGroups()).filter(group => group.name !== name);
+    if (!name || !origins.length || origins.length > 24 || origins.includes(undefined) || current.length >= 16 ||
+        urls.some(url => ![cleanUrl(url)?.origin,cleanUrl(url)?.origin + '/'].includes(url))) {
+      throw new Error(label('请填写站点组名称和最多 24 个准确的站点源。','Enter a group name and up to 24 exact origins.'));
+    }
+    await browserApi.storage.local.set({mcpSiteGroups:[...current,{name,origins}]});
+    await renderGroups(name);
+  });
+  safeClick(byId('mcp-delete-group'),async () => {
+    if (groups.value) {
+      const name = groups.value;
+      await browserApi.storage.local.set({mcpSiteGroups:(await loadGroups()).filter(group => group.name !== name)});
+      await renderGroups('');
+    }
+  });
+  safeClick(byId('mcp-rules-export'),async () => saveJson('videosave-compatibility-rules.json',await call('compatibility')));
+  safeClick(byId('mcp-rules-import'),async () => {
+    const file = byId('mcp-rules-file').files[0];
+    if (!file || file.size > 65_536) throw new Error(label('请选择不超过 64 KB 的规则文件。','Choose a rules file no larger than 64 KB.'));
+    const {items} = JSON.parse(await file.text());
+    await call('compatibility',{action:'import',items});
+    alert(label('规则已导入。','Rules imported.'));
+  });
+  safeClick(byId('mcp-rules-reset'),async () => {
+    if (globalThis.confirm(label('清除本地兼容性规则？','Clear local compatibility rules?'))) {
+      await call('compatibility',{action:'reset'});
+      alert(label('规则已清除。','Rules cleared.'));
+    }
+  });
+  safeClick(byId('mcp-save-trust'),async () => {
+    const id = selectedId;
+    const origins = parseOrigins();
+    const shareSession = byId('mcp-trust-session').checked;
+    const allowDownload = byId('mcp-trust-download').checked;
+    const privacy = byId('mcp-privacy').checked;
+    const days = Number(byId('mcp-trust-days').value);
+    const summary = [
+      label('确认保存长期站点授权？','Save standing approvals?') + ' ' + selectedClient.name,
+      label(`有效期 ${days} 天`,`Valid for ${days} days`),
+      shareSession && label('使用本站登录会话','Use site login'),
+      allowDownload && label('允许下载','Allow downloads'),
+      ...origins,
+    ].filter(Boolean).join('\n');
+    if (!globalThis.confirm(summary)) return;
+    if (shareSession && origins.length && !await browserApi.permissions.request({permissions:['cookies']})) {
+      throw new Error(label('浏览器未授予 Cookie 权限。','The browser did not grant cookie permission.'));
+    }
+    await call('access',{id,action:'trust',origins,shareSession,allowDownload,days,privacy,confirm:true});
+    if (origins.length) {
+      await browserApi.storage.local.set({standingMcp:true});
+      if (!await browserApi.alarms.get(grantAlarm)) await browserApi.alarms.create(grantAlarm,{periodInMinutes:0.5});
+      void browserApi.runtime.sendMessage({type:'videosave-standing-mcp'}).catch(() => {});
+    }
+    await refresh();
+  });
   safeClick(byId('mcp-new-client'),() => {
+    accessEpoch++;
     selectedId = undefined;
     selectedClient = undefined;
     configText = undefined;
     profileName.value = '';
-    preset.value = 'read-only';
+    preset.value = 'restricted';
+    byId('mcp-trust').hidden = true;
     byId('mcp-editing').textContent = '';
     byId('mcp-scopes').hidden = true;
     profileName.focus();

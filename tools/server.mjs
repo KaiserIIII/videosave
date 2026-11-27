@@ -7,8 +7,10 @@ import { fileURLToPath } from 'node:url';
 import * as downloads from './media-downloads.mjs';
 import { configureMediaProxy, diagnoseNetwork, networkPreferences } from './media-proxy.mjs';
 import { localPairingCode } from './preferences.mjs';
-import { activity, approveGrant, auditSettings, authenticateClient, listClients, listGrants, renewGrant, revokeGrant, saveClient, sitePreferences } from './mcp-control.mjs';
+import { activity, approveGrant, auditSettings, authenticateClient, clientAccess, listClients, listGrants, renewGrant, revokeGrant,
+  saveClient, sitePreferences, updateClientAccess, updateGrantSnapshot } from './mcp-control.mjs';
 import { invokeManaged, managedTools } from './managed-mcp.mjs';
+import { compatibilityRules } from './compatibility-policy.mjs';
 
 configureMediaProxy();
 const { ApiError, VERSION } = downloads;
@@ -139,9 +141,12 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
           args:[fileURLToPath(new URL('./mcp-server.mjs',import.meta.url))],env}}});
       }
       case 'POST /api/ai/clients': return reply(res,200,saveClient(await body(req)));
+      case 'GET /api/ai/access': return reply(res,200,clientAccess(searchParams.get('id')));
+      case 'POST /api/ai/access': return reply(res,200,updateClientAccess(await body(req)));
       case 'GET /api/ai/authorizations': return reply(res,200,listGrants());
       case 'POST /api/ai/approve': return reply(res,200,approveGrant(await body(req)));
       case 'POST /api/ai/renew': return reply(res,200,renewGrant((await body(req)).id));
+      case 'POST /api/ai/snapshot': return reply(res,200,updateGrantSnapshot(await body(req)));
       case 'POST /api/ai/revoke': return reply(res,200,revokeGrant((await body(req)).id));
       case 'GET /api/ai/site': return reply(res,200,sitePreferences(searchParams.get('origin')));
       case 'POST /api/ai/site': {
@@ -156,6 +161,8 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
       case 'GET /api/ai/network': return reply(res,200,networkPreferences());
       case 'POST /api/ai/network': return reply(res,200,networkPreferences(await body(req)));
       case 'GET /api/ai/network/check': return reply(res,200,await diagnoseNetwork());
+      case 'GET /api/ai/compatibility': return reply(res,200,compatibilityRules());
+      case 'POST /api/ai/compatibility': return reply(res,200,compatibilityRules(await body(req)));
       case 'GET /api/health':
         return reply(res, 200, { ok: true, version: VERSION, mcpControl:true, outDir: downloads.getSettings().settings.outDir,
           ...(downloads.platformDownloadsEnabled() && {platformDownloads:true}) });
@@ -184,6 +191,8 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
       }
       case 'POST /api/queue':
         return reply(res, 200, downloads.queue(await body(req)));
+      case 'POST /api/queue/batch':
+        return reply(res, 200, downloads.queueBatch(await body(req)));
       case 'POST /api/queue/original':
         return reply(res, 200, downloads.queueOriginal(await body(req)));
       case 'GET /api/recent':

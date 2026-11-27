@@ -8,6 +8,8 @@ Find the video playing in your browser, preview it, and save it to Downloads. Vi
 
 **AI & MCP** gives registered clients individual permissions, current-tab approval, optional login sharing for eligible direct media, website download limits, pause and resume, and a filterable local activity log. [Set up a managed client](docs/mcp.md#managed-browser-clients) · [Control center screenshot](docs/videosave-mcp-control.png)
 
+Advanced and Full Access clients can use standing approvals for selected origins, follow media changes in an active tab, and download an unambiguous selection. Maximum Compatibility can extend the observation window and stage a deeper probe. [Permissions and probe options](docs/mcp.md#full-access-and-standing-approvals)
+
 ## Install
 
 Download and extract the release ZIP. The browser extension is in the `extension` folder.
@@ -99,6 +101,7 @@ This configuration runs MCP independently. To share the live queue with a compan
 | --- | --- |
 | `probe_page` | Return media, detail-page candidates, and the selection result. Accepts `waitMs` (default 20,000) and `retries` (default 2). |
 | `start_download` | Queue an exact media URL with `kind: "stream"` or pass entries from `probe_page.candidates` as `items`. |
+| `start_batch` | Queue page URLs, streams, or reference codes with a URL template. Defaults to one active item and reuses matching saved outputs. |
 | `get_progress` / `list_batches` | Inspect one batch or list recent batches, including interrupted local downloads. |
 | `wait_for_download` | Wait for a batch to finish. Accepts `id` and optional `timeoutMs` (default 30,000). A response with `timedOut: true` leaves the download running. |
 | `cancel_download` | Cancel queued and active work in a batch. |
@@ -154,6 +157,7 @@ Supply `Authorization: Bearer <pairing-code>`. Non-empty POST bodies use `Conten
 | POST | `/api/probe` | `{url,cookie?,waitMs?,retries?,includeText?}` → page and media candidates |
 | POST | `/api/preview` | `{url,seconds?}` → 3, 6, or 10 second MP4 |
 | POST | `/api/queue` | `{items,maxSec?,prefetch?,cookie?,concurrency?,connections?}` → batch ID |
+| POST | `/api/queue/batch` | Same arguments as `start_batch` in the [MCP guide](docs/mcp.md) → batch ID |
 | GET | `/api/batch/<id>` | Batch progress and results |
 | GET | `/api/batch/<id>/events` | Server-sent progress events |
 | GET | `/api/batch/<id>/wait?timeoutMs=30000` | Wait for the batch and return progress with a `timedOut` flag |

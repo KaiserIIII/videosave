@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -11,7 +10,7 @@ import { after, test } from 'node:test';
 const directory = await mkdtemp(path.join(os.tmpdir(),'videosave-batch-controls-'));
 process.env.MEDIA_TOOLKIT_SETTINGS = path.join(directory,'settings.sqlite');
 process.env.OUT_DIR = path.join(directory,'out');
-const {approveGrant, revokeGrant, sitePreferences} = await import('../tools/mcp-control.mjs');
+const {approveGrant, revokeGrant, saveClient, sitePreferences, updateClientAccess} = await import('../tools/mcp-control.mjs');
 const {invokeManaged, managedTools} = await import('../tools/managed-mcp.mjs');
 const {shutdown} = await import('../tools/media-downloads.mjs');
 after(async () => {
@@ -19,7 +18,7 @@ after(async () => {
   await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});
 });
 
-const clientProfile = () => ({id:randomUUID(),name:'Batch QA',preset:'standard',scopes:['session','read','download']});
+const clientProfile = () => saveClient({name:'Batch QA',preset:'standard'});
 const call = (client,name,args) => invokeManaged(client,{name,args});
 
 async function fixture(t, handler) {
@@ -64,6 +63,43 @@ test('site limits reject ineligible candidates before making a media request', {
   const {id} = await submit([items[2]]);
   assert.equal((await call(client,'wait_for_download',{id,timeoutMs:2000})).status,'failed');
   assert.deepEqual(requests,['/full.mp4']);
+});
+
+test('full access can select a clear candidate and change download settings without changing authorization', async () => {
+  const client = saveClient({name:'Automation QA',preset:'full-access',confirm:true});
+  const origin = 'https://automatic-selection.example';
+  const {authorizationId} = await approve(client,origin,[
+    {url:'/preview.mp4',preview:true},{url:'/feature.mp4',recommended:true},
+  ]);
+  const selected = await call(client,'select_media',{authorizationId});
+  assert.equal(selected.status,'selected');
+  assert.equal(selected.candidates.length,1);
+  const update = await call(client,'update_download_preferences',{authorizationId,settings:{quality:720}});
+  assert.equal(update.settings.quality,720);
+  await assert.rejects(call(client,'update_download_preferences',{authorizationId,settings:{download:true}}),
+    {code:'MCP_INVALID_ARGUMENTS'});
+  const network = await call(client,'get_network_status');
+  assert.equal(typeof network.restartRequired,'boolean');
+  assert.equal(network.proxyUrl,undefined);
+  await assert.rejects(call(clientProfile(),'get_network_status'),{code:'MCP_PERMISSION_DENIED'});
+});
+
+test('automatic downloads require their own per-client consent even when the site allows manual downloads', async () => {
+  const origin = 'https://standing-probe-only.example';
+  sitePreferences(origin,{download:true});
+  const client = saveClient({name:'Standing probe QA',preset:'full-access',confirm:true});
+  updateClientAccess({id:client.id,action:'trust',origins:[origin],allowDownload:false,confirm:true});
+  const {id:authorizationId} = await call(client,'request_site_authorization',{origin});
+  approveGrant({id:authorizationId,automatic:true,tab:{url:origin,streams:[{url:origin+'/fixture.mp4',kind:'mp4'}]}});
+  const {streams:[stream]} = await call(client,'probe_active_tab',{authorizationId});
+  assert.equal(stream.downloadable,false);
+  assert.equal((await call(client,'validate_media',{authorizationId,candidateId:stream.candidateId})).code,'MCP_SITE_DENIED');
+  await assert.rejects(call(client,'start_download',{authorizationId,items:[{candidateId:stream.candidateId}]}),{code:'MCP_SITE_DENIED'});
+  await assert.rejects(call(client,'start_auto_download',{authorizationId}),{code:'MCP_SITE_DENIED'});
+
+  const manual = clientProfile();
+  const {authorizationId:manualId,items:[item]} = await approve(manual,origin,['/manual.mp4']);
+  assert.equal((await call(manual,'validate_media',{authorizationId:manualId,...item})).eligible,true);
 });
 
 test('owned pause holds queued work and resume continues the same one-time batch', {timeout:8000}, async t => {

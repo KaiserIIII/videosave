@@ -8,10 +8,11 @@ import { detectionDiagnostic, diagnosticReport } from '../extension/detection.mj
 import { readPreferences, settingsFile } from './preferences.mjs';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
-export const roles = Object.freeze(['read-only','standard','custom']);
-export const scopes = Object.freeze(['read','download','session','files']);
-const presets = {'read-only':['read','session'], standard:['read','session','download']};
-const mediaKinds = new Set(['mp4','m4v','mov','webm','ogv','m4a','mp3','aac','wav','flac','m3u8','mpd']);
+export const roles = Object.freeze(['read-only','restricted','standard','advanced','full-access','custom']);
+export const scopes = Object.freeze(['read','download','session','files','automation','settings','network']);
+const presets = {'read-only':['read','session'],restricted:['read','session'],standard:['read','session','download'],
+  advanced:['read','session','download','files','automation'],'full-access':scopes};
+const mediaKinds = new Set(['mp4','m4v','mov','webm','mkv','flv','ts','ogv','m4a','mp3','aac','wav','flac','m3u8','mpd']);
 const sessions = new Map();
 let onRevocation = () => {};
 export function handleGrantRevocation(handler) { onRevocation = handler; }
@@ -26,7 +27,8 @@ function db(run) {
   try {
     connection.exec('CREATE TABLE IF NOT EXISTS mcp_clients (id TEXT PRIMARY KEY, name TEXT NOT NULL, preset TEXT NOT NULL, scopes TEXT NOT NULL, disabled INTEGER NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS mcp_audit (time TEXT NOT NULL, client TEXT NOT NULL, tool TEXT NOT NULL, result TEXT NOT NULL, origin TEXT, batch TEXT);' +
-      'CREATE TABLE IF NOT EXISTS mcp_audit_options (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL, days INTEGER NOT NULL)');
+      'CREATE TABLE IF NOT EXISTS mcp_audit_options (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL, days INTEGER NOT NULL);' +
+      'CREATE TABLE IF NOT EXISTS mcp_client_access (id TEXT PRIMARY KEY, config TEXT NOT NULL)');
     return run(connection);
   } finally { connection.close(); }
 }
@@ -39,7 +41,7 @@ export function listClients() {
   return {items:db(connection => connection.prepare('SELECT * FROM mcp_clients ORDER BY name,id').all().map(clientRecord))};
 }
 
-export function saveClient({id,name,preset,scopes:custom,disabled} = {}) {
+export function saveClient({id,name,preset,scopes:custom,disabled,confirm} = {}) {
   return db(connection => {
     const existing = id === undefined ? null : clientRecord(connection.prepare('SELECT * FROM mcp_clients WHERE id=?').get(assertId(id)));
     if (id !== undefined && !existing) throw new ApiError('MCP_CLIENT_NOT_FOUND','Client not found',404);
@@ -57,15 +59,57 @@ export function saveClient({id,name,preset,scopes:custom,disabled} = {}) {
     if (!Array.isArray(granted) || granted.length > scopes.length || granted.some(value => !scopes.includes(value))) {
       throw new ApiError('MCP_INVALID_CLIENT','Invalid custom permissions');
     }
+    if (granted.some(scope => ['automation','settings','network'].includes(scope) && !existing?.scopes.includes(scope)) &&
+        confirm !== true) throw new ApiError('MCP_CONFIRM_ACCESS','Confirm the expanded permissions in the control center',409);
     id ??= randomUUID();
     const record = {id,name:name.trim(),preset,scopes:[...new Set(granted)],disabled};
     connection.prepare('INSERT OR REPLACE INTO mcp_clients VALUES (?,?,?,?,?)')
       .run(id,record.name,preset,JSON.stringify(record.scopes),Number(disabled));
-    if (disabled || !record.scopes.includes('session') || existing?.scopes.includes('download') && !record.scopes.includes('download')) {
+    if (disabled || existing?.scopes.some(scope => !record.scopes.includes(scope))) {
       for (const grant of sessions.values()) if (grant.clientId === id) revoke(grant);
+      if (disabled || !record.scopes.includes('automation')) connection.prepare('DELETE FROM mcp_client_access WHERE id=?').run(id);
     }
     return record;
   });
+}
+
+const readAccess = (connection,id) => JSON.parse(connection.prepare('SELECT config FROM mcp_client_access WHERE id=?').get(id)?.config ??
+  '{"sites":[],"privacy":false}');
+
+export function clientAccess(id) {
+  return db(connection => readAccess(connection,assertId(id)));
+}
+
+export function updateClientAccess({id,action,origins,days = 30,shareSession = false,allowDownload = false,privacy,confirm} = {}) {
+  const client = listClients().items.find(entry => entry.id === assertId(id));
+  if (!client) throw new ApiError('MCP_CLIENT_NOT_FOUND','Client not found',404);
+  if (action === 'reset' || action === 'revoke') {
+    db(connection => connection.prepare('DELETE FROM mcp_client_access WHERE id=?').run(id));
+    for (const grant of sessions.values()) if (grant.clientId === id) revoke(grant);
+    return saveClient({id,preset:'restricted',disabled:action === 'revoke'});
+  }
+  if (action !== 'trust' || client.disabled || !client.scopes.includes('automation') ||
+      !Array.isArray(origins) || origins.length > 24 || !Number.isInteger(days) || days < 1 || days > 90 ||
+      typeof shareSession !== 'boolean' || typeof allowDownload !== 'boolean' ||
+      privacy !== undefined && typeof privacy !== 'boolean') {
+    throw new ApiError('MCP_INVALID_ACCESS','Select an enabled client and up to 24 exact sites');
+  }
+  if (confirm !== true) throw new ApiError('MCP_CONFIRM_ACCESS','Confirm the site list in the control center',409);
+  const sites = [...new Set(origins.map(value => {
+    const origin = siteOrigin(value);
+    if (value !== origin && value !== origin + '/') throw new ApiError('MCP_INVALID_ORIGIN','Enter exact HTTP(S) origins');
+    return origin;
+  }))].map(origin => ({origin,shareSession,allowDownload,expiresAt:Date.now()+days*86400_000}));
+  const settings = db(connection => {
+    const next = {sites,privacy:privacy ?? readAccess(connection,id).privacy};
+    connection.prepare('INSERT OR REPLACE INTO mcp_client_access VALUES (?,?)').run(id,JSON.stringify(next));
+    if (next.privacy) connection.prepare('DELETE FROM mcp_audit WHERE client=?').run(id);
+    return next;
+  });
+  for (const grant of sessions.values()) {
+    if (grant.clientId === id && grant.automatic) revoke(grant);
+  }
+  return settings;
 }
 
 export function boundClientToken(pairing, id) {
@@ -100,8 +144,9 @@ export function siteOrigin(value) {
   return parsed.origin;
 }
 
-function publicGrant({id,clientId,clientName,origin,status,expiresAt,sessionMode}) {
-  return {id,clientId,clientName,origin,status,expiresAt:new Date(expiresAt).toISOString(),...(sessionMode && {sessionMode})};
+function publicGrant({id,clientId,clientName,origin,status,expiresAt,sessionMode,automatic,shareAllowed,diagnostic}) {
+  return {id,clientId,clientName,origin,status,expiresAt:new Date(expiresAt).toISOString(),...(sessionMode && {sessionMode}),
+    ...(automatic && {automatic:true,shareAllowed}),...(status === 'pending' && diagnostic && {diagnostic})};
 }
 
 function sweep(now = Date.now()) {
@@ -119,12 +164,17 @@ function sweep(now = Date.now()) {
 export function requestGrant(client, value) {
   const origin = siteOrigin(value);
   sweep();
-  const pending = [...sessions.values()].find(grant => grant.clientId === client.id && grant.origin === origin && grant.status === 'pending');
+  const current = listClients().items.find(entry => entry.id === client.id && !entry.disabled);
+  if (client.preset && !current) throw scopeError();
+  const trust = current?.scopes.includes('automation') && clientAccess(client.id).sites.find(site => site.origin === origin && site.expiresAt > Date.now());
+  const pending = [...sessions.values()].find(grant => grant.clientId === client.id && grant.origin === origin &&
+    (grant.status === 'pending' || trust && grant.status === 'approved' && !grant.used));
   if (pending) return publicGrant(pending);
   if (sessions.size >= maxSessions || [...sessions.values()].filter(grant => grant.clientId === client.id && grant.status === 'pending').length >= 5) {
     throw new ApiError('MCP_AUTHORIZATION_LIMIT','Too many authorization requests',429);
   }
-  const grant = {id:randomUUID(),clientId:client.id,clientName:client.name,origin,status:'pending',expiresAt:Date.now()+300_000};
+  const grant = {id:randomUUID(),clientId:client.id,clientName:client.name,origin,status:'pending',expiresAt:Date.now()+300_000,
+    automatic:Boolean(trust),shareAllowed:trust?.shareSession};
   sessions.set(grant.id,grant);
   return publicGrant(grant);
 }
@@ -156,7 +206,7 @@ export function sessionStatus(client,value) {
     ...(grant.sessionMode && {sessionMode:grant.sessionMode})};
 }
 
-export function approveGrant({id,tab,minutes = 5,sessionMode = 'timed',shareSession = false,singleTask = false} = {}) {
+export function approveGrant({id,tab,minutes = 5,sessionMode = 'timed',shareSession = false,singleTask = false,automatic = false} = {}) {
   const grant = getGrant(id);
   if (grant.status !== 'pending') throw new ApiError('MCP_AUTHORIZATION_INACTIVE','Request is no longer pending',409);
   const valid = tab && tab.restricted !== true && Array.isArray(tab.streams) && tab.streams.length <= 40;
@@ -166,32 +216,70 @@ export function approveGrant({id,tab,minutes = 5,sessionMode = 'timed',shareSess
     throw new ApiError('MCP_INVALID_TAB','Open the requested site and select an allowed authorization duration');
   }
   const {settings} = sitePreferences(grant.origin);
+  const client = listClients().items.find(entry => entry.id === grant.clientId && !entry.disabled);
+  const trust = automatic && clientAccess(grant.clientId).sites.find(site => site.origin === grant.origin && site.expiresAt > Date.now());
+  if (automatic && (!grant.automatic || !trust || !client?.scopes.includes('automation') || shareSession && !trust.shareSession)) {
+    throw new ApiError('MCP_SITE_DENIED','This origin has no matching standing authorization',403);
+  }
   if (!settings.probe || shareSession && !settings.session) {
     throw new ApiError('MCP_SITE_DENIED','The site policy rejects this authorization',403);
   }
+  grant.tab = tabSnapshot(grant,tab,client,shareSession);
+  for (const previous of sessions.values()) {
+    if (previous.clientId === grant.clientId && previous.origin === grant.origin && previous.status === 'approved') revoke(previous);
+  }
+  grant.status = 'approved';
+  delete grant.diagnostic;
+  grant.automatic = automatic;
+  grant.singleTask = singleTask;
+  grant.sessionMode = sessionMode;
+  grant.expiresAt = Math.min(trust ? trust.expiresAt : Infinity,
+    Date.now() + (sessionMode === 'browser' ? browserSessionMinutes : minutes) * 60_000);
+  grant.leaseUntil = Date.now() + tabLeaseMs;
+  return publicGrant(grant);
+}
+
+function tabSnapshot(grant,tab,client,shareSession) {
+  const previous = new Map(grant.tab?.streams.map(item => [item.url,item]));
   const streams = new Map();
   for (const item of tab.streams) {
     const url = typeof item?.url === 'string' && item.url.length <= 2048 ? URL.parse(item.url) : null;
-    if (!url || url.origin !== grant.origin || url.search || url.hash || !mediaKinds.has(item.kind) ||
+    const observed = client?.scopes.includes('automation') && item?.observed === true;
+    if (!url || url.origin !== grant.origin || url.search && !observed || url.hash || !mediaKinds.has(item.kind) ||
         url.username || url.password || item.restricted || item.drm) continue;
     const cookiesFor = shareSession && !['m3u8','mpd'].includes(item.kind) ? approvedCookies(item.cookies) : () => [];
-    streams.set(url.href,{candidateId:randomUUID(),url:url.href,kind:item.kind,cookiesFor,preview:item.preview === true,
+    const prior = previous.get(url.href);
+    streams.set(url.href,{candidateId:prior?.kind === item.kind ? prior.candidateId : randomUUID(),url:url.href,kind:item.kind,cookiesFor,preview:item.preview === true,
+      recommended:item.recommended === true,
       ...(Number.isSafeInteger(item.size) && item.size > 0 && !['m3u8','mpd'].includes(item.kind) && {size:item.size}),
       ...(Number.isFinite(item.duration) && item.duration > 0 && {duration:item.duration}),
       ...(Number.isInteger(item.height) && item.height > 0 && {height:item.height})});
   }
-  for (const previous of sessions.values()) {
-    if (previous.clientId === grant.clientId && previous.origin === grant.origin && previous.status === 'approved') revoke(previous);
-  }
-  grant.tab = {origin:grant.origin,title:typeof tab.title === 'string' ? tab.title.replace(/[\x00-\x1f\x7f]/g,' ').slice(0,160) : '',
+  return {origin:grant.origin,title:typeof tab.title === 'string' ? tab.title.replace(/[\x00-\x1f\x7f]/g,' ').slice(0,160) : '',
     playing:tab.playing === true,sessionShared:shareSession,streams:[...streams.values()],
     diagnostic:detectionDiagnostic({...diagnosticReport({diagnostic:tab.diagnostic ?? {}}).diagnostic,streams:[...streams.values()],
       selection:{status:streams.size > 1 ? 'ambiguous' : 'selected'}})};
-  grant.status = 'approved';
-  grant.singleTask = singleTask;
-  grant.sessionMode = sessionMode;
-  grant.expiresAt = Date.now() + (sessionMode === 'browser' ? browserSessionMinutes : minutes) * 60_000;
-  grant.leaseUntil = Date.now() + tabLeaseMs;
+}
+
+export function updateGrantSnapshot({id,tab} = {}) {
+  const grant = getGrant(id);
+  if (!grant.automatic || !['pending','approved'].includes(grant.status)) {
+    throw new ApiError('MCP_AUTHORIZATION_INACTIVE','A standing tab approval is required',409);
+  }
+  if (!tab || siteOrigin(tab.url) !== grant.origin || !Array.isArray(tab.streams) || tab.streams.length > 40) {
+    throw new ApiError('MCP_INVALID_TAB','Update only the approved browser tab');
+  }
+  if (grant.status === 'pending') {
+    if (tab.restricted !== true || tab.streams.length) throw new ApiError('MCP_INVALID_TAB','Only blockers can be reported before approval');
+    const {blockers} = diagnosticReport({diagnostic:tab.diagnostic ?? {}}).diagnostic;
+    grant.diagnostic = detectionDiagnostic({blockers,reason:'blocked'});
+    return publicGrant(grant);
+  }
+  if (tab.restricted === true) return revokeGrant(id);
+  const client = listClients().items.find(entry => entry.id === grant.clientId && !entry.disabled);
+  const {settings} = sitePreferences(grant.origin);
+  if (!client?.scopes.includes('automation') || !settings.probe || grant.tab.sessionShared && !settings.session) return revokeGrant(id);
+  grant.tab = tabSnapshot(grant,tab,client,grant.tab.sessionShared);
   return publicGrant(grant);
 }
 
@@ -225,7 +313,10 @@ export function activeTab(client, id) {
   const [grant] = approved;
   if (!grant?.tab) throw new ApiError('MCP_TAB_REQUIRED','Approve a current tab in VideoSave to use its media context',409);
   const {streams,diagnostic,...tab} = grant.tab;
-  return {authorizationId:grant.id,tab,streams,diagnostic,singleTask:grant.singleTask,used:grant.used === true};
+  const standingDownload = grant.automatic ? clientAccess(client.id).sites.some(site =>
+    site.origin === grant.origin && site.expiresAt > Date.now() && site.allowDownload === true) : undefined;
+  return {authorizationId:grant.id,tab,streams,diagnostic,standingDownload,
+    singleTask:grant.singleTask,used:grant.used === true};
 }
 
 export function consumeGrant(id,client) {
@@ -247,7 +338,7 @@ export function auditSettings(update) {
 }
 
 export function recordActivity({client,tool,result,origin,batch}) {
-  if (!auditSettings().enabled) return;
+  if (!auditSettings().enabled || clientAccess(client).privacy) return;
   db(connection => {
     connection.prepare('INSERT INTO mcp_audit VALUES (?,?,?,?,?,?)').run(new Date().toISOString(),client,tool,result,origin ?? null,batch ?? null);
     connection.exec('DELETE FROM mcp_audit WHERE rowid NOT IN (SELECT rowid FROM mcp_audit ORDER BY rowid DESC LIMIT 1000)');
@@ -276,10 +367,11 @@ export const preferenceProperties = {
   excludePreviews:{type:'boolean'},
 };
 
-export function sitePreferences(value, settings) {
+export function sitePreferences(value, settings, {standingDownload} = {}) {
   const origin = siteOrigin(value);
   const global = readPreferences('download');
   const defaults = {...siteDefaults};
+  if (standingDownload) defaults.download = true;
   for (const key of ['quality','format','audioFormat','subtitles','connections']) {
     if (global[key] !== undefined) defaults[key] = global[key];
   }
@@ -302,7 +394,9 @@ export function sitePreferences(value, settings) {
       }
     }
     const stored = connection.prepare('SELECT policy FROM mcp_site_policies WHERE origin=?').get(origin);
-    return {origin,settings:{...defaults,...(stored && JSON.parse(stored.policy))}};
+    const effective = {...defaults,...(stored && JSON.parse(stored.policy))};
+    if (standingDownload === false) effective.download = false;
+    return {origin,settings:effective};
   });
 }
 

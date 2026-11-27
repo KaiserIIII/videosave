@@ -169,6 +169,6 @@ export function mediaProcessEnvironment() {
     return {...env,no_proxy:bypassList(effective.noProxy ?? inherited.no_proxy,mediaLoopback)};
   }
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !proxyEnvironmentKey.test(name)));
-  if (effective.mode === 'direct') return env;
+  if (effective.mode === 'direct') return {...env,no_proxy:'*'};
   return {...env,http_proxy:effective.proxyUrl,https_proxy:effective.proxyUrl,no_proxy:bypassList(effective.noProxy,mediaLoopback)};
 }

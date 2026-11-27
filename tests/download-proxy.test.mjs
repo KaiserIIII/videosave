@@ -244,7 +244,7 @@ test('owner proxy settings apply on restart and keep the three engine configurat
     const local = await (await fetch(${JSON.stringify(localAddress + '/still-local')})).text();
     const env = proxy.mediaProcessEnvironment();
     console.log(JSON.stringify({usedProxy,local,args:proxy.browserProxyArgs(),childProxy:env.http_proxy,
-      processProxy:process.env.HTTP_PROXY,diagnosis:await proxy.diagnoseNetwork()}));`,
+      childNoProxy:env.no_proxy,processProxy:process.env.HTTP_PROXY,diagnosis:await proxy.diagnoseNetwork()}));`,
   {HTTP_PROXY:address,HTTPS_PROXY:address,NODE_USE_ENV_PROXY:'1'});
   assert.deepEqual(seen,[upstream]);
   assert.deepEqual(localRequests,['/local','/still-local']);
@@ -252,6 +252,7 @@ test('owner proxy settings apply on restart and keep the three engine configurat
   assert.equal(direct.local,'direct');
   assert.deepEqual(direct.args,['--no-proxy-server']);
   assert.equal(direct.childProxy,undefined);
+  assert.equal(direct.childNoProxy,'*');
   assert.equal(direct.processProxy,address);
   assert.equal(direct.diagnosis.connection,'direct');
 });

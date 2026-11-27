@@ -13,17 +13,42 @@ import path from 'node:path';
 const settingsTemp = await mkdtemp(path.join(os.tmpdir(),'videosave-control-settings-'));
 process.env.MEDIA_TOOLKIT_SETTINGS = path.join(settingsTemp,'settings.sqlite');
 after(() => rm(settingsTemp,{recursive:true,force:true,maxRetries:4,retryDelay:100}));
-const {activeTab,approveGrant,boundClientToken,grantStatus,renewGrant,requestGrant} = await import('../tools/mcp-control.mjs');
+const {activeTab,approveGrant,boundClientToken,grantStatus,renewGrant,requestGrant,saveClient,updateGrantSnapshot,
+  sitePreferences,updateClientAccess} = await import('../tools/mcp-control.mjs');
 const {prefetchHls} = await import('../tools/hls-prefetch.mjs');
+
+test('full access requires owner confirmation and standing approvals remain scoped to the saved origins', () => {
+  assert.throws(() => saveClient({name:'Full QA',preset:'full-access'}),{code:'MCP_CONFIRM_ACCESS'});
+  const client = saveClient({name:'Full QA',preset:'full-access',confirm:true});
+  assert.ok(client.scopes.includes('automation') && client.scopes.includes('network'));
+  const origin = 'https://standing.example';
+  const other = 'https://not-trusted.example';
+  assert.throws(() => updateClientAccess({id:client.id,action:'trust',origins:[origin]}),{code:'MCP_CONFIRM_ACCESS'});
+  updateClientAccess({id:client.id,action:'trust',origins:[origin],days:30,allowDownload:true,confirm:true});
+  const request = requestGrant(client,origin);
+  const outside = requestGrant(client,other);
+  assert.equal(request.automatic,true);
+  assert.equal(Boolean(outside.automatic),false);
+  assert.throws(() => approveGrant({id:outside.id,automatic:true,tab:{url:other,streams:[]}}),{code:'MCP_SITE_DENIED'});
+  approveGrant({id:request.id,automatic:true,tab:{url:origin,streams:[{url:origin+'/movie.mp4?token=session-only',kind:'mp4',observed:true}]}});
+  assert.equal(activeTab(client,request.id).streams.length,1);
+  assert.equal(activeTab(client,request.id).standingDownload,true);
+  assert.equal(sitePreferences(origin).settings.download,false);
+  assert.equal(requestGrant(client,origin).id,request.id);
+  updateClientAccess({id:client.id,action:'reset'});
+  assert.equal(grantStatus(request.id,client).status,'revoked');
+  assert.equal(requestGrant(client,origin).automatic,undefined);
+});
 
 test('managed HLS stages same-origin VOD and stops at a foreign child or redirect', async t => {
   const staging = await mkdtemp(path.join(os.tmpdir(),'videosave-managed-hls-'));
   let destination;
   let foreignRequests = 0;
   let child = '/segment.ts';
+  let protection = '';
   const remote = createServer((_req,res) => { foreignRequests++; res.end('foreign'); }).listen(0,'127.0.0.1');
   const local = createServer((req,res) => {
-    if (req.url === '/main.m3u8') return res.end('#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\n' + child + '\n#EXTINF:2,\n/second.ts\n#EXT-X-ENDLIST');
+    if (req.url === '/main.m3u8') return res.end('#EXTM3U\n#EXT-X-TARGETDURATION:2\n' + protection + '#EXTINF:2,\n' + child + '\n#EXTINF:2,\n/second.ts\n#EXT-X-ENDLIST');
     if (req.url === '/redirect.ts') return res.writeHead(302,{location:destination}).end();
     return res.end('local media fixture');
   }).listen(0,'127.0.0.1');
@@ -41,9 +66,39 @@ test('managed HLS stages same-origin VOD and stops at a foreign child or redirec
   await assert.rejects(stage,{code:'MCP_MEDIA_SCOPE'});
   child = '/redirect.ts';
   await assert.rejects(stage,{code:'MCP_MEDIA_REDIRECT'});
-  assert.equal(foreignRequests,0);
   child = '/segment.ts';
+  protection = `#EXT-X-KEY:METHOD=AES-128,URI="${destination}"\n`;
+  await assert.rejects(stage,{code:'MCP_MEDIA_SCOPE'});
+  protection = `#EXT-X-KEY:METHOD=SAMPLE-AES,URI="${destination}"\n`;
+  await assert.rejects(stage,{code:'DRM'});
+  assert.equal(foreignRequests,0);
+  protection = '';
   assert.ok(await stage());
+});
+
+test('standing tab snapshots preserve unchanged candidate IDs and retire replaced signed URLs', () => {
+  const client = saveClient({name:'Live QA',preset:'advanced',confirm:true});
+  const origin = 'https://live-standing.example';
+  updateClientAccess({id:client.id,action:'trust',origins:[origin],confirm:true});
+  const {id} = requestGrant(client,origin);
+  const blocked = updateGrantSnapshot({id,tab:{url:origin,restricted:true,streams:[],
+    diagnostic:{blockers:['login-required','private-page-value'],nextAction:'private-page-text'}}});
+  assert.equal(blocked.status,'pending');
+  assert.equal(blocked.diagnostic.code,'login-required');
+  assert.equal(blocked.diagnostic.nextAction,'sign-in-with-browser');
+  assert.doesNotMatch(JSON.stringify(grantStatus(id,client)),/private-page/);
+  approveGrant({id,automatic:true,tab:{url:origin,streams:[]}});
+  assert.equal(grantStatus(id,client).diagnostic,undefined);
+  const source = {url:origin+'/movie.mp4?token=a',observed:true,kind:'mp4',recommended:true};
+  const update = streams => updateGrantSnapshot({id,tab:{url:origin,streams}});
+  update([source]);
+  const [first] = activeTab(client,id).streams;
+  assert.equal(first.recommended,true);
+  update([{...source,height:720}]);
+  assert.equal(activeTab(client,id).streams[0].candidateId,first.candidateId);
+  update([{...source,url:origin+'/movie.mp4?token=b'}]);
+  assert.notEqual(activeTab(client,id).streams[0].candidateId,first.candidateId);
+  assert.throws(() => updateGrantSnapshot({id,tab:{url:'https://elsewhere.example',streams:[]}}),{code:'MCP_INVALID_TAB'});
 });
 
 test('paired management and managed sessions use separate permissions', {timeout:20000}, async t => {

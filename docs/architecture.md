@@ -26,4 +26,8 @@ Windows workers use the requested connection count as their per-transfer ceiling
 
 The managed MCP tools use a profile-scoped credential on the paired loopback server. The extension confirms the identity of the approved document and periodically renews the grant. Optional login credentials are matched to the approved direct resource for each HTTP request. Managed jobs reject redirects and stage direct media or eligible public same-origin HLS before passing a local file to FFmpeg. SQLite stores policy, audit metadata, and batch ownership.
 
+Standing approvals are attached to a client and exact origin. Their download permission also applies when the site owner has enabled manual downloads. The browser binds live grants to a document and tracks shared cookies by exact hostname and browser store. A stable local fingerprint covers cookie changes before media appears. Candidate refresh preserves IDs for unchanged sources. New signed URLs receive new IDs once observed. Private clients keep new managed batch state in memory.
+
+The standalone Maximum Compatibility plan divides the observation budget among discovery stages. Its second stage inspects embedded frames and public JSON if the first misses. The optional local rule store keeps strategy preferences and aggregated probe outcomes by origin. Launching the next stage depends on the evidence and the remaining observation budget.
+
 See [compatibility evidence](compatibility-report.zh-CN.md), [MCP operations](mcp.md), [installation](install.md), and the [privacy policy](privacy.md).

@@ -148,7 +148,7 @@ test('MCP gives a client evidence to choose the full film over the autoplay teas
       res.writeHead(404).end();
     } else if (req.url === '/watch/adaptive') {
       res.writeHead(200, {'content-type':'text/html; charset=utf-8'}).end(
-        '<title>Adaptive player</title><video src="/master.m3u8" preload="none"></video>');
+        '<title>Adaptive player FEST-100</title><p>FEST-100 FILM-222</p><video src="/master.m3u8" preload="none"></video>');
     } else res.writeHead(404).end();
   }).listen(0, '127.0.0.1');
   media.set('/extensionless',media.get('/102.mp4'));
@@ -264,7 +264,8 @@ test('MCP gives a client evidence to choose the full film over the autoplay teas
   assert.deepEqual(absent.selection,{status:'unavailable',reason:'no-playlist-request'});
   const blocked = await tool('probe_page',{url:new URL('/watch/blocked',url).href,waitMs:500});
   assert.deepEqual(blocked.selection,{status:'unavailable',reason:'blocked'});
-  const gated = await tool('probe_page',{url:new URL('/watch/challenge',url).href,clickPlay:true,waitMs:600});
+  const gated = await tool('probe_page',{url:new URL('/watch/challenge',url).href,clickPlay:true,waitMs:600,harvestCodes:true});
+  assert.deepEqual(gated.codes,[]);
   assert.deepEqual(gated.selection,{status:'unavailable',reason:'blocked'});
   assert.deepEqual(gated.blockers,['cloudflare-challenge']);
   const gatedBatch = await tool('start_download',{items:[{kind:'page',url:new URL('/watch/challenge',url).href}]});
@@ -320,7 +321,12 @@ test('MCP gives a client evidence to choose the full film over the autoplay teas
   const list = await tool('probe_page',{url:new URL('/watch/list',url).href,waitMs:500});
   assert.deepEqual(list.selection,{status:'unavailable',reason:'no-player'});
   assert.deepEqual(list.candidates,[{url:new URL('/watch/untitled-player',url).href,title:'Film',kind:'page',duration:5}]);
-  const adaptive = await tool('probe_page',{url:new URL('/watch/adaptive',url).href,waitMs:500,retries:0});
+  const adaptive = await tool('probe_page',{url:new URL('/watch/adaptive',url).href,waitMs:500,retries:0,harvestCodes:true});
+  assert.deepEqual(adaptive.codes,['FEST-100','FILM-222']);
+  assert.deepEqual(adaptive.qualities,[
+    {height:270,bandwidth:600000,url:new URL('/high.m3u8',url).href},
+    {height:180,bandwidth:300000,url:new URL('/low.m3u8',url).href},
+  ]);
   assert.deepEqual(adaptive.streams[0].quality,[
     {height:270,bitrate:600000,url:new URL('/high.m3u8',url).href},
     {height:180,bitrate:300000,url:new URL('/low.m3u8',url).href},

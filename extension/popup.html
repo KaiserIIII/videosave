@@ -105,19 +105,43 @@
             <p class="details" id="mcp-editing"></p>
             <label><span data-i18n>客户端名称</span><input id="mcp-client-name" maxlength="60"></label>
             <label><span data-i18n>客户端权限</span><select id="mcp-preset">
-              <option value="read-only" data-i18n>只读</option><option value="standard" data-i18n>标准下载</option><option value="custom" data-i18n>自定义</option>
+              <option value="restricted" data-i18n>受限模式</option><option value="standard" data-i18n>标准下载</option><option value="advanced" data-i18n>高级模式</option><option value="full-access">Full Access</option><option value="custom" data-i18n>自定义</option>
             </select></label>
             <fieldset id="mcp-scopes" hidden>
               <label class="check-row"><input type="checkbox" data-mcp-scope value="read"><span data-i18n>探测和查询</span></label>
               <label class="check-row"><input type="checkbox" data-mcp-scope value="download"><span data-i18n>下载与取消</span></label>
               <label class="check-row"><input type="checkbox" data-mcp-scope value="session"><span data-i18n>申请页面授权</span></label>
               <label class="check-row"><input type="checkbox" data-mcp-scope value="files"><span data-i18n>定位成品</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="automation"><span data-i18n>自动化与长期授权</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="settings"><span data-i18n>站点下载设置</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-scope value="network"><span data-i18n>网络状态</span></label>
             </fieldset>
             <div class="settings-actions">
               <button type="button" id="mcp-save-client" data-i18n>保存客户端</button>
               <button type="button" id="mcp-new-client" class="quiet" data-i18n>新建客户端</button>
               <button type="button" id="mcp-copy-command" class="quiet" data-i18n>复制 MCP 配置</button>
             </div>
+            <div class="settings-actions">
+              <button type="button" id="mcp-full-access" data-i18n>一键授权全部</button>
+              <button type="button" id="mcp-revoke-access" class="quiet" data-i18n>一键撤销全部</button>
+              <button type="button" id="mcp-reset-access" class="quiet" data-i18n>恢复默认权限</button>
+            </div>
+            <details class="settings-block" id="mcp-trust" hidden>
+              <summary data-i18n>长期站点授权与隐私</summary>
+              <label><span data-i18n>站点列表（每行一个 HTTP(S) 源）</span><textarea id="mcp-trusted-origins" rows="3" maxlength="6000" spellcheck="false"></textarea></label>
+              <button type="button" class="quiet" id="mcp-window-sites" data-i18n>填入当前窗口站点</button>
+              <label><span data-i18n>站点组</span><select id="mcp-site-group"><option value=""></option></select></label>
+              <label><span data-i18n>保存为站点组</span><input id="mcp-site-group-name" maxlength="48"></label>
+              <div class="settings-actions">
+                <button type="button" class="quiet" id="mcp-save-group" data-i18n>保存站点组</button>
+                <button type="button" class="quiet" id="mcp-delete-group" data-i18n>删除站点组</button>
+              </div>
+              <label><span data-i18n>有效天数</span><input type="number" id="mcp-trust-days" value="30" min="1" max="90"></label>
+              <label class="check-row"><input type="checkbox" id="mcp-trust-session"><span data-i18n>在长期授权站点使用登录会话</span></label>
+              <label class="check-row"><input type="checkbox" id="mcp-trust-download"><span data-i18n>允许从长期授权站点下载</span></label>
+              <label class="check-row"><input type="checkbox" id="mcp-privacy"><span data-i18n>隐私模式</span></label>
+              <button type="button" id="mcp-save-trust" data-i18n>保存长期授权</button>
+            </details>
           </section>
           <section class="mcp-section">
             <h3 data-i18n>浏览器页面授权</h3>
@@ -135,6 +159,15 @@
             </details>
             <ul class="mcp-list" id="mcp-grants"></ul>
           </section>
+          <details class="settings-block">
+            <summary data-i18n>本地兼容性规则</summary>
+            <label><span data-i18n>规则文件</span><input type="file" id="mcp-rules-file" accept=".json,application/json"></label>
+            <div class="settings-actions">
+              <button type="button" class="quiet" id="mcp-rules-import" data-i18n>导入规则</button>
+              <button type="button" class="quiet" id="mcp-rules-export" data-i18n>导出规则</button>
+              <button type="button" class="quiet" id="mcp-rules-reset" data-i18n>重置规则</button>
+            </div>
+          </details>
           <section class="mcp-section">
             <h3 data-i18n>当前站点设置</h3>
             <p class="details" id="mcp-policy-origin"></p>

@@ -1,7 +1,7 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { copyFile, link, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { constants, lstatSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -15,6 +15,7 @@ import { ApiError, FFMPEG, discover, inspectOutput, mediaInput, mediaUrl, parseC
 import { readPreferences, writePreferences } from './preferences.mjs';
 import { claimBatch, claimInterruptedCancellation, completedStatus, pendingItem, storeBatch, storedBatch, storedBatches } from './download-history.mjs';
 import { platformDownloadsEnabled, probePlatform, stagePlatform } from './platform-downloads.mjs';
+import { maximumProbePlan, preferredProbeStrategy, recordCompatibility } from './compatibility-policy.mjs';
 
 export { ApiError, platformDownloadsEnabled };
 export const VERSION = manifest.version;
@@ -108,26 +109,34 @@ export function errorDetails(error) {
 
 async function inspectPage(url, cookies, signal, {
   selectionOnly = false, waitMs = 20_000, retries = 2, includeText = false,
-  clickPlay = false, captureXhrBody = true, includeFrames = true, mode = 'headless', singleWindow = false,
+  clickPlay = false, captureXhrBody = true, includeFrames = true, mode = 'headless', singleWindow = false, harvestCodes = false,
+  maximum = false, learn = false,
 } = {}) {
+  const started = performance.now();
+  const plan = maximum ? maximumProbePlan(waitMs,learn ? preferredProbeStrategy(url.origin) : undefined) :
+    Array.from({length:retries+1},(_,attempt) => ({waitMs:singleWindow ? waitMs : Math.round(waitMs * (1 + attempt / 2)),deep:false}));
   let result;
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    const budget = singleWindow ? waitMs : Math.round(waitMs * (1 + attempt / 2));
-    result = await discover(url, cookies, signal, {waitMs:budget, includeText, clickPlay, captureXhrBody, includeFrames, mode,
+  let stage;
+  let attempts = 0;
+  for (const {waitMs,deep} of plan) {
+    attempts++;
+    stage = deep ? 'deep' : 'standard';
+    result = await discover(url, cookies, signal, {waitMs, includeText, clickPlay,
+      captureXhrBody:captureXhrBody || deep, includeFrames:includeFrames || deep, mode,harvestCodes,
       onMediaHeaders:rememberMediaHeaders}).catch(error => {
       signal.throwIfAborted();
       if (/timed out|超时/i.test(error.message)) return {pageTitle:null,pageContext:null,streams:[],pages:[],candidates:[],reason:'timeout'};
       if (error instanceof ApiError) throw error;
       throw new ApiError('PAGE_FAILED', '隔离浏览器探测失败', 502);
     });
-    if (result.streams.length || result.reason === 'blocked' || result.candidates.length && result.reason === 'no-player') break;
+    if (result.streams.length || result.reason === 'blocked' || !maximum && result.candidates.length && result.reason === 'no-player') break;
   }
   const protectedUrls = new Set();
   const pending = selectionOnly ? [...new Set([...primaryCandidates(result.streams),
     ...result.streams.filter(stream => isPlaylist(stream.kind))])] : [...result.streams];
   const inspectMetadata = !selectionOnly || pending.length > 1;
   if (pending.length) {
-    const budget = AbortSignal.timeout(45_000);
+    const budget = AbortSignal.timeout(maximum ? 12_000 : 45_000);
     const metadataSignal = AbortSignal.any([signal,budget]);
     await Promise.all(Array.from({length:Math.min(4, pending.length)}, async () => {
       while (pending.length && !budget.aborted) {
@@ -159,7 +168,10 @@ async function inspectPage(url, cookies, signal, {
           if (budget.aborted) return [{},null];
           throw error;
         });
-        if (quality?.length) stream.quality = quality;
+        if (quality?.length) {
+          stream.qualities = quality.map(({height,bandwidth,url}) => ({height,bandwidth,url}));
+          stream.quality = quality.map(({height,bitrate,url}) => ({height,bitrate,url}));
+        }
         const hasObservedSize = stream.size != null;
         for (const [key, value] of Object.entries(info)) {
           if (value != null && (!['size','sizeEstimated'].includes(key) || !hasObservedSize)) stream[key] = value;
@@ -191,16 +203,26 @@ async function inspectPage(url, cookies, signal, {
   for (const stream of page.streams) Object.assign(stream,assessCandidates([stream])[0]);
   const selection = selectPageStream(page.streams);
   if (selection.status === 'unavailable') selection.reason = reason;
-  return {...page, selection, diagnostic:detectionDiagnostic({
+  const qualities = page.streams.find(stream => stream.url === selection.url)?.qualities ?? [];
+  if (maximum && learn) {
+    try { recordCompatibility(url,{stage,success:page.streams.length > 0,elapsedMs:performance.now()-started,kind:page.streams[0]?.kind}); }
+    catch { /* Learning must not stop an otherwise successful probe. */ }
+  }
+  return {...page,...(maximum && {probeStrategy:{stage,attempts}}),...(harvestCodes && {codes:page.codes ?? []}),qualities,selection,diagnostic:detectionDiagnostic({
     ...page.diagnostic, streams:page.streams, blockers:page.blockers, selection, reason,
   })};
 }
 
 export async function probe({
   url: value, cookie, waitMs = 20_000, waitForMediaMs, retries = waitForMediaMs === undefined ? 2 : 0, includeText = false,
-  clickPlay = false, captureXhrBody = false, includeFrames = false, mode = 'headless', profile, useBrowserCookies,
+  compatibility = 'standard', learnCompatibility = false,
+  clickPlay = false, captureXhrBody = false, includeFrames = false, harvestCodes = false, mode = 'headless', profile, useBrowserCookies,
+  profileDir,userAgent,
 } = {}, requestSignal) {
   const url = mediaUrl(value);
+  if (!['standard','maximum'].includes(compatibility) || typeof learnCompatibility !== 'boolean') {
+    throw new ApiError('INVALID_COMPATIBILITY','Choose standard or maximum compatibility');
+  }
   const cookies = parseCookies(cookie);
   if (!Number.isInteger(waitMs) || waitMs < 100 || waitMs > 30_000) {
     throw new ApiError('INVALID_WAIT', 'waitMs 必须为 100–30000 毫秒');
@@ -209,13 +231,15 @@ export async function probe({
     throw new ApiError('INVALID_WAIT', 'waitForMediaMs 必须为 100–60000 毫秒');
   }
   if (!['headless','headed'].includes(mode)) throw new ApiError('INVALID_MODE', '浏览器模式应为 headless 或 headed');
-  if (profile !== undefined && profile !== 'fresh' || useBrowserCookies !== undefined && useBrowserCookies !== false) {
+  if (profileDir !== undefined || userAgent !== undefined || profile !== undefined && profile !== 'fresh' ||
+      useBrowserCookies !== undefined && useBrowserCookies !== false) {
     throw new ApiError('BROWSER_SESSION_UNAVAILABLE', '探测使用独立浏览器会话');
   }
   if (!Number.isInteger(retries) || retries < 0 || retries > 2) {
     throw new ApiError('INVALID_RETRIES', 'retries 必须为 0–2');
   }
   if (typeof includeText !== 'boolean') throw new ApiError('INVALID_INCLUDE_TEXT', 'includeText 必须为布尔值');
+  if (typeof harvestCodes !== 'boolean') throw new ApiError('INVALID_HARVEST_CODES','harvestCodes 必须为布尔值');
   if (typeof clickPlay !== 'boolean') throw new ApiError('INVALID_CLICK_PLAY', 'clickPlay 必须为布尔值');
   if (typeof captureXhrBody !== 'boolean') throw new ApiError('INVALID_CAPTURE_XHR', 'captureXhrBody 必须为布尔值');
   if (typeof includeFrames !== 'boolean') throw new ApiError('INVALID_INCLUDE_FRAMES', 'includeFrames 必须为布尔值');
@@ -227,11 +251,13 @@ export async function probe({
     if (platform && platformDownloadsEnabled()) {
       const target = await probePlatform(platform, signal);
       return {pageTitle:target.title, pageContext:{url:target.url,untrusted:true}, streams:[], pages:[], candidates:[],
-        downloadTargets:[target], selection:{status:'selected',url:target.url,reason:'platform'},
+        downloadTargets:[target], qualities:[],...(harvestCodes && {codes:[]}),selection:{status:'selected',url:target.url,reason:'platform'},
         diagnostic:detectionDiagnostic({streams:[target]})};
     }
-    return inspectPage(url, cookies, signal, {waitMs:waitForMediaMs ?? waitMs,retries,includeText,clickPlay,captureXhrBody,
-      includeFrames,mode,singleWindow:waitForMediaMs !== undefined});
+    const maximum = compatibility === 'maximum';
+    return inspectPage(url, cookies, signal, {waitMs:waitForMediaMs ?? (maximum && waitMs === 20_000 ? 30_000 : waitMs),
+      retries,includeText,clickPlay,captureXhrBody,includeFrames,mode,harvestCodes,singleWindow:waitForMediaMs !== undefined,
+      maximum,learn:learnCompatibility});
   });
 }
 
@@ -297,7 +323,11 @@ function historyRecord(batch, status = batch.status) {
     ...(detail.reason && {reason:detail.reason}), ...(detail.expiresAt && {expiresAt:detail.expiresAt}),
     ...(Number.isSafeInteger(detail.retryAfterSec) && {retryAfterSec:detail.retryAfterSec})};
   return {id:batch.id, status, outDir:batch.outDir, delivery:batch.delivery, createdAt:batch.createdAt,
-    log:batch.log, items:batch.items.map(item => item.detail ? {...item,detail:redact(item.detail)} : item),
+    log:batch.log, itemKeys:batch.itemKeys, items:batch.items.map(item => {
+      const recorded = item.detail ? {...item,detail:redact(item.detail)} : item;
+      return ['running','interrupted'].includes(status) && item.errorCode === 'HLS_TRANSFER_INTERRUPTED'
+        ? {...recorded,status:'queued'} : recorded;
+    }),
     lastError:batch.lastError && {...batch.lastError,detail:redact(batch.lastError.detail)}, retry:batch.retry, principal:batch.principal,
     ...(status === 'running' && batch.paused && {paused:true}), managedRetry:batch.managedRetry};
 }
@@ -308,7 +338,8 @@ function savedBatch(id) {
   const message = '下载进程已中断，请重新提交原下载请求以继续';
   for (const item of batch.items.filter(pendingItem)) {
     const detail = {stderr:''};
-    Object.assign(item,{status:'error',errorCode:'DOWNLOAD_INTERRUPTED',error:message,speed:0,etaSec:null,detail});
+    Object.assign(item,{status:'error',errorCode:item.errorCode ?? 'DOWNLOAD_INTERRUPTED',
+      error:item.error ?? message,speed:0,etaSec:null,detail:item.detail ?? detail});
     batch.lastError = {idx:item.idx,code:item.errorCode,message,detail};
   }
   batch.status = batch.items.some(item => item.status === 'done') ? 'partial' : 'failed';
@@ -399,7 +430,7 @@ export function listBatches({limit = 20} = {}, principal) {
     const completed = batch.items.filter(item => item.status === 'done').length;
     const status = interrupted ? (completed ? 'partial' : 'failed') : displayedStatus(batch);
     items.push({id:batch.id, status, delivery:batch.delivery, createdAt:batch.createdAt,
-      ...(interrupted && {resumable:true}),
+      ...((interrupted || batch.resumable) && {resumable:true}),
       total:batch.items.length, completed,
       failed:batch.items.filter(item => item.status === 'error' || interrupted && pendingItem(item)).length});
   }
@@ -483,7 +514,7 @@ export function cancel(id) {
   if (batch.status === 'running') {
     batch.status = 'cancelling';
     batch.controller.abort();
-    if (batch.delivery === 'local') storeBatch(historyRecord(batch));
+    if (batch.delivery === 'local' && !batch.private) storeBatch(historyRecord(batch));
     publish(batch, '正在取消');
     pump();
   }
@@ -495,7 +526,7 @@ export function setBatchPaused(id, paused) {
   if (batch.status !== 'running') throw new ApiError('BATCH_INACTIVE','This batch is no longer running',409);
   if (!batch.controller) throw new ApiError('BATCH_OTHER_PROCESS','Control this batch in the download process that submitted it',409);
   if (Boolean(batch.paused) === paused) return {ok:true};
-  if (batch.delivery === 'local') storeBatch(historyRecord({...batch,paused}));
+  if (batch.delivery === 'local' && !batch.private) storeBatch(historyRecord({...batch,paused}));
   batch.paused = paused;
   publish(batch, paused ? '已暂停后续队列任务' : '已恢复队列任务');
   if (!paused) pump();
@@ -518,6 +549,7 @@ async function cancelInterrupted(id) {
   }
   for (const item of pending) Object.assign(item,{status:'cancelled',speed:0,etaSec:null});
   storeBatch(historyRecord(batch,'cancelled'));
+  if (batches.get(id)?.resumable) batches.delete(id);
   return {ok:true};
 }
 
@@ -534,7 +566,7 @@ function getTargets(values, defaults) {
     if (value.mode !== undefined && !['combined', 'video', 'audio', 'separate'].includes(value.mode)) {
       throw new ApiError('INVALID_MODE', '请选择音视频、仅视频、仅音频或分开保存');
     }
-    if (value.quality != null && (!Number.isInteger(value.quality) || value.quality < 144 || value.quality > 4320)) {
+    if (value.quality != null && value.quality !== 'max' && (!Number.isInteger(value.quality) || value.quality < 144 || value.quality > 4320)) {
       throw new ApiError('INVALID_QUALITY', '画质应为 144 至 4320 之间的整数');
     }
     if (value.audioFormat !== undefined && !['m4a', 'mp3'].includes(value.audioFormat)) {
@@ -556,7 +588,7 @@ function getTargets(values, defaults) {
       url = null;
     }
     return { kind: value.kind, url, format: value.format ?? defaults.format,
-      mode: value.mode ?? defaults.mode, quality: value.quality === undefined ? defaults.quality : value.quality,
+      mode: value.mode ?? defaults.mode, quality: value.quality === 'max' ? null : value.quality === undefined ? defaults.quality : value.quality,
       audioFormat: value.audioFormat ?? defaults.audioFormat, subtitles: value.subtitles ?? defaults.subtitles,
       sourceKind:value.sourceKind, fastStart:value.fastStart ?? defaults.fastStart,
       title: value.title?.trim().slice(0, 160) || '' };
@@ -580,7 +612,8 @@ export function queueOriginal({ url, title, extension, connections, requestId } 
   return queue({items:[{kind:'stream', url, title}], connections, delivery:'browser', requestId}, extension.toLowerCase());
 }
 
-export function queue({ items, maxSec, prefetch, cookie, headers, concurrency, connections, delivery = 'local', requestId, useBrowserCookies } = {},
+export function queue({items,maxSec,prefetch,resume = true,keepSegments = false,cookie,headers,concurrency,connections,
+  delivery = 'local',requestId,useBrowserCookies,refresh,skipExisting = false} = {},
   originalExtension, principal, authorization) {
   if (delivery !== 'local' && delivery !== 'browser') throw new ApiError('INVALID_DELIVERY', '无效的保存方式');
   if (useBrowserCookies !== undefined && useBrowserCookies !== false) {
@@ -588,18 +621,60 @@ export function queue({ items, maxSec, prefetch, cookie, headers, concurrency, c
   }
   const defaults = delivery === 'local' ? getSettings().settings : defaultOutput;
   const targets = getTargets(items, defaults);
+  if (refresh !== undefined) {
+    if (delivery !== 'local' || authorization || targets.length !== 1 || targets[0].kind !== 'stream' ||
+        !refresh || typeof refresh !== 'object' || Array.isArray(refresh) || Object.keys(refresh).some(key => key !== 'pageUrl') ||
+        (targets[0].sourceKind ?? classify(mediaUrl(targets[0].url))) !== 'm3u8') {
+      throw new ApiError('INVALID_REFRESH','Provide only refresh.pageUrl for a single local HLS stream',422);
+    }
+    refresh = mediaUrl(refresh.pageUrl).href;
+    if (platformVideo(new URL(refresh))) throw new ApiError('INVALID_REFRESH','Provide the original HLS player page',422);
+  }
   if (concurrency === undefined) concurrency = defaults.concurrency;
   if (connections === undefined) connections = defaults.connections;
   if (!validConcurrency(concurrency)) throw new ApiError('INVALID_CONCURRENCY', '并发数应为 1 至 ' + maxConcurrency + ' 的整数');
   if (![4,8,12].includes(connections)) throw new ApiError('INVALID_CONNECTIONS', '单任务连接数应为 4、8 或 12');
   if (prefetch !== undefined && typeof prefetch !== 'boolean') throw new ApiError('INVALID_PREFETCH', 'prefetch 必须为布尔值');
+  if (typeof resume !== 'boolean') throw new ApiError('INVALID_RESUME','resume 必须为布尔值');
+  if (typeof keepSegments !== 'boolean' || keepSegments && (!resume || delivery !== 'local' || authorization)) {
+    throw new ApiError('INVALID_KEEP_SEGMENTS','keepSegments requires a local download with resume enabled');
+  }
+  if (typeof skipExisting !== 'boolean') throw new ApiError('INVALID_SKIP_EXISTING','skipExisting 必须为布尔值');
   if (requestId !== undefined && (delivery !== 'browser' || typeof requestId !== 'string' ||
       !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/.test(requestId))) {
     throw new ApiError('INVALID_REQUEST_ID', '浏览器任务编号无效');
   }
   const limit = durationLimit(maxSec);
-  return enqueue({targets, limit, prefetch:prefetch ?? !limit, cookies:parseCookies(cookie), concurrency, connections,
+  return enqueue({targets, limit, prefetch:prefetch ?? !limit, resume, keepSegments, skipExisting, refresh, cookies:parseCookies(cookie), concurrency, connections,
     delivery, originalExtension, requestId, principal, authorization, outDir:defaults.outDir, headers:parseMediaHeaders(headers)});
+}
+
+export function queueBatch({items,concurrency = 1,skipExisting = true,delivery = 'local',requestId,
+  codeUrlTemplate,perItem = {},...options} = {}) {
+  if (delivery !== 'local' || requestId !== undefined) throw new ApiError('INVALID_DELIVERY','Batches save into the local output directory');
+  if (!perItem || typeof perItem !== 'object' || Array.isArray(perItem) ||
+      Object.keys(perItem).some(key => key !== 'quality' && key !== 'headers')) {
+    throw new ApiError('INVALID_ITEM_DEFAULTS','perItem supports quality and media headers');
+  }
+  if (codeUrlTemplate !== undefined) {
+    const marker = 'videosave-reference-placeholder';
+    if (typeof codeUrlTemplate !== 'string' || codeUrlTemplate.split('{code}').length !== 2 ||
+        codeUrlTemplate.includes(marker) || !mediaUrl(codeUrlTemplate.replace('{code}',marker)).pathname.includes(marker)) {
+      throw new ApiError('INVALID_CODE_TEMPLATE','Include one {code} in the path of an HTTP(S) page URL');
+    }
+  }
+  const targets = Array.isArray(items) ? items.map(item => {
+    if (!item) return item;
+    const target = {quality:perItem.quality,...item};
+    if (item.kind !== 'code') return target;
+    if (typeof item.code !== 'string' || !/^[A-Z]{2,6}-\d{2,5}$/.test(item.code) || !codeUrlTemplate) {
+      throw new ApiError('INVALID_CODE','Provide a valid code and codeUrlTemplate');
+    }
+    return {...target,kind:'page',url:codeUrlTemplate.replace('{code}',item.code)};
+  }) : items;
+  const headers = perItem.headers === undefined ? options.headers :
+    {...parseMediaHeaders(perItem.headers),...parseMediaHeaders(options.headers)};
+  return queue({...options,items:targets,headers,concurrency,skipExisting});
 }
 
 export function retryBatch({id} = {}) {
@@ -619,21 +694,40 @@ export function retryBatch({id} = {}) {
   return batch.retry;
 }
 
+function completedFilesStillPresent(batch, items = batch.items) {
+  try {
+    const directory = realpathSync(batch.outDir);
+    return items.every(item => item.status === 'done' && item.outputs?.length &&
+      item.outputs.every(({file,info}) => {
+        const stat = lstatSync(file);
+        return stat.isFile() && stat.size === info?.size && !path.relative(directory,path.dirname(realpathSync(file)));
+      }));
+  } catch {
+    return false;
+  }
+}
+
 function enqueue(request) {
   const {targets, limit, prefetch, cookies, concurrency, connections, delivery, originalExtension, requestId, outDir} = request;
   const hashInputs = [targets, limit, prefetch, cookies, concurrency, connections, delivery, originalExtension, requestId, outDir];
   if (request.principal) hashInputs.push({principal:request.principal});
   if (request.authorization) hashInputs.push(request.authorization.id);
   if (Object.keys(request.headers).length) hashInputs.push(request.headers);
+  if (!request.resume) hashInputs.push({resume:false});
+  if (request.refresh) hashInputs.push({refresh:request.refresh});
+  if (request.keepSegments) hashInputs.push({keepSegments:true});
   const key = createHash('sha256').update(JSON.stringify(hashInputs)).digest('hex');
   const existing = batches.get(batchKeys.get(key));
   if (existing?.status === 'running') return { id: existing.id, total: targets.length };
 
+  const canReuseItems = delivery === 'local' && !request.authorization && !request.principal && !originalExtension;
+  const itemKeys = canReuseItems ? targets.map(target => createHash('sha256').update(JSON.stringify(
+    [target,limit,cookies,outDir,request.headers,request.refresh,request.keepSegments])).digest('hex')) : undefined;
   const newRecord = previous => {
     const items = targets.map(({kind,title},idx) => ({idx,kind,title,status:'queued',percent:0,speed:0,bytes:0,
       totalBytes:null,etaSec:null,prefetch:null,file:null,error:null}));
     return {id:previous?.id ?? randomUUID(),status:'running',outDir,delivery,principal:request.principal,
-      managedRetry:request.authorization?.retryPlan,
+      managedRetry:request.authorization?.retryPlan,itemKeys,
       createdAt:previous?.createdAt ?? new Date().toISOString(),
       log:previous ? ['已恢复中断的下载批次'] : [],
       items:items.map((item,index) => {
@@ -641,20 +735,44 @@ function enqueue(request) {
         return prior && !pendingItem(prior) ? prior : item;
       })};
   };
-  const claimed = delivery === 'local' ? claimBatch(key,newRecord) : {claimed:true,batch:newRecord()};
+  const reuse = request.skipExisting && canReuseItems ? completedFilesStillPresent : undefined;
+  const privateBatch = request.authorization?.privacy === true;
+  const persistent = delivery === 'local' && !privateBatch;
+  const claimed = persistent ? claimBatch(key,newRecord,reuse) : {claimed:true,batch:newRecord()};
   const {id} = claimed.batch;
-  if (!claimed.claimed) return {id,total:targets.length};
+  if (!claimed.claimed) return {id,total:targets.length,...(claimed.alreadySaved && {alreadySaved:true})};
   const batch = {
     ...claimed.batch, controller: new AbortController(), listeners: new Set(),
-    concurrency, connections, running: 0, delivery, originalExtension, files: new Map(),
+    concurrency, connections, running: 0, delivery, originalExtension, files: new Map(),private:privateBatch,
     request,
   };
   batches.set(id, batch);
   batchKeys.set(key, id);
+  const savedItems = request.skipExisting && canReuseItems ? new Map() : null;
+  if (savedItems) {
+    const requestedKeys = new Set(itemKeys);
+    for (const prior of storedBatches()) {
+      prior.itemKeys?.forEach((itemKey,index) => {
+        const item = prior.items[index];
+        if (requestedKeys.has(itemKey) && item?.status === 'done' && completedFilesStillPresent(prior,[item])) {
+          savedItems.set(itemKey,{batch:prior,item});
+        }
+      });
+    }
+  }
   const signal = AbortSignal.any([batch.controller.signal, session.signal]);
-  const jobs = targets.flatMap((target, index) => pendingItem(batch.items[index]) ? [schedule(signal, () => {
+  const jobs = targets.flatMap((target, index) => pendingItem(batch.items[index]) ? [schedule(signal, async () => {
     request.authorization?.check?.();
-    return runItem(batch, batch.items[index], {...target}, limit, cookies, signal);
+    const prior = savedItems?.get(itemKeys?.[index]);
+    if (prior && completedFilesStillPresent(prior.batch,[prior.item])) {
+      batch.items[index] = {...prior.item,idx:index,alreadySaved:true};
+      storeBatch(historyRecord(batch));
+      publish(batch, `[${index + 1}] 已复用保存的文件`);
+      return;
+    }
+    const item = batch.items[index];
+    await runItem(batch,item,{...target},limit,cookies,signal);
+    savedItems?.set(itemKeys[index],{batch,item});
   }, batch)
     .catch(error => {
       const item = batch.items[index];
@@ -669,11 +787,11 @@ function enqueue(request) {
         item.detail = detail ?? {stderr:''};
         batch.lastError = {idx:index,code,message,detail:item.detail};
       }
-      if (delivery === 'local') storeBatch(historyRecord(batch));
+      if (persistent) storeBatch(historyRecord(batch));
       publish(batch, `[${index + 1}] ${item.error || '已取消'}`);
     })] : []);
   void Promise.all(jobs).then(() => {
-    if (session.signal.aborted && !batch.controller.signal.aborted && delivery === 'local' && batch.items.some(pendingItem)) {
+    if (session.signal.aborted && !batch.controller.signal.aborted && persistent && batch.items.some(pendingItem)) {
       storeBatch(historyRecord(batch,'interrupted'));
       return;
     }
@@ -681,7 +799,17 @@ function enqueue(request) {
       ? 'cancelled' : completedStatus(batch.items);
     if (request.authorization || delivery !== 'local' || batch.items.every(item => item.status === 'done')) delete batch.request;
     if (batchKeys.get(key) === id) batchKeys.delete(key);
-    if (delivery === 'local') storeBatch(historyRecord(batch));
+    if (persistent) {
+      const interruptedItems = batch.items.filter(item => item.errorCode === 'HLS_TRANSFER_INTERRUPTED');
+      batch.resumable = !signal.aborted && interruptedItems.length > 0;
+      storeBatch(historyRecord(batch,batch.resumable ? 'interrupted' : batch.status));
+      if (batch.controller.signal.aborted) {
+        return Promise.allSettled(interruptedItems.map(item =>
+          rm(stagingRoot(batch.outDir,id,item.idx),{recursive:true,force:true,maxRetries:5}))).then(() => {
+          publish(batch,'批次已取消');
+        });
+      }
+    }
     publish(batch, signal.aborted ? '批次已取消' : '批次已结束');
   }).catch(error => console.error('VideoSave could not record the download result:', error.code ?? error.name));
   return { id, total: targets.length };
@@ -776,6 +904,33 @@ function outputTracks(target, tracks) {
 }
 
 async function runItem(batch, item, target, limit, cookies, signal) {
+  let hlsOrigin;
+  try {
+    await runItemOnce(batch,item,target,limit,cookies,signal,{onHls:origin => { hlsOrigin = origin; }});
+  } catch (error) {
+    if (error.code !== 'STREAM_EXPIRED' || !hlsOrigin || batch.request.authorization) throw error;
+    const pageUrl = batch.request.refresh ?? (target.kind === 'page' && !cookies.length ? target.url : null);
+    if (!pageUrl) throw error;
+    signal.throwIfAborted();
+    const page = new URL(pageUrl);
+    item.percent = 0;
+    item.bytes = 0;
+    item.totalBytes = null;
+    delete item.segments;
+    delete item.prefetchFallback;
+    try {
+      await runItemOnce(batch,item,{...target,kind:'page',url:page.href,sourceKind:undefined},limit,[],signal,{refreshOrigin:hlsOrigin});
+    } catch (failure) {
+      if (!['NO_MEDIA','AMBIGUOUS_MEDIA','PAGE_FAILED','STREAM_EXPIRED'].includes(failure.code)) throw failure;
+      page.search = '';
+      throw new ApiError('STREAM_EXPIRED','The original page did not yield a replacement HLS stream',410,
+        {pageUrl:page.href,reason:failure.detail?.reason ?? failure.code,
+          ...(failure.detail?.blockers && {blockers:failure.detail.blockers})});
+    }
+  }
+}
+
+async function runItemOnce(batch, item, target, limit, cookies, signal, {onHls,refreshOrigin} = {}) {
   item.status = 'resolving';
   publish(batch, `[${item.idx + 1}] 正在解析`);
   const input = mediaUrl(target.url);
@@ -785,7 +940,8 @@ async function runItem(batch, item, target, limit, cookies, signal) {
   let sourceKind = target.sourceKind;
   let resolvedTitleSource;
   if (target.kind === 'page' && !platform) {
-    const found = await inspectPage(input, cookies, signal, {selectionOnly:true});
+    const found = await inspectPage(input, cookies, signal,
+      refreshOrigin ? {selectionOnly:true,waitMs:5000,retries:0} : {selectionOnly:true});
     if (!found.streams.length) {
       if (found.blockers?.includes('drm')) throw new ApiError('DRM', '网页播放器使用 DRM', 422);
       if (supportedPage) throw new ApiError('PLATFORM_TOOL_REQUIRED', '请配置本机 yt-dlp 后重试', 503);
@@ -798,6 +954,12 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     const stream = found.streams.find(candidate => candidate.url === found.selection.url);
     if (!stream) throw new ApiError('AMBIGUOUS_MEDIA', '页面中有多个视频，请选择明确的视频来源', 422);
     source = mediaUrl(stream.url);
+    if (refreshOrigin) {
+      if (source.origin !== refreshOrigin || stream.kind !== 'm3u8') {
+        throw new ApiError('STREAM_EXPIRED','The replacement stream does not match the original HLS origin',410);
+      }
+      publish(batch,'已重新探测到媒体清单');
+    }
     sourceKind ||= ['m3u8','mpd'].includes(stream.kind) ? stream.kind : undefined;
     if (audioFormats.has(stream.kind) && target.mode === 'combined') target = {...target,mode:'audio'};
     if (!item.title) {
@@ -806,21 +968,25 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     }
   }
   const authorization = batch.request.authorization;
+  sourceKind ||= classify(source);
+  if (sourceKind === 'm3u8') onHls?.(source.origin);
   const scopedCookies = !authorization && source.origin === input.origin ? cookies : [];
-  const headers = authorization ? {} : {...capturedHeaders(source.href), ...batch.request.headers};
+  const headers = authorization ? {} : {...capturedHeaders(source.href), ...(!refreshOrigin && batch.request.headers)};
   const expiresAt = streamExpiry(source);
   if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
     throw new ApiError('STREAM_EXPIRED', '媒体地址已过期，请重新探测原页面', 422, {expiresAt});
   }
   const directory = batch.delivery === 'browser' ? os.tmpdir() : batch.outDir;
   await mkdir(directory, { recursive: true });
-  const recovery = batch.delivery === 'local' ? stagingRoot(directory,batch.id,item.idx) : null;
+  const recovery = batch.delivery === 'local' && batch.request.resume ? stagingRoot(directory,batch.id,item.idx) : null;
   if (recovery) {
     await mkdir(recovery,{recursive:true,mode:0o700});
     if (!(await lstat(recovery)).isDirectory()) throw new ApiError('INVALID_PATH','下载暂存路径无效');
   }
   let staging;
   let held = false;
+  let keepRecovery = false;
+  let segmentDirectory;
   const saved = [];
   try {
     staging = recovery ? await mkdtemp(path.join(recovery,'attempt-')) : await mkdtemp(path.join(directory,'.media-toolkit-'));
@@ -843,17 +1009,17 @@ async function runItem(batch, item, target, limit, cookies, signal) {
       item.etaSec = item.totalBytes && item.speed && item.totalBytes > item.bytes
         ? Math.ceil((item.totalBytes - item.bytes) / item.speed) : null;
     }
-    const downloadProgress = (fraction, bytes, totalBytes) => {
+    const downloadProgress = (fraction, bytes, totalBytes, segments) => {
       item.status = 'downloading';
+      if (segments) item.segments = segments;
       measure(bytes,totalBytes);
       if (fraction != null) updateProgress(Math.min(90,Math.floor(fraction * 90)));
     };
-    sourceKind ||= classify(source);
     let staged;
     if (authorization) {
       staged = sourceKind === 'm3u8'
         ? await prefetchHls(source,[],staging,signal,downloadProgress,{
-          quality:target.quality,sourceKind,connections:batch.connections,restrictedOrigin:true,
+          quality:target.quality,sourceKind,connections:batch.connections,restrictedOrigin:true,signedEntry:true,
         })
         : await prefetchRanges(source,scopedCookies,staging,signal,downloadProgress,{
           connections:batch.connections,stageFull:true,exactSource:true,cookiesFor:authorization.cookiesFor,
@@ -868,9 +1034,11 @@ async function runItem(batch, item, target, limit, cookies, signal) {
         });
       }
       if (!staged && sourceKind === 'm3u8') {
+        onHls?.(source.origin);
         staged = await prefetchHls(source,scopedCookies,staging,signal,downloadProgress,{
           quality:target.quality,sourceKind,connections:batch.connections,recovery,headers,
           onFallback: outcome => { item.prefetchFallback = outcome; },
+          onSegmentsStored: batch.request.keepSegments ? directory => { segmentDirectory = directory; } : undefined,
         });
       }
       if (!staged) item.prefetchFallback ??= {reason:sourceKind === 'mpd' ? 'unsupported-dash-playlist' : 'direct-prefetch-unavailable'};
@@ -991,15 +1159,24 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     item.totalBytes = item.bytes;
     item.status = 'done';
     item.percent = 100;
+    if (segmentDirectory) {
+      item.segmentDirectory = segmentDirectory;
+      keepRecovery = true;
+      const entries = await readdir(recovery).catch(() => []);
+      const other = entries.filter(name => name.startsWith('segments-') && name !== path.basename(segmentDirectory));
+      await Promise.allSettled(other.map(name => rm(path.join(recovery,name),{recursive:true,force:true,maxRetries:5})));
+    }
     if (recovery) storeBatch(historyRecord(batch));
     publish(batch, `[${item.idx + 1}] 下载完成`);
   } catch (error) {
     await Promise.all(saved.map(({ file }) => rm(file, { force: true }).catch(() => {})));
+    keepRecovery = error.code === 'HLS_TRANSFER_INTERRUPTED' && !batch.controller.signal.aborted;
+    if (error.code === 'ENOSPC') throw new ApiError('NO_SPACE','输出磁盘空间不足',507);
     throw error;
   } finally {
     if (!held && staging) await rm(staging, {recursive:true,force:true,maxRetries:5}).catch(() => {});
     const interrupted = session.signal.aborted && !batch.controller.signal.aborted && item.status !== 'done';
-    if (recovery && !interrupted) await rm(recovery,{recursive:true,force:true,maxRetries:5}).catch(() => {});
+    if (recovery && !interrupted && !keepRecovery) await rm(recovery,{recursive:true,force:true,maxRetries:5}).catch(() => {});
   }
 }
 

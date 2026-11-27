@@ -3,11 +3,11 @@ import { assessCandidates } from './detection.mjs';
 import { declaredMediaSources } from './media-adapters.mjs';
 
 const adaptive = new Set(['m3u8', 'mpd']);
-const formats = new Set(['mp4', 'webm', 'mkv', 'mov', 'm4v', 'ogv', 'avi', 'm3u8', 'mpd']);
+const formats = new Set(['mp4', 'webm', 'mkv', 'mov', 'm4v', 'ogv', 'avi', 'flv', 'm3u8', 'mpd']);
 export const audioFormats = new Set(['mp3','m4a','ogg','wav','flac']);
 const mediaMimes = {
   'video/mp4':'mp4', 'video/webm':'webm', 'video/quicktime':'mov', 'video/x-matroska':'mkv', 'video/ogg':'ogv',
-  'video/x-msvideo':'avi', 'audio/mpeg':'mp3', 'audio/mp4':'m4a', 'audio/ogg':'ogg', 'audio/wav':'wav',
+  'video/x-msvideo':'avi', 'video/x-flv':'flv', 'audio/mpeg':'mp3', 'audio/mp4':'m4a', 'audio/ogg':'ogg', 'audio/wav':'wav',
   'audio/x-wav':'wav', 'audio/flac':'flac',
 };
 

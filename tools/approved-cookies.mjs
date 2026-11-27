@@ -1,13 +1,15 @@
+import { isChallengeCookie } from '../extension/session-credentials.mjs';
+export { isChallengeCookie };
+
 const validName = /^[!#$%&'*+.\x60^_|~\w-]{1,128}$/;
 const validValue = /^[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]{0,4096}$/;
-const securityCookie = /^(?:cf_clearance|__cf_bm|__cflb|cf_chl_|__cf_chl_|_px|datadome|ak_bmsc|bm_sv|bm_sz)/i;
 
 export function approvedCookies(entries) {
   let remaining = 8192;
   const cookies = (Array.isArray(entries) ? entries.slice(0,50) : []).flatMap(cookie => {
     if (!cookie || typeof cookie.name !== 'string' || typeof cookie.value !== 'string' ||
         typeof cookie.domain !== 'string' || typeof cookie.path !== 'string' ||
-        !validName.test(cookie.name) || !validValue.test(cookie.value) || securityCookie.test(cookie.name) ||
+        !validName.test(cookie.name) || !validValue.test(cookie.value) || isChallengeCookie(cookie.name) ||
         !cookie.path.startsWith('/') || cookie.partitionKey || cookie.firstPartyDomain ||
         typeof cookie.secure !== 'boolean' || cookie.expirationDate !== undefined && !Number.isFinite(cookie.expirationDate)) return [];
     const cost = cookie.name.length+cookie.value.length+2;
