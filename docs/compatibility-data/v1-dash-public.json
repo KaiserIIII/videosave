@@ -1,0 +1,52 @@
+{
+  "recordedAt": "2026-11-27T08:04:18.415Z",
+  "platform": "win32",
+  "node": "v24.19.0",
+  "scope": "standalone DASH engine staging and local FFprobe verification",
+  "settings": {
+    "quality": 240,
+    "subtitles": true,
+    "connections": 8,
+    "deadlineMs": 95000
+  },
+  "results": [
+    {
+      "id": "dashjs-envivio",
+      "url": "https://dash.akamaized.net/envivio/EnvivioDash3/manifest.mpd",
+      "publishedBy": "https://github.com/Dash-Industry-Forum/dash.js",
+      "ms": 27189,
+      "requests": 197,
+      "downloaded": 10536942,
+      "fileSize": 10455195,
+      "duration": 193.76,
+      "width": 320,
+      "height": 180,
+      "tracks": [
+        "video",
+        "audio"
+      ],
+      "complete": true
+    },
+    {
+      "id": "shaka-angel-one",
+      "url": "https://storage.googleapis.com/shaka-demo-assets/angel-one/dash.mpd",
+      "publishedBy": "https://github.com/shaka-project/shaka-player/blob/main/docs/tutorials/basic-usage.md",
+      "ms": 18951,
+      "requests": 107,
+      "downloaded": 6624884,
+      "fileSize": 6644485,
+      "duration": 60.022,
+      "width": 300,
+      "height": 240,
+      "tracks": [
+        "video",
+        "audio",
+        "audio",
+        "audio",
+        "audio",
+        "audio"
+      ],
+      "complete": true
+    }
+  ]
+}

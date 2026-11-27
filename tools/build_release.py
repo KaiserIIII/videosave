@@ -12,10 +12,12 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_DOCS = (
     "LICENSE", "README.md", "README.zh-CN.md", "CHANGELOG.md", "SECURITY.md",
+    "docs/logo.svg",
     "docs/videosave-0.9-detection.png", "docs/videosave-0.9-settings.png", "docs/videosave-mcp-control.png",
     "docs/architecture.md", "docs/compatibility-report.zh-CN.md", "docs/competitive-review.zh-CN.md",
     "docs/detection-research.zh-CN.md", "docs/privacy.md", "docs/mcp.md", "docs/install.md",
-    "docs/hls-benchmark.zh-CN.md", "tests/benchmark-hls.mjs",
+    "docs/dsh-guide.md", "docs/dsh-guide.zh-CN.md", "docs/dsh-feedback-tracker.md",
+    "docs/hls-benchmark.zh-CN.md", "docs/v1-security.md", "tests/benchmark-hls.mjs", "tests/dash-public.mjs",
 )
 PROJECT = "https://github.com/KaiserIIII/videosave"
 
@@ -29,8 +31,16 @@ def json_bytes(data):
     return (json.dumps(data, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
 
 
+def release_version(manifest):
+    browser_version = manifest["version"]
+    product = manifest.get("version_name", browser_version)
+    if product != browser_version and not re.fullmatch(r"\d+\.\d+\.\d+-rc\.[1-9]\d*", product):
+        raise ValueError("Expected a numeric browser version or an explicit release candidate label")
+    return product
+
+
 def package_entries(manifest):
-    name = f"VideoSave-{manifest['version']}"
+    name = f"VideoSave-{release_version(manifest)}"
     extension = ROOT / "extension"
     extension_files = {}
     for pattern in ("*.mjs", "*.html", "*.css", "icons/*.png"):
@@ -41,6 +51,7 @@ def package_entries(manifest):
         data = {**manifest, "background": dict(manifest["background"]),
                 "permissions": list(manifest["permissions"])}
         if firefox:
+            data.pop("version_name", None)
             data["background"].pop("service_worker")
             data["permissions"].remove("offscreen")
             if android:
@@ -165,7 +176,7 @@ def main():
     parser.add_argument("--dist", type=Path, default=ROOT / "dist")
     output = parser.parse_args().dist
     manifest = json.loads((ROOT / "extension/manifest.json").read_text(encoding="utf-8"))
-    version = manifest["version"]
+    version = release_version(manifest)
     entries = package_entries(manifest)
     output.mkdir(exist_ok=True, parents=True)
     archives = [output / name for name in entries]

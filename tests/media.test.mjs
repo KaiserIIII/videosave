@@ -11,10 +11,14 @@ import { downloadFolder, readDownloadSettings } from '../extension/settings.mjs'
 import { queryMp4Metadata } from '../extension/media-metadata.mjs';
 import { setTimeout as sleep } from 'node:timers/promises';
 
-const testOutput = await mkdtemp(fileURLToPath(new URL('../.media-test-', import.meta.url)));
-process.env.OUT_DIR = testOutput;
-process.env.MEDIA_TOOLKIT_SETTINGS = path.join(testOutput, 'settings.sqlite');
-test.after(() => rm(testOutput, {recursive:true,force:true,maxRetries:5}));
+import { createTestSandbox } from './test-sandbox.mjs';
+
+const sandbox = await createTestSandbox('media-test');
+const restoreEnv = sandbox.applyProcessEnv();
+test.after(async () => {
+  restoreEnv();
+  await sandbox.cleanup();
+});
 const { queue, queueOriginal, cancel, progress, waitForBatch } = await import('../tools/media-downloads.mjs');
 
 test('reads an MP4 title at the end of a file without fetching the video payload', async () => {

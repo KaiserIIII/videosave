@@ -9,12 +9,17 @@ import { createInterface } from 'node:readline';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { connectCdp, withEdge } from '../tools/edge-session.mjs';
+import { createTestSandbox } from './test-sandbox.mjs';
 
 const project = fileURLToPath(new URL('..', import.meta.url));
-const out = await mkdtemp(path.join(project, '.smoke-'));
-const browserOut = await mkdtemp(path.join(project, '.browser-smoke-'));
-const env = {...process.env, PORT:'0', MEDIA_TOOLKIT_TOKEN:'local-smoke-test', OUT_DIR:out,
-  MEDIA_TOOLKIT_SETTINGS:path.join(browserOut, 'settings.sqlite'), MEDIA_TOOLKIT_URL:''};
+const sandbox = await createTestSandbox('smoke');
+const out = sandbox.downloads;
+const browserOut = path.join(sandbox.root, 'browser-downloads');
+await import('node:fs/promises').then(fs => fs.mkdir(browserOut, { recursive: true }));
+const env = sandbox.env({
+  PORT:'0', MEDIA_TOOLKIT_TOKEN:'local-smoke-test', OUT_DIR:out,
+  MEDIA_TOOLKIT_SETTINGS:path.join(browserOut, 'settings.sqlite'), MEDIA_TOOLKIT_URL:'',
+});
 const start = (file, environment = {}) => spawn(process.execPath, [path.join(project, 'tools', file)], {
   env:{...env, ...environment}, windowsHide:true, stdio:['pipe','pipe','inherit'],
 });
@@ -61,9 +66,16 @@ async function testMcp(endpoint) {
     await call('initialize',{protocolVersion:'2025-11-25',capabilities:{},clientInfo:{name:'smoke',version:'1'}},1);
     send('notifications/initialized');
     const result = await call('tools/list',{},2);
-    assert.deepEqual(result.tools.map(tool=>tool.name),['probe_page','start_download','get_progress','wait_for_download',
-      'list_downloads','open_file','get_settings','update_settings','list_batches','cancel_download','retry_download']);
-    assert.deepEqual(result.tools[1].inputSchema.properties.concurrency, {type:'integer',minimum:1,maximum:64});
+    const names = result.tools.map(tool => tool.name);
+    for (const required of ['get_version','get_capabilities','get_engine_capabilities','probe_page','start_download',
+      'start_batch','download_best_media','get_progress','wait_for_download','list_downloads','open_file',
+      'get_settings','get_effective_settings','update_settings','list_batches','pause_download','resume_download',
+      'cancel_download','retry_download','verify_download','get_task_report','diagnose_probe','diagnose_download',
+      'get_browser_session_status','import_cookie_file']) {
+      assert.ok(names.includes(required), `Missing MCP tool ${required}`);
+    }
+    const startTool = result.tools.find(tool => tool.name === 'start_download');
+    assert.deepEqual(startTool.inputSchema.properties.concurrency, {type:'integer',minimum:1,maximum:64});
     const listing = await call('tools/call',{name:'list_downloads'},3);
     assert.equal(listing.structuredContent.items.length,2);
     const updated = await call('tools/call',{name:'update_settings',arguments:{scope:'browser',settings:{theme:'jade',previewSeconds:3}}},4);
@@ -631,6 +643,5 @@ try {
 } finally {
   if (server.exitCode === null) server.kill();
   await exited;
-  await rm(out,{recursive:true,force:true,maxRetries:5,retryDelay:150});
-  await rm(browserOut,{recursive:true,force:true,maxRetries:5,retryDelay:150});
+  await sandbox.cleanup();
 }

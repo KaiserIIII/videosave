@@ -43,7 +43,9 @@ test('mobile panel opens a direct video when browser download APIs are unavailab
   await once(fixture, 'listening');
   const signal = AbortSignal.timeout(20_000);
   try {
-    await withEdge([], async ({list}) => {
+    await withEdge([], async ({list,profile}) => {
+      const preferences = JSON.parse(await readFile(path.join(profile,'Default','Preferences'),'utf8'));
+      assert.equal(path.normalize(preferences.download.default_directory),path.join(profile,'Downloads'));
       const target = (await list()).find(entry => entry.type === 'page');
       const page = await connectCdp(target.webSocketDebuggerUrl, signal);
       try {

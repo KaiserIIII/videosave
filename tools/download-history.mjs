@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { settingsFile } from './preferences.mjs';
+import { getSettingsFile } from './preferences.mjs';
 
 const historyLimit = 100;
 const active = new Set(['running','interrupted','cancelling']);
@@ -14,8 +14,9 @@ export function completedStatus(items) {
 }
 
 function withDatabase(run) {
-  if (!existsSync(settingsFile)) mkdirSync(path.dirname(settingsFile), {recursive:true,mode:0o700});
-  const connection = new DatabaseSync(settingsFile, {timeout:5000});
+  const file = getSettingsFile();
+  if (!existsSync(file)) mkdirSync(path.dirname(file), {recursive:true,mode:0o700});
+  const connection = new DatabaseSync(file, {timeout:5000});
   try {
     connection.exec(`CREATE TABLE IF NOT EXISTS download_batches (
       id TEXT PRIMARY KEY, request_hash TEXT NOT NULL, owner INTEGER NOT NULL,
@@ -63,12 +64,12 @@ function transaction(run) {
 }
 
 export function storedBatch(id) {
-  if (!existsSync(settingsFile)) return;
+  if (!existsSync(getSettingsFile())) return;
   return withDatabase(connection => restore(connection.prepare('SELECT owner,data FROM download_batches WHERE id=?').get(id)));
 }
 
 export function storedBatches() {
-  if (!existsSync(settingsFile)) return [];
+  if (!existsSync(getSettingsFile())) return [];
   return withDatabase(connection => connection.prepare('SELECT owner,data FROM download_batches ORDER BY created_at, rowid').all().map(restore));
 }
 

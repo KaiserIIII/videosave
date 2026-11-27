@@ -1,0 +1,2319 @@
+{
+  "version": "1.0.0",
+  "browser": "chrome",
+  "browserVersion": "158.0.8127.38",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "sample": "local fixtures",
+  "scenarioCount": 105,
+  "count": {
+    "scenarios": 105,
+    "positive": 96,
+    "detected": 96,
+    "casesWithFalsePositives": 0,
+    "selectionTests": 1,
+    "selectionCorrect": 1,
+    "downloads": 5,
+    "downloaded": 5,
+    "firstProbeMedianMs": 229,
+    "browserTaskMedianMs": 0,
+    "browserHeapMedianBytes": 5523236,
+    "fixtureRequests": 339,
+    "fixtureBytes": 4704640,
+    "restrictedRequests": 0
+  },
+  "rows": [
+    {
+      "id": "mp4",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 259,
+      "probeMs": 260,
+      "taskMs": 40,
+      "heapBytes": 1149704,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 143829,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.webm",
+      "firstProbeMs": 231,
+      "probeMs": 231,
+      "taskMs": 0,
+      "heapBytes": 1672932,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.008
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 125226,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "audio-element",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "sound.m4a"
+      ],
+      "names": [
+        "sound.m4a"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "sound.m4a",
+      "firstProbeMs": 239,
+      "probeMs": 239,
+      "taskMs": 0,
+      "heapBytes": 2201484,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "audio"
+        ],
+        "duration": 3
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 55295,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "audio-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "sound.m4a"
+      ],
+      "names": [
+        "sound.m4a"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "sound.m4a",
+      "firstProbeMs": 225,
+      "probeMs": 225,
+      "taskMs": 0,
+      "heapBytes": 2720192,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 27648,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "source-elements",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 214,
+      "probeMs": 215,
+      "taskMs": 3,
+      "heapBytes": 3237732,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "extensionless-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "raw"
+      ],
+      "names": [
+        "raw"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "raw",
+      "firstProbeMs": 222,
+      "probeMs": 223,
+      "taskMs": 6,
+      "heapBytes": 896864,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "extensionless-network",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "raw"
+      ],
+      "names": [
+        "raw"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "raw",
+      "firstProbeMs": 224,
+      "probeMs": 225,
+      "taskMs": 0,
+      "heapBytes": 1411360,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-webm",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "raw-webm"
+      ],
+      "names": [
+        "raw-webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "raw-webm",
+      "firstProbeMs": 230,
+      "probeMs": 231,
+      "taskMs": 0,
+      "heapBytes": 1918620,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "native-hls-url",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 230,
+      "probeMs": 231,
+      "taskMs": 8,
+      "heapBytes": 2435516,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.023222
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 11,
+      "fixtureBytes": 152580,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-hls",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 215,
+      "probeMs": 216,
+      "taskMs": 0,
+      "heapBytes": 2940304,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-hls-mime",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "manifest"
+      ],
+      "names": [
+        "manifest"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "manifest",
+      "firstProbeMs": 215,
+      "probeMs": 215,
+      "taskMs": 0,
+      "heapBytes": 3445088,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-dash",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mpd",
+      "firstProbeMs": 227,
+      "probeMs": 228,
+      "taskMs": 0,
+      "heapBytes": 3949948,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-dash-mime",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "dashmanifest"
+      ],
+      "names": [
+        "dashmanifest"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "dashmanifest",
+      "firstProbeMs": 233,
+      "probeMs": 234,
+      "taskMs": 0,
+      "heapBytes": 3962780,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "external-audio-hls",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "separate.m3u8"
+      ],
+      "names": [
+        "separate.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "separate.m3u8",
+      "firstProbeMs": 230,
+      "probeMs": 231,
+      "taskMs": 0,
+      "heapBytes": 4467572,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 404,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mse-hls-blob",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 232,
+      "probeMs": 237,
+      "taskMs": 4,
+      "heapBytes": 5112356,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mse-dash-blob",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mpd",
+      "firstProbeMs": 244,
+      "probeMs": 245,
+      "taskMs": 0,
+      "heapBytes": 5680768,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mse-sourcebuffer",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "fmp4.m3u8"
+      ],
+      "names": [
+        "fmp4.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "fmp4.m3u8",
+      "firstProbeMs": 232,
+      "probeMs": 233,
+      "mediaSourceBuffered": true,
+      "taskMs": 13,
+      "heapBytes": 5541768,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 69443,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "fmp4-hls",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "fmp4.m3u8"
+      ],
+      "names": [
+        "fmp4.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "fmp4.m3u8",
+      "firstProbeMs": 224,
+      "probeMs": 225,
+      "taskMs": 0,
+      "heapBytes": 6045896,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.156341
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 69443,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "only-fragments",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "播放器使用了暂不支持的媒体来源。",
+      "probeMs": 1605,
+      "taskMs": 1,
+      "heapBytes": 6567160,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 136846,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "same-origin-iframe",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 223,
+      "probeMs": 223,
+      "taskMs": 8,
+      "heapBytes": 7583196,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "cross-origin-iframe",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 232,
+      "probeMs": 233,
+      "taskMs": 0,
+      "heapBytes": 8086840,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "nested-iframe",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 234,
+      "probeMs": 234,
+      "taskMs": 13,
+      "heapBytes": 9003032,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "srcdoc-player",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 232,
+      "probeMs": 233,
+      "taskMs": 0,
+      "heapBytes": 10013152,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 238,
+      "probeMs": 239,
+      "taskMs": 4,
+      "heapBytes": 1456272,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "nested-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 222,
+      "probeMs": 223,
+      "taskMs": 0,
+      "heapBytes": 2013444,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "shadow-delayed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 3227,
+      "probeMs": 3228,
+      "taskMs": 5,
+      "heapBytes": 2627220,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "shadow-attach-late",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 1961,
+      "probeMs": 1962,
+      "taskMs": 0,
+      "heapBytes": 3201192,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "structured-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 224,
+      "probeMs": 226,
+      "taskMs": 0,
+      "heapBytes": 3698508,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "structured-graph",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.webm",
+      "firstProbeMs": 242,
+      "probeMs": 243,
+      "taskMs": 0,
+      "heapBytes": 4195172,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "open-graph-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 234,
+      "probeMs": 235,
+      "taskMs": 0,
+      "heapBytes": 4167452,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "player-json",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 228,
+      "probeMs": 229,
+      "taskMs": 0,
+      "heapBytes": 4663184,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 169,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dynamic-json",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 233,
+      "probeMs": 234,
+      "taskMs": 0,
+      "heapBytes": 5167952,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 169,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "delay-early",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 1946,
+      "probeMs": 1947,
+      "taskMs": 11,
+      "heapBytes": 5750520,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "delay-late",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 2873,
+      "probeMs": 2874,
+      "taskMs": 4,
+      "heapBytes": 3550008,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "spa-route",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 3014,
+      "probeMs": 3015,
+      "taskMs": 0,
+      "heapBytes": 4153088,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "play-event",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 230,
+      "probeMs": 231,
+      "taskMs": 0,
+      "heapBytes": 4746316,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "user-scroll",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 251,
+      "probeMs": 251,
+      "taskMs": 0,
+      "heapBytes": 5304052,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "preroll",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 236,
+      "probeMs": 237,
+      "taskMs": 3,
+      "heapBytes": 5820808,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 143829,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "long-trailer",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4",
+        "trailer.mp4"
+      ],
+      "names": [
+        "film.mp4",
+        "trailer.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 257,
+      "probeMs": 258,
+      "taskMs": 10,
+      "heapBytes": 5840236,
+      "detected": true,
+      "falsePositives": [],
+      "selectionCorrect": true,
+      "fixtureRequests": 5,
+      "fixtureBytes": 176104,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "multi-ambiguous",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4",
+        "other.mp4"
+      ],
+      "names": [
+        "film.mp4",
+        "other.mp4"
+      ],
+      "hint": "检测到多个候选，请确认要下载的视频。",
+      "selected": "film.mp4",
+      "firstProbeMs": 228,
+      "probeMs": 229,
+      "taskMs": 0,
+      "heapBytes": 6360972,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 142620,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "html-fake-mp4",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "页面中未检测到播放器。",
+      "probeMs": 1626,
+      "taskMs": 0,
+      "heapBytes": 3503824,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "empty",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "页面中未检测到播放器。",
+      "probeMs": 1635,
+      "taskMs": 0,
+      "heapBytes": 4008904,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "player-empty",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "请正常播放视频，候选列表会自动更新。",
+      "probeMs": 1627,
+      "taskMs": 4,
+      "heapBytes": 4532176,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "http-login",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "请在网站上登录后重新扫描。",
+      "probeMs": 1616,
+      "taskMs": 0,
+      "heapBytes": 5027620,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "http-paywall",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "站点要求授权访问。",
+      "probeMs": 1624,
+      "taskMs": 3,
+      "heapBytes": 3406472,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "http-restricted",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "站点限制了访问。",
+      "probeMs": 1610,
+      "taskMs": 0,
+      "heapBytes": 3399924,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "challenge-header",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "站点返回 Cloudflare 验证页，未探测到媒体流。",
+      "probeMs": 1635,
+      "taskMs": 0,
+      "heapBytes": 3897640,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "protected-hls",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "播放器启用了 DRM",
+      "probeMs": 1625,
+      "taskMs": 0,
+      "heapBytes": 4413012,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "complete-transport-stream",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.ts"
+      ],
+      "names": [
+        "film.ts"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.ts",
+      "firstProbeMs": 218,
+      "probeMs": 219,
+      "taskMs": 2,
+      "heapBytes": 4932264,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 1,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 225,
+      "probeMs": 226,
+      "taskMs": 4,
+      "heapBytes": 5449984,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 1321,
+      "probeMs": 1322,
+      "taskMs": 2,
+      "heapBytes": 6015344,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 228,
+      "probeMs": 229,
+      "taskMs": 0,
+      "heapBytes": 6571172,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 237,
+      "probeMs": 238,
+      "taskMs": 6,
+      "heapBytes": 7456908,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 6,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 218,
+      "probeMs": 219,
+      "taskMs": 0,
+      "heapBytes": 7966332,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mp4"
+      ],
+      "names": [
+        "body-mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "body-mp4",
+      "firstProbeMs": 214,
+      "probeMs": 215,
+      "taskMs": 5,
+      "heapBytes": 3484900,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 230,
+      "probeMs": 230,
+      "taskMs": 0,
+      "heapBytes": 3983756,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mp4",
+      "firstProbeMs": 216,
+      "probeMs": 216,
+      "taskMs": 0,
+      "heapBytes": 4480968,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.webm",
+      "firstProbeMs": 228,
+      "probeMs": 229,
+      "taskMs": 6,
+      "heapBytes": 4998412,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.webm",
+      "firstProbeMs": 1489,
+      "probeMs": 1489,
+      "taskMs": 1,
+      "heapBytes": 5573912,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.webm",
+      "firstProbeMs": 225,
+      "probeMs": 226,
+      "taskMs": 0,
+      "heapBytes": 6130012,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.webm",
+      "firstProbeMs": 233,
+      "probeMs": 234,
+      "taskMs": 7,
+      "heapBytes": 7027292,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.webm",
+      "firstProbeMs": 221,
+      "probeMs": 222,
+      "taskMs": 0,
+      "heapBytes": 7539452,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-webm"
+      ],
+      "names": [
+        "body-webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "body-webm",
+      "firstProbeMs": 226,
+      "probeMs": 226,
+      "taskMs": 0,
+      "heapBytes": 8044216,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.webm",
+      "firstProbeMs": 215,
+      "probeMs": 216,
+      "taskMs": 0,
+      "heapBytes": 8541392,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.webm",
+      "firstProbeMs": 232,
+      "probeMs": 233,
+      "taskMs": 1,
+      "heapBytes": 8764796,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mov",
+      "firstProbeMs": 215,
+      "probeMs": 216,
+      "taskMs": 2,
+      "heapBytes": 9279640,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mov",
+      "firstProbeMs": 1491,
+      "probeMs": 1491,
+      "taskMs": 11,
+      "heapBytes": 3993184,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 68474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mov",
+      "firstProbeMs": 218,
+      "probeMs": 219,
+      "taskMs": 0,
+      "heapBytes": 4547936,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 68474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mov",
+      "firstProbeMs": 224,
+      "probeMs": 225,
+      "taskMs": 6,
+      "heapBytes": 6049392,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 68474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mov",
+      "firstProbeMs": 219,
+      "probeMs": 220,
+      "taskMs": 0,
+      "heapBytes": 6558840,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 68474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mov"
+      ],
+      "names": [
+        "body-mov"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "body-mov",
+      "firstProbeMs": 225,
+      "probeMs": 226,
+      "taskMs": 0,
+      "heapBytes": 6598148,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 68474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mov",
+      "firstProbeMs": 215,
+      "probeMs": 216,
+      "taskMs": 0,
+      "heapBytes": 7095340,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mov",
+      "firstProbeMs": 232,
+      "probeMs": 233,
+      "taskMs": 0,
+      "heapBytes": 7592912,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mkv",
+      "firstProbeMs": 223,
+      "probeMs": 224,
+      "taskMs": 9,
+      "heapBytes": 8110284,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mkv",
+      "firstProbeMs": 1331,
+      "probeMs": 1332,
+      "taskMs": 6,
+      "heapBytes": 3547720,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mkv",
+      "firstProbeMs": 222,
+      "probeMs": 223,
+      "taskMs": 0,
+      "heapBytes": 4104404,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mkv",
+      "firstProbeMs": 232,
+      "probeMs": 233,
+      "taskMs": 8,
+      "heapBytes": 5606648,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mkv",
+      "firstProbeMs": 218,
+      "probeMs": 218,
+      "taskMs": 0,
+      "heapBytes": 6116096,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mkv"
+      ],
+      "names": [
+        "body-mkv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "body-mkv",
+      "firstProbeMs": 214,
+      "probeMs": 215,
+      "taskMs": 0,
+      "heapBytes": 6621860,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mkv",
+      "firstProbeMs": 226,
+      "probeMs": 227,
+      "taskMs": 0,
+      "heapBytes": 6625440,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mkv",
+      "firstProbeMs": 229,
+      "probeMs": 230,
+      "taskMs": 0,
+      "heapBytes": 7123024,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.flv",
+      "firstProbeMs": 221,
+      "probeMs": 222,
+      "taskMs": 3,
+      "heapBytes": 7638828,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.flv",
+      "firstProbeMs": 1490,
+      "probeMs": 1491,
+      "taskMs": 5,
+      "heapBytes": 8209740,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.flv",
+      "firstProbeMs": 222,
+      "probeMs": 223,
+      "taskMs": 4,
+      "heapBytes": 3552348,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.flv",
+      "firstProbeMs": 232,
+      "probeMs": 233,
+      "taskMs": 0,
+      "heapBytes": 5053784,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.flv",
+      "firstProbeMs": 231,
+      "probeMs": 232,
+      "taskMs": 0,
+      "heapBytes": 5563340,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-flv"
+      ],
+      "names": [
+        "body-flv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "body-flv",
+      "firstProbeMs": 232,
+      "probeMs": 233,
+      "taskMs": 0,
+      "heapBytes": 6068124,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.flv",
+      "firstProbeMs": 216,
+      "probeMs": 216,
+      "taskMs": 0,
+      "heapBytes": 6565316,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.flv",
+      "firstProbeMs": 230,
+      "probeMs": 231,
+      "taskMs": 1,
+      "heapBytes": 6580248,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 226,
+      "probeMs": 226,
+      "taskMs": 6,
+      "heapBytes": 7098628,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 7,
+      "fixtureBytes": 76459,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 1335,
+      "probeMs": 1336,
+      "taskMs": 1,
+      "heapBytes": 7661120,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 7,
+      "fixtureBytes": 76459,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 228,
+      "probeMs": 229,
+      "taskMs": 0,
+      "heapBytes": 8218084,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 7,
+      "fixtureBytes": 76459,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 240,
+      "probeMs": 241,
+      "taskMs": 9,
+      "heapBytes": 9433244,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 9,
+      "fixtureBytes": 76459,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 226,
+      "probeMs": 227,
+      "taskMs": 0,
+      "heapBytes": 3501848,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-hls"
+      ],
+      "names": [
+        "body-hls"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "body-hls",
+      "firstProbeMs": 219,
+      "probeMs": 220,
+      "taskMs": 0,
+      "heapBytes": 4007144,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 224,
+      "probeMs": 226,
+      "taskMs": 0,
+      "heapBytes": 4512984,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 169,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.m3u8",
+      "firstProbeMs": 215,
+      "probeMs": 215,
+      "taskMs": 0,
+      "heapBytes": 5010364,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 169,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mpd",
+      "firstProbeMs": 217,
+      "probeMs": 218,
+      "taskMs": 3,
+      "heapBytes": 5523236,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 1953,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mpd",
+      "firstProbeMs": 1460,
+      "probeMs": 1460,
+      "taskMs": 3,
+      "heapBytes": 6094148,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mpd",
+      "firstProbeMs": 219,
+      "probeMs": 220,
+      "taskMs": 0,
+      "heapBytes": 6649728,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mpd",
+      "firstProbeMs": 232,
+      "probeMs": 233,
+      "taskMs": 8,
+      "heapBytes": 7646684,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mpd",
+      "firstProbeMs": 218,
+      "probeMs": 219,
+      "taskMs": 0,
+      "heapBytes": 8156092,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-dash"
+      ],
+      "names": [
+        "body-dash"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "body-dash",
+      "firstProbeMs": 229,
+      "probeMs": 230,
+      "taskMs": 0,
+      "heapBytes": 8345116,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mpd",
+      "firstProbeMs": 231,
+      "probeMs": 232,
+      "taskMs": 0,
+      "heapBytes": 8842440,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 1953,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "还没有找到视频。开始播放后再扫描，也可以粘贴媒体链接。",
+      "selected": "film.mpd",
+      "firstProbeMs": 230,
+      "probeMs": 231,
+      "taskMs": 1,
+      "heapBytes": 9339800,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 1953,
+      "restrictedRequests": 0
+    }
+  ]
+}

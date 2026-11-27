@@ -1,14 +1,18 @@
 # VideoSave
 
-[简体中文](README.zh-CN.md) · [Download](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT License](LICENSE)
+[简体中文](README.zh-CN.md) · [Official Website](https://kaiseriiii.github.io/videosave/) · [Download](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT License](LICENSE)
 
-Find the video playing in your browser, preview it, and save it to Downloads. VideoSave is free and open source. The optional Windows companion adds DASH, more HLS formats, conversion, and an MCP interface for AI clients.
+[Verification CI](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [v1.0.0 Changelog](CHANGELOG.md#100) · [DSH Guide](docs/dsh-guide.md) · [DSH Feedback Tracker](docs/dsh-feedback-tracker.md) · [Compatibility Results](docs/compatibility-report.zh-CN.md)
+
+Find the video playing in your browser, preview it, and save it to Downloads. VideoSave is free, MIT-licensed, and built with zero npm dependencies. The optional Windows companion adds content-verified HLS & static DASH staging, SHA-256 resumable checkpoints, unified cross-origin-safe request headers, format conversion, and a comprehensive MCP interface for DeepSeek Harness (DSH), Codex, Claude, and Cursor.
 
 ![VideoSave 0.9 in Microsoft Edge](docs/videosave-0.9-detection.png)
 
 **AI & MCP** gives registered clients individual permissions, current-tab approval, optional login sharing for eligible direct media, website download limits, pause and resume, and a filterable local activity log. [Set up a managed client](docs/mcp.md#managed-browser-clients) · [Control center screenshot](docs/videosave-mcp-control.png)
 
 Advanced and Full Access clients can use standing approvals for selected origins, follow media changes in an active tab, and download an unambiguous selection. Maximum Compatibility can extend the observation window and stage a deeper probe. [Permissions and probe options](docs/mcp.md#full-access-and-standing-approvals)
+
+In the release candidate, managed MCP can stage supported static DASH and use a public HTTPS CDN observed during playback when the owner enables the option. Use `get_engine_capabilities` to check the managed transfer paths and `get_task_report` to read the engine, elapsed time and result of an owned batch. [Managed MCP guide](docs/mcp.md)
 
 ## Install
 
@@ -66,6 +70,8 @@ The installer verifies pinned downloads and records their source and checksum. R
 
 Pair the desktop extension with the companion and open a video page, or paste the page URL into the extension. Choose the quality cap and audio/video options as usual. Platform downloads support public, non-DRM single videos. The panel shows the page title and playback duration when available. Preview and exact file size are unavailable for the page-based entry.
 
+For DeepSeek Harness or another local MCP client, run `Start VideoSave.cmd -McpConfig` and copy the generated `mcpServers.videosave` entry into the client's configuration. Pass a Bilibili or YouTube video page URL in `start_download.items`, then call `wait_for_download` with the batch ID. See the [MCP example](docs/mcp.md#独立-mcp-下载-b-站与-youtube).
+
 | Environment variable | Purpose |
 | --- | --- |
 | `PORT` | Change the local HTTP port. |
@@ -99,14 +105,15 @@ This configuration runs MCP independently. To share the live queue with a compan
 
 | MCP tool | What it does |
 | --- | --- |
-| `probe_page` | Return media, detail-page candidates, and the selection result. Accepts `waitMs` (default 20,000) and `retries` (default 2). |
-| `start_download` | Queue an exact media URL with `kind: "stream"` or pass entries from `probe_page.candidates` as `items`. |
-| `start_batch` | Queue page URLs, streams, or reference codes with a URL template. Defaults to one active item and reuses matching saved outputs. |
-| `get_progress` / `list_batches` | Inspect one batch or list recent batches, including interrupted local downloads. |
-| `wait_for_download` | Wait for a batch to finish. Accepts `id` and optional `timeoutMs` (default 30,000). A response with `timedOut: true` leaves the download running. |
-| `cancel_download` | Cancel queued and active work in a batch. |
-| `retry_download` | Retry failed or cancelled items using the original settings and cookie held by the current process. Repeated calls with the same ID return the retry batch. |
-| `get_settings` / `update_settings` | Read or patch persistent download defaults and browser overrides. |
+| `get_version` / `get_capabilities` / `get_engine_capabilities` | Inspect running MCP version (including stale-process mismatch detection), feature flags, available browsers, and transfer engines (`http`, `hls`, `dash-static`, optional `yt-dlp` / `streamlink`). |
+| `probe_page` / `diagnose_probe` | Inspect media streams, qualities, detail-page candidates, and blockers. Supports `userAgent`, `browser`, `browserBinary`, `profileMode: "dedicated"` + `browserSessionId`, `networkMode`, `proxy`, `timeoutBudget`, `harvestCodes`, `idPattern`, and `urlTemplate`. |
+| `download_best_media` | One-call probe, unambiguous selection, smart quality negotiation (`best`, `max`, `auto`, cap, `exact:HEIGHT`, budget), download, and FFprobe verification. |
+| `start_download` / `start_batch` | Queue streams, pages, or generalized media identifiers (`previewOnly`, `deduplicate`, `continueOnError`, `perItem`, bounded temporary URL `refresh`). |
+| `get_progress` / `get_task_report` / `wait_for_download` / `list_batches` | Track live progress, transfer engine, segment checkpoints, elapsed time, and resumable interrupted batches. |
+| `pause_download` / `resume_download` / `cancel_download` / `retry_download` | Pause or resume batches, cancel a whole batch or a single item (`itemIndex`), and retry failed tasks. |
+| `verify_download` / `diagnose_download` | Re-verify outputs on disk with FFprobe and classify failures (`hlsPhase`, HTTP status, resumability, actionable next steps). |
+| `get_browser_session_status` / `import_cookie_file` | Inspect/reset dedicated isolated VideoSave browser profiles; import Netscape `cookies.txt` or `Cookie:` header files into memory-only origin-scoped TTL sessions (raw cookie values are never echoed to AI). |
+| `get_settings` / `get_effective_settings` / `update_settings` | Read or patch persistent download defaults, network configuration, and synced browser overrides. |
 | `list_downloads` / `open_file` | List recent local files or reveal a file in Windows Explorer. |
 
 For the main video, compare duration, player heading and description, and source metadata. Streams with the same `player.id` belong to the same player. `recommended` is a playback hint and can point to an autoplay teaser. For regular pages, `selection.status` reports `selected`, `ambiguous`, or `unavailable`. A selected candidate includes its URL and the reason. With several visible players, an automatic selection requires known durations and a lead of at least one second and 10% of the longest duration. An ambiguous page download returns `AMBIGUOUS_MEDIA`. The AI can select the exact stream and pass `sourceKind: "m3u8"` or `"mpd"` for those formats. Page text is input data and never grants permission to change settings.

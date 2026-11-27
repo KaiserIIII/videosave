@@ -13,6 +13,18 @@ export function platformDownloadsEnabled() {
   return Boolean(extractorPath());
 }
 
+export function platformFailure(platform, {failure, stdout = '', stderr = ''}) {
+  if (failure) return new ApiError('PLATFORM_TOOL_REQUIRED', '无法启动 yt-dlp，请检查 YTDLP_BIN', 503);
+  const status = Number(/(?:HTTP Error|Server returned) (\d{3})/i.exec(stderr)?.[1] ??
+    /^\[download\].*?\bHTTP Error (\d{3})/im.exec(stdout)?.[1]);
+  const detail = {platform,...(status && {status})};
+  if ([401,402,403,451].includes(status) || platform === 'bilibili' && status === 567) {
+    return new ApiError('MEDIA_ACCESS_RESTRICTED', `平台媒体服务器拒绝访问（HTTP ${status}）`,403,detail);
+  }
+  return new ApiError('PLATFORM_DOWNLOAD_FAILED', status ? `平台媒体服务器返回 HTTP ${status}` :
+    '本机解析器无法读取该视频，请确认视频公开可播放，并检查 yt-dlp 版本',502,detail);
+}
+
 function runExtractor(video, args, signal, onLine) {
   const executable = extractorPath();
   if (!executable) throw new ApiError('PLATFORM_TOOL_REQUIRED', '请配置本机 yt-dlp 后重试', 503);
@@ -23,13 +35,7 @@ function runExtractor(video, args, signal, onLine) {
     ...(video.platform === 'youtube' ? ['--no-js-runtimes', '--js-runtimes', 'node:' + process.execPath] : []),
     ...(FFMPEG !== 'ffmpeg' ? ['--ffmpeg-location', FFMPEG] : []),
     ...args, '--', video.url,
-  ], signal, onLine, {onFailure:({failure, stderr}) => {
-    if (failure) return new ApiError('PLATFORM_TOOL_REQUIRED', '无法启动 yt-dlp，请检查 YTDLP_BIN', 503);
-    const status = /(?:HTTP Error|Server returned) (\d{3})/i.exec(stderr)?.[1];
-    const message = status ? '平台媒体服务器返回 HTTP ' + status :
-      '本机解析器无法读取该视频，请确认视频公开可播放，并检查 yt-dlp 版本';
-    return new ApiError('PLATFORM_DOWNLOAD_FAILED', message, 502);
-  }});
+  ], signal, onLine, {onFailure:result => platformFailure(video.platform,result)});
 }
 
 export async function probePlatform(video, signal) {

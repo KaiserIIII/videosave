@@ -1,5 +1,15 @@
 # VideoSave MCP
 
+## v1.0.0 DSH & Standalone MCP Enhancements
+
+See the dedicated [DSH Integration & Upgrade Guide](dsh-guide.md) ([简体中文](dsh-guide.zh-CN.md)) and [12-Item DSH Feedback Tracker](dsh-feedback-tracker.md) for complete examples.
+
+- **Version & Stale-Process Detection (`get_version`, `get_capabilities`, `get_engine_capabilities`)**: Immediately detect whether your MCP client is still connected to an older directory or stale Node.js process (`versionMismatch: true`), inspect feature flags, available browsers, and local engines (`http`, `hls`, `dash-static`, optional `yt-dlp`, optional `streamlink`).
+- **One-Call Best Quality (`download_best_media`)**: Probes the page, selects the unambiguous main stream, negotiates smart quality (`best`, `max`, `auto`, `lowest`, cap, `exact:HEIGHT`, bitrate/byte budgets, `preferHdr`), downloads, and runs FFprobe verification in one call.
+- **Expanded `probe_page` Browser Options & Dedicated Sessions**: Supports `userAgent`, `browser`, `browserBinary`, `profileMode: "dedicated"` + `browserSessionId`, `networkMode`, `proxy`, `timeoutBudget`, custom safe `idPattern`, and `urlTemplate`. Manage isolated sessions with `get_browser_session_status({ browserSessionId, action: "status" | "reset" })`.
+- **Unified Cookie Import (`import_cookie_file`)**: Imports Netscape 7-column `cookies.txt` (including `#HttpOnly_`) or single-line `Cookie:` header files into memory-only origin-scoped TTL sessions, rejects challenge cookies, never echoes raw cookie values to the AI, and strictly blocks cross-origin cookie forwarding.
+- **Full Queue Controls & Diagnostics**: `pause_download`, `resume_download`, single-item `cancel_download({ id, itemIndex })`, `start_batch` (`previewOnly`, `deduplicate`, `continueOnError`, `perItem`), `get_task_report`, `verify_download`, `diagnose_probe`, `diagnose_download`, and `get_effective_settings`.
+
 ## 高级授权和兼容性
 
 配对本机服务后，在扩展的「AI 与 MCP」选择客户端权限。点击「一键授权全部」并确认可启用 Full Access。「长期站点授权与隐私」可从当前窗口填入来源，或加载保存的站点组。选定有效期，并按需要分别允许下载和登录会话。站点设置中的明确拒绝优先。可以用「一键撤销全部」停用客户端，或用「恢复默认权限」清除长期授权并恢复受限模式。
@@ -18,6 +28,16 @@ Use the generated stdio entry under the client's MCP servers. For Codex CLI, reg
 4. Pass the batch ID to `wait_for_download`. Timeouts leave the job running. Read per-item status, `errorCode`, verified media properties and output paths before reporting success.
 5. For resumable interrupted batches, resubmit the same request using the documented options and any needed session credential. Use `retry_download` for a failed or cancelled batch still held by the process.
 
+### 独立 MCP 下载 B 站与 YouTube
+
+在解压目录运行 `& ".\Start VideoSave.cmd" -McpConfig`，把输出的 `mcpServers.videosave` 配置放入 DeepSeek Harness 的 MCP 配置后重连。Windows x64 启动器会安装并校验 yt-dlp，独立配置可直接下载获授权的公开视频。
+
+```json
+{"items":[{"url":"https://www.bilibili.com/video/BV1Fb4111732/","quality":360}]}
+```
+
+将上述参数交给 `start_download`，再拿返回的 `id` 调用 `wait_for_download({id, timeoutMs:60000})`。若 `timedOut:true`，继续等待同一个 ID。检查 `items[].status` 和 `items[].file` 再报告完成。对于 B 站分 P，保留链接的 `?p=` 参数。也可先用 `probe_page` 查看 `downloadTargets` 中的标题、时长与画质。收到 `MEDIA_ACCESS_RESTRICTED` 时读取 `detail.status`，返回站点正常的播放或下载入口。
+
 ### Serial batches and HLS recovery
 
 `start_batch` defaults to one active item per batch. A page resolves when its turn starts. Pass page or stream URLs, or pass `{kind:"code", code:"TEST-100"}` with a `codeUrlTemplate` such as `https://example.org/watch/{code}`. Set batch defaults with `perItem.quality` and `perItem.headers`. Each item reports its own result through `get_progress` and `wait_for_download`.
@@ -30,7 +50,17 @@ For a single local HLS stream, use `refresh:{pageUrl: "https://example.org/watch
 
 Set `items[].quality` to `"max"` for the highest declared quality or pass a numeric height. The HLS prefetcher can try a lower declared variant when its preferred playlist returns `404`. An access denial stops the download. `probe_page` returns `qualities` for the selected HLS stream and can extract up to 50 visible reference codes with `harvestCodes:true`. When an HLS master declares a bitrate, the prefetcher estimates the required space using the selected variant's duration and reports `NO_SPACE` when the estimate exceeds available storage.
 
+For HTTP access denials and explicit expiry during HLS prefetch, item details report `status` and `hlsPhase` (`playlist`, `segment`, or `key`). A single-segment VOD can use the same prefetch path as a longer playlist.
+
 Run `node tools/media-cli.mjs --help` from the desktop package for a JSON Lines download client. `--cookie-file` reads a Cookie header file for a single origin. `--ua` sets the media request User-Agent. Use `--page` to pass page URLs to the serial queue.
+
+### DASH downloads
+
+For a DASH URL without an `.mpd` suffix, pass `sourceKind:"mpd"` with the download item. Standalone MCP and the HTTP companion use the native DASH engine with `prefetch:true`. Managed clients use it for eligible DASH candidates. The engine supports static clear MPDs with fragmented MP4/CMAF, `SegmentTemplate`, `SegmentTimeline`, `SegmentList`, flat SIDX `SegmentBase`, byte ranges, and contiguous periods with matching track layouts. It selects a video representation and keeps eligible alternate audio tracks in combined output. `subtitles:true` can preserve separate WebVTT or SubRip tracks.
+
+The standalone prefetch path follows at most three redirects within the selected manifest's origin. It can fall back to the legacy FFmpeg path for selected unsupported MPDs when the entry URL is unredirected, has no query string, and the request carries no Cookie, Referer or Origin header. Declared DRM, access denials, expired URLs, invalid manifests, and resources outside the approved scope stop the native transfer with an error code. The managed path stages media before invoking FFmpeg. Dynamic DASH, hierarchical SIDX, in-band TTML/WVTT, complex timeline edits, and persistent checkpoints are outside the native engine's current coverage.
+
+独立 MCP 与本机 HTTP 接口可用 `prefetch:true` 启用原生 DASH。无 `.mpd` 后缀时传入 `sourceKind:"mpd"`。托管 MCP 对符合授权的候选使用同一引擎。支持静态非 DRM 的 fMP4/CMAF、字节范围、独立音视频、多音轨、独立 WebVTT/SubRip 字幕和轨道布局一致的连续 Period。独立预取仅访问清单同源，特定不支持的公开清单可回退到 FFmpeg。访问拒绝、DRM、地址过期或超出授权范围时返回错误。原生下载暂未覆盖动态 DASH、分层 SIDX、内嵌 TTML/WVTT、复杂时间轴编辑或跨任务续传。
 
 ## Managed browser clients
 
@@ -49,7 +79,9 @@ Run `node tools/media-cli.mjs --help` from the desktop package for a JSON Lines 
 | `pause_download`, `resume_download` | `id` | Pause queued items and let current transfers finish. Resume requires the original grant to remain active. |
 | `retry_download` | `id`, new `authorizationId` | Confirm the same failed sources in a fresh grant, then requeue failed and cancelled items using current site limits. |
 
-Managed downloads accept approved direct media and eligible public same-origin HLS VOD, including standard AES-128 with a public key on the same origin. Clients with automation permission can use a signed entry URL observed on the approved origin. HLS renditions, segments and keys must stay on that origin and have no query string. All managed redirects are rejected. Media processing runs on staged local files. DASH can appear as an observation with `downloadable:false`. Login sharing applies to eligible direct media observed during normal playback in the top frame. Cookie values stay in companion memory, and only exact-host, matching-path, unexpired cookies are used. Secure cookies require HTTPS. The grant ends on navigation, tab closure, revocation, expiry, a change in the shared cookies or service restart. Loss of browser contact ends the grant within 75 seconds of the last confirmation.
+Managed downloads accept approved direct media, eligible HLS VOD, including standard AES-128 with an accessible key, and eligible static DASH. An automation-enabled client can use signed entry URLs observed during normal playback. With **Allow CDNs observed during playback** enabled, the companion can use a browser-observed public HTTPS media entry from the approved player. Resources on a different origin from that entry need an exact browser observation tied to the same player. Redirects are limited to observed destinations. A multi-CDN manifest may include more resources than the browser observed, so an eligible candidate can still fail with a scope error. Media processing runs on staged local files.
+
+Login sharing applies to eligible direct media observed during normal playback in the top frame. Cookie values stay in companion memory, and only exact-host, matching-path, unexpired cookies are used. Secure cookies require HTTPS. Related CDN requests receive no site Cookie. The grant ends on navigation, tab closure, revocation, expiry, a change in the shared cookies or service restart. Loss of browser contact ends the grant within 75 seconds of the last confirmation.
 
 Website policy inherits the companion's download defaults for quality, output format, audio format, subtitles, connection count and concurrency, with at most two workers per managed batch. Site overrides supply the effective limits. The minimum duration applies to candidates with a known duration. The preview filter checks explicit labels. The per-site batch limit applies to both first submissions and retries.
 
@@ -73,5 +105,9 @@ The optional login session applies to eligible direct media observed on the appr
 The companion can reuse same-origin `Referer` and `Origin` and the `User-Agent` observed on an eligible top-frame media request. The extension omits referrers containing a query string and keeps captured header values out of MCP responses.
 
 ### Maximum Compatibility
+
+The `compatibility` argument also accepts `fast`, `balanced`, `deep`, and `adaptive`. A standalone Fast probe observes for up to four seconds and uses a shorter metadata budget. Balanced runs one observation. Deep includes embedded frames and public player JSON. Adaptive uses a recent local recommendation when available. The legacy `standard` default preserves its existing observation and retry settings. The managed modes adjust how long MCP waits for updates from the already approved browser.
+
+`get_engine_capabilities` lists the managed observation, transfer and processing paths. `get_task_report` reads an owned batch and includes the transfer engine and elapsed time when the transfer started. Run `verify_download` to check the output again. An expired managed URL returns `STREAM_EXPIRED`. Resume playback and request a new browser approval to use a newly observed candidate.
 
 Standalone and shared-queue `probe_page` accept `compatibility: "maximum"`. The probe first observes normal playback and, if needed, uses the remaining observation budget for iframe and public JSON inspection. `waitForMediaMs` sets the observation budget, with a separate bounded metadata phase. `probeStrategy` reports the stage and attempt count. Set `learnCompatibility: true` to store the site origin, strategy and aggregate results in local SQLite. The control center can import, export and reset rules. Set the `preferred` field to `standard` or `deep` before importing to change the preferred strategy for an origin.

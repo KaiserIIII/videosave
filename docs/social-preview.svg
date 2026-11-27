@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" fill="none">
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1280" y2="640" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0b111c"/>
+      <stop offset="55%" stop-color="#111d32"/>
+      <stop offset="100%" stop-color="#172b4d"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.2" cy="0.25" r="0.55">
+      <stop offset="0%" stop-color="#2563eb" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="#2563eb" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.82" cy="0.75" r="0.45">
+      <stop offset="0%" stop-color="#f97316" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#f97316" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="iconBg" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#17305c"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#canvas)"/>
+  <rect width="1280" height="640" fill="url(#glow1)"/>
+  <rect width="1280" height="640" fill="url(#glow2)"/>
+  <g transform="translate(96, 130)">
+    <rect width="112" height="112" rx="26" fill="url(#iconBg)" stroke="#93c5fd" stroke-opacity="0.3" stroke-width="2"/>
+    <path d="M40 33C40 30.2 43.1 28.5 45.5 29.9L78 49.1C80.4 50.5 80.4 53.9 78 55.3L45.5 74.5C43.1 75.9 40 74.2 40 71.4V33Z" fill="#ffffff"/>
+    <circle cx="82" cy="82" r="19" fill="#ffb977"/>
+    <path d="M82 73V88M82 88L76 82M82 88L88 82" stroke="#0f172a" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="236" y="198" fill="#ffffff" font-family="Inter, Segoe UI, sans-serif" font-size="72" font-weight="800" letter-spacing="-2">VideoSave</text>
+  <text x="238" y="242" fill="#93c5fd" font-family="Inter, Segoe UI, sans-serif" font-size="24" font-weight="600">Open-Source Browser Media Extension · Local Companion · MCP Server</text>
+  <text x="96" y="330" fill="#e2e8f0" font-family="Inter, Segoe UI, sans-serif" font-size="30" font-weight="500">Zero-dependency media discovery, content-verified HLS &amp; DASH transfers,</text>
+  <text x="96" y="372" fill="#e2e8f0" font-family="Inter, Segoe UI, sans-serif" font-size="30" font-weight="500">SHA-256 resumable checkpoints, and permission-scoped AI / MCP control.</text>
+  <g transform="translate(96, 438)" font-family="Inter, Segoe UI, sans-serif" font-size="20" font-weight="600">
+    <rect x="0" y="0" width="210" height="48" rx="24" fill="#1e293b" stroke="#3b82f6" stroke-opacity="0.45"/>
+    <text x="105" y="31" text-anchor="middle" fill="#dbeafe">HLS · DASH · Range</text>
+    <rect x="230" y="0" width="246" height="48" rx="24" fill="#1e293b" stroke="#3b82f6" stroke-opacity="0.45"/>
+    <text x="353" y="31" text-anchor="middle" fill="#dbeafe">Edge · Chrome · Firefox</text>
+    <rect x="496" y="0" width="256" height="48" rx="24" fill="#1e293b" stroke="#f97316" stroke-opacity="0.5"/>
+    <text x="624" y="31" text-anchor="middle" fill="#ffedd5">DSH &amp; MCP Native</text>
+    <rect x="772" y="0" width="206" height="48" rx="24" fill="#1e293b" stroke="#10b981" stroke-opacity="0.5"/>
+    <text x="875" y="31" text-anchor="middle" fill="#d1fae5">MIT · Zero npm Deps</text>
+  </g>
+  <text x="96" y="566" fill="#94a3b8" font-family="JetBrains Mono, Consolas, monospace" font-size="20">github.com/KaiserIIII/videosave</text>
+</svg>

@@ -4,7 +4,7 @@ import { connect, isIP } from 'node:net';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { ApiError } from './media-source.mjs';
-import { settingsFile } from './preferences.mjs';
+import { getSettingsFile } from './preferences.mjs';
 
 const defaultConfiguration = Object.freeze({mode:'environment'});
 const loopback = ['localhost','127.0.0.1','[::1]'];
@@ -53,9 +53,10 @@ function validateSettings(value) {
 }
 
 function storedSettings(update) {
-  if (update === undefined && !existsSync(settingsFile)) return defaultConfiguration;
-  if (update !== undefined) mkdirSync(path.dirname(settingsFile),{recursive:true,mode:0o700});
-  const db = new DatabaseSync(settingsFile,{timeout:5000});
+  const file = getSettingsFile();
+  if (update === undefined && !existsSync(file)) return defaultConfiguration;
+  if (update !== undefined) mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
+  const db = new DatabaseSync(file,{timeout:5000});
   try {
     if (update !== undefined) {
       db.exec('CREATE TABLE IF NOT EXISTS network_preferences (id INTEGER PRIMARY KEY CHECK(id=1), settings TEXT NOT NULL)');
@@ -135,6 +136,10 @@ export function networkPreferences(update) {
       extension:'browser',
     },
   };
+}
+
+export function hasManagedCdnProxy() {
+  return effectiveProxies.length > 0;
 }
 
 export async function diagnoseNetwork() {

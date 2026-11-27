@@ -1,14 +1,18 @@
 # 视频快存 · VideoSave
 
-[English](README.md) · [下载最新版](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT 许可证](LICENSE)
+[English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载最新版](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT 许可证](LICENSE)
 
-扫描当前网页上的视频，确认画质和时长，再保存到浏览器的下载目录。视频快存免费开源。Windows 本机服务支持 DASH、更多 HLS 格式、格式转换以及供 AI 调用的 MCP 接口。
+[自动化验证 CI](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [v1.0.0 更新日志](CHANGELOG.md#100) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
+
+扫描当前网页上的视频，确认画质和时长，再保存到浏览器的下载目录。视频快存免费开源、零 npm 第三方依赖。可选的 Windows 本机服务提供统一请求头上下文、二进制媒体内容校验、HLS/静态 DASH 并行暂存、SHA-256 断点续传、智能画质协商以及面向 DeepSeek Harness (DSH)、Codex、Claude 与 Cursor 的完整 MCP 工具集。
 
 ![Microsoft Edge 中的 VideoSave 0.9 探测面板](docs/videosave-0.9-detection.png)
 
 扩展的「AI 与 MCP」支持按客户端授权、限时共享当前页、手动授权同源直链媒体使用当前登录会话，以及按站点限制下载、暂停和恢复排队任务、筛选脱敏活动记录。 [托管客户端教程](docs/mcp.md#中文快速开始) · [控制中心截图](docs/videosave-mcp-control.png)
 
 高级模式和 Full Access 支持按站点保存长期授权，通过已打开的标签页更新媒体候选，并自动下载有明确推荐的正片。Maximum Compatibility 可延长观测窗口，在常规探测无结果时检查 iframe 和公开播放器 JSON。 [权限与探测选项](docs/mcp.md#高级授权和兼容性)
+
+候选版的托管 MCP 支持兼容的静态 DASH。启用关联媒体来源后，可下载正常播放中观察到的公网 HTTPS CDN 媒体。`get_engine_capabilities` 返回支持的传输路径，`get_task_report` 返回该客户端任务的实际引擎、耗时和结果。 [MCP 使用说明](docs/mcp.md)
 
 ## 安装
 
@@ -41,6 +45,8 @@ node tools/server.mjs
 配对桌面扩展后，打开视频页并扫描，或者直接粘贴视频页链接。画质上限、音视频分离和输出格式仍在下载选项里设置。该入口支持公开、无 DRM 的单条视频，能够显示网页给出的标题和播放时长。目前这个入口只提供封面，动态预览与精确文件大小暂不可用。
 
 AI 调用 `probe_page` 时可从 `downloadTargets` 获取视频页地址、标题、时长和可用画质。把该地址与 `kind: "page"` 一起交给 `start_download` 即可下载。HTTP 的 `/api/probe` 和 `/api/queue` 使用相同字段。
+
+DeepSeek Harness 可使用 `Start VideoSave.cmd -McpConfig` 生成独立配置。复制 `mcpServers.videosave` 后即可把 B 站或 YouTube 的单条视频页交给 `start_download`，再用 `wait_for_download` 等成品。示例见 [MCP 文档](docs/mcp.md#独立-mcp-下载-b-站与-youtube)。
 
 ## 功能
 

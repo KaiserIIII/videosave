@@ -1,0 +1,207 @@
+{
+  "version": "1.0.0-rc.1",
+  "browser": "mcp-edge",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "sample": "includes public media",
+  "scenarioCount": 7,
+  "count": {
+    "scenarios": 7,
+    "positive": 7,
+    "detected": 7,
+    "casesWithFalsePositives": 0,
+    "selectionTests": 0,
+    "selectionCorrect": 0,
+    "downloads": 2,
+    "downloaded": 2,
+    "firstProbeMedianMs": 12770,
+    "browserTaskMedianMs": null,
+    "browserHeapMedianBytes": null,
+    "fixtureRequests": 4,
+    "fixtureBytes": 0,
+    "restrictedRequests": 0
+  },
+  "rows": [
+    {
+      "id": "public-mdn-rabbit",
+      "public": true,
+      "positive": true,
+      "expected": [
+        "rabbit320.mp4",
+        "rabbit320.webm"
+      ],
+      "names": [
+        "rabbit320.webm"
+      ],
+      "selection": "selected",
+      "selected": "rabbit320.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 4955,
+      "firstProbeMs": 4955,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 7.801995
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 0,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "public-mdn-inline-video",
+      "public": true,
+      "positive": true,
+      "expected": [
+        "flower.webm",
+        "flower.mp4"
+      ],
+      "names": [
+        "flower.webm",
+        "flower.mp4"
+      ],
+      "selection": "selected",
+      "selected": "flower.webm",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 13134,
+      "firstProbeMs": 13134,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 0,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "public-w3c-sintel",
+      "public": true,
+      "positive": true,
+      "expected": [
+        "trailer.mp4",
+        "trailer.webm"
+      ],
+      "names": [
+        "trailer.webm",
+        "trailer.ogv",
+        "trailer.mp4"
+      ],
+      "selection": "ambiguous",
+      "selected": "[invalid]",
+      "diagnostic": "multiple-candidates",
+      "blockers": [],
+      "probeMs": 7874,
+      "firstProbeMs": 7874,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 0,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "public-hlsjs-demo",
+      "public": true,
+      "positive": true,
+      "expected": [
+        "x36xhzz.m3u8"
+      ],
+      "names": [
+        "x36xhzz.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "x36xhzz.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 16934,
+      "firstProbeMs": 16934,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 0,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "public-dashjs-demo",
+      "public": true,
+      "positive": true,
+      "expected": [
+        "bbb_30fps.mpd"
+      ],
+      "names": [
+        "bbb_30fps.mpd"
+      ],
+      "selection": "unavailable",
+      "selected": "[invalid]",
+      "reason": "no-playlist-request",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 16728,
+      "firstProbeMs": 16728,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 0,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "public-apple-fmp4",
+      "public": true,
+      "positive": true,
+      "expected": [
+        "prog_index.m3u8"
+      ],
+      "names": [
+        "prog_index.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "prog_index.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 12770,
+      "firstProbeMs": 12770,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video"
+        ],
+        "duration": 600
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "public-mux-hls",
+      "public": true,
+      "positive": true,
+      "expected": [
+        "193039199_mp4_h264_aac_7.m3u8"
+      ],
+      "names": [
+        "193039199_mp4_h264_aac_7.m3u8"
+      ],
+      "selection": "selected",
+      "selected": "193039199_mp4_h264_aac_7.m3u8",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 12344,
+      "firstProbeMs": 12344,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    }
+  ]
+}

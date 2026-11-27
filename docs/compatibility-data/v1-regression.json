@@ -1,0 +1,65 @@
+{
+  "recordedOn": "2026-11-27",
+  "platform": "win32",
+  "node": "v24.19.0",
+  "fullRegression": [
+    {
+      "stage": "early development run",
+      "tests": 199,
+      "passed": 198,
+      "failed": 1,
+      "durationMs": 229619.2766,
+      "failure": {
+        "file": "tests/probe-startup.test.mjs",
+        "test": "a live Chromium target list can be empty before its first blank tab is registered",
+        "observationBudgetMs": 600,
+        "diagnostic": { "stage": "observe", "attempts": 2 }
+      }
+    },
+    {
+      "stage": "isolated startup file retest",
+      "tests": 5,
+      "passed": 5,
+      "failed": 0
+    },
+    {
+      "stage": "candidate workspace discovery after expanding the startup test observation budget",
+      "note": "Automatic test discovery also included extracted historical test copies under dist. Use the project-only count for release comparison.",
+      "observationBudgetMs": 2400,
+      "tests": 300,
+      "passed": 300,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 352852.2769
+    },
+    {
+      "stage": "current project files only, before fixing the Range test race",
+      "command": "node --test --test-concurrency=2 'tests/*.test.mjs'",
+      "tests": 115,
+      "passed": 115,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 121279.3513
+    }
+  ],
+  "ciRangeFailure": {
+    "job": "https://github.com/KaiserIIII/videosave/actions/runs/45966156565/job/140395223100",
+    "tests": 115,
+    "passed": 108,
+    "failed": 7,
+    "bytesWrittenByServerBeforeDisconnect": 262144,
+    "resumeOffset": 196608,
+    "fileContentsVerifiedBeforeOffsetAssertion": true,
+    "targetedRangeRetestPassed": 9
+  },
+  "managedPublicCdn": {
+    "browser": "Edge 158.0.4370.45",
+    "fixture": "Local page with an embedded player loading a Mozilla CC0 file over public HTTPS",
+    "source": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4",
+    "tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "totalTestMs": 20301.1454,
+    "result": "Observed in embedded player, saved through managed MCP, and verified on disk"
+  }
+}

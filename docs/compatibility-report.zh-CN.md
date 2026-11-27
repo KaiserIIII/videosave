@@ -1,4 +1,76 @@
-# VideoSave 0.9.0 兼容性实测
+# VideoSave 兼容性实测
+
+## v1.0.0 正式版全量验收实测
+
+2026 年 11 月 27 日在 Windows x64、Node.js 24.19.0、FFmpeg 8.1.2 上，基于解压后的 `VideoSave-1.0.0` 正式发行包执行全量浏览器/MCP 兼容矩阵、官方公网样片、真实 DeepSeek Harness (DSH) 运行时验收以及全量自动化回归，测试全程在 `.ots/tmp/videosave-tests/` 独立沙箱运行，真实用户下载目录零写入（`122 → 122`，`delta = 0`）。
+
+| 验证路径 | 场景数 | 探测命中 | 误报 | 正片判断 | FFprobe 验证落盘 | 首次探测中位耗时 | 原始 JSON 记录 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Edge 158.0.4370.45 扩展（解压包） | 105 | 96/96 | 0 | 1/1 | 5/5 | 248 ms | [v1.0.0-edge.json](compatibility-data/v1.0.0-edge.json) |
+| Chrome 158.0.8127.38 扩展（解压包） | 105 | 96/96 | 0 | 1/1 | 5/5 | 229 ms | [v1.0.0-chrome.json](compatibility-data/v1.0.0-chrome.json) |
+| Firefox 136.0.1 扩展（解压包） | 105 | 96/96 | 0 | 1/1 | 5/5 | 281 ms | [v1.0.0-firefox.json](compatibility-data/v1.0.0-firefox.json) |
+| 独立 MCP · Edge（解压包） | 104 | 95/95 | 0 | 2/2 | 11/11 | 5,069 ms | [v1.0.0-mcp-edge.json](compatibility-data/v1.0.0-mcp-edge.json) |
+| 独立 MCP · 官方公网样本 | 7 | 7/7 | 0 | — | 2/2 | 12,223 ms | [v1.0.0-mcp-public.json](compatibility-data/v1.0.0-mcp-public.json) |
+| 原生静态 DASH · 官方公网样本 | 2 | 2/2 | 0 | — | 2/2（含 5 音轨） | — | [v1.0.0-dash-public.json](compatibility-data/v1.0.0-dash-public.json) |
+| 真实 DSH 运行时（解压包 + AJV 校验） | 17 | 17/17 | 0 | — | 全通过（含 25 工具 Schema） | 总耗时 33.1 s | [v1.0.0-dsh-acceptance.json](compatibility-data/v1.0.0-dsh-acceptance.json) |
+
+> **诚实口径说明**：受控本地夹具（105/104 场景）用于验证确定性探测精度、零误报、请求头一致性、非标准后缀内容校验及落盘完整性，不代表对全互联网任意网站的 100% 兼容。DRM 加密内容、验证码/Cloudflare 质询、付费墙与动态直播 DASH 仍按设计边界准确报告限制而不做绕过。
+
+全量单元测试与故障注入回归 `node --test --test-concurrency=2 tests/*.test.mjs` 通过 **131/131**（涵盖统一请求头与跨域 Cookie 隔离、非标准后缀 TS/fMP4/自定义封装/AES-128 内容嗅探、25%/50%/90% `SIGKILL` + 单分片损坏 SHA-256 恢复 + DASH 续传 + 刷新复用断点 + 1,000 分片压力测试、专用隔离浏览器会话、智能画质协商、Netscape Cookie 文件导入、ReDoS/路径穿越/Origin 安全审计及测试沙箱隔离）。
+
+## v1.0.0-rc.2 定向回归
+
+2026 年 11 月 27 日在 Windows 和 Node.js 24.19.0 上，以相同本地样本对照 v0.9.0 标签和候选代码。模拟服务器只在 `Referer`、`Origin`、`User-Agent` 三项全部匹配时返回媒体。
+
+| 验收 | 观察结果 |
+| --- | --- |
+| v0.9.0，标准 `.ts` 分片 | 主清单、子清单和全部三个分片收到正确请求头。预取和合并通过。 |
+| v0.9.0，`.jpeg`、`.png`、无后缀分片 | 清单请求头正确。预取判定清单不受支持，分片未被请求。随后 FFmpeg 返回 `Invalid data found`。 |
+| 候选版，同样的非标准后缀 | 五个请求的请求头全部正确。三个分片预取并合并成功，成品时长约 3 秒，解码后音视频轨道哈希均与原片一致。 |
+| 候选版，服务器拒绝、图片响应与单分片 | 分片 403 返回 `MEDIA_ACCESS_RESTRICTED` 与 `hlsPhase:segment`。实际 PNG 返回 `INVALID_HLS_SEGMENT`。单分片点播预取成功。 |
+| 独立 MCP，B 站 Creative Commons 公网样本 | 三份样本均探测到标题和画质，完整下载 0/3。本次网络访问中三份样本的媒体 CDN 均返回 HTTP 567。候选代码重新跑了后两份，现可在 MCP 进度中读取 `MEDIA_ACCESS_RESTRICTED` 和原始状态码。 |
+
+B 站样本为《Big Buck Bunny》两份公开投稿（`BV1Fb4111732`、`BV1Zs411o7Ee?p=1`）以及《The Daily Dweebs》（`BV1iW4113786?p=4`）。样本只用于本地验收。实际 CDN 拒绝与服务端只在缺少请求头时返回 403 的本地用例是两种独立现象。
+
+可用 `node --test tests/download-recovery.test.mjs tests/platform-download.test.mjs` 复跑本地用例。测试输出、SQLite 和临时 Chromium 的下载目录均隔离。完整源码回归通过 118/118，桌面 ZIP 解压后通过独立 MCP 下载和 FFprobe 校验。
+
+## v1.0.0-rc.1 验证范围
+
+2026 年 11 月 27 日在 Windows、Node.js 24.19.0 上用同一份矩阵对照 v0.10.0 发布包（`60dc36694087fd1d07f8f667c66baae1e24c944a`）和 v1.0 候选开发树。浏览器前后版本分别为 Edge 158.0.4370.45、Chrome 158.0.8127.38、Firefox 136.0.1。独立 MCP 的候选本地轮在版本号调整前启动，原始 JSON 的 `version` 字段保留 `0.10.0`。托管 MCP 的授权与下载单独验证。
+
+| 路径 | 场景 | 探测命中 | 正片判断 | FFprobe 验证落盘 | 首次探测中位数（旧版 → 候选） | 原始记录 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Edge 扩展 | 105 | 两版 96/96 | 两版 1/1 | 两版 5/5 | 251 → 285 ms | [旧版](compatibility-data/v1-baseline-edge.json) · [候选](compatibility-data/v1-candidate-edge.json) |
+| Chrome 扩展 | 105 | 两版 96/96 | 两版 1/1 | 两版 5/5 | 234 → 220 ms | [旧版](compatibility-data/v1-baseline-chrome.json) · [候选](compatibility-data/v1-candidate-chrome.json) |
+| Firefox 扩展 | 105 | 两版 96/96 | 两版 1/1 | 两版 5/5 | 278 → 275 ms | [旧版](compatibility-data/v1-baseline-firefox.json) · [候选](compatibility-data/v1-candidate-firefox.json) |
+| 独立 MCP（Edge） | 104 | 两版 95/95 | 两版 2/2 | 两版 11/11 | 5,176 → 5,409 ms | [旧版](compatibility-data/v1-baseline-mcp.json) · [候选](compatibility-data/v1-candidate-mcp.json) |
+| Edge 扩展，公网 | 7 | 两版 7/7 | — | 两版 1/1 | 1,925 → 2,436 ms | [旧版](compatibility-data/v1-baseline-edge-public.json) · [候选](compatibility-data/v1-edge-public.json) |
+| 独立 MCP（Edge），公网 | 7 | 两版 7/7 | — | 两版 2/2 | 11,918 → 12,770 ms | [旧版](compatibility-data/v1-baseline-mcp-public.json) · [候选](compatibility-data/v1-candidate-mcp-public.json) |
+
+各轮误报和模拟受限资源请求数均为 0。扩展记录首个候选出现时间，MCP 记录返回结果的时间。Edge 测试页面 JS 堆中位数由 5.35 MiB 变为 5.48 MiB，Chrome 由 5.35 MiB 变为 4.77 MiB。部分运行与其他测试并行，公网路径仅执行一轮对照。CPU、全进程内存、授权操作次数和长时间批量稳定性缺少可比较的采样。现有对照中，两版的探测和落盘命中率持平，独立 MCP 候选轮中位返回时间较长。
+
+| 路径 | 本轮实际验证 | 结果 |
+| --- | --- | --- |
+| Edge 托管 MCP，外部 CDN | 本地页面中的同源 iframe 播放 Mozilla CC0 公网 HTTPS MP4，授予站点关联来源后下载 | 1/1，FFprobe 通过 |
+| Edge、Chrome 托管 MCP，登录与签名媒体 | 隔离浏览器和本地会话，涵盖授权前后、退出登录、拒绝访问和未授权重定向 | 浏览器自动化通过，基于本地服务生成样片 |
+| 静态 DASH 引擎 | dash.js Envivio 和 Shaka Angel One 两份官方公网样片，分片并发 8 | 两次记录各 2/2，Angel One 保留五条音轨 |
+| 下载引擎对照 | 两种本地 HLS 网络条件，每个工具各三轮 | v0.10.0、v1.0 开发树、yt-dlp 均为 6/6，对应轨道哈希一致 |
+
+[DASH 记录](compatibility-data/v1-dash-public.json) · [DASH 初始化验证后复跑](compatibility-data/v1-dash-public-init-validation.json) · [HLS 竞品对照](competitive-review.zh-CN.md) · [安全审查和回归范围](v1-security.md)
+
+本地早期工作区回归首轮通过 198/199。Chromium 空目标列表用例在 600 ms 的观察预算下报告 `observe` 超时，隔离复测该文件 5/5。调整该测试的观察预算后，工作区扫描通过 300/300，其中包含 `dist` 中解压的历史测试副本。限定 `tests/*.test.mjs` 的仓库回归通过 115/115。独立 Edge 的跨 CDN 直链首轮 1/1。 [回归与跨 CDN 试验记录](compatibility-data/v1-regression.json)
+
+[候选提交 `647dee9` 的 GitHub Actions](https://github.com/KaiserIIII/videosave/actions/runs/45965086247) 提供解压发行格式后的矩阵和构建产物。Edge、Chrome 和 Firefox 的扩展各命中 96/96，验证落盘各 5/5。独立 MCP 首轮命中 93/95、落盘 11/11。`mkv-open-shadow` 与 `mkv-network-no-suffix` 均超时，测试 HTTP 服务记录为 0 请求。用候选提交在本机单独复跑，两例分别在 3,513 ms 和 5,423 ms 命中。CI 首轮详细 CDP 阶段未采集。MCP 输出架构与后续矩阵现在记录 `browserProbe.stage` 和 `browserProbe.attempts`。 [CI 首轮数据](compatibility-data/v1-ci-mcp-first.json) · [本机定向复测](compatibility-data/v1-ci-mkv-retest.json)
+
+Firefox ZIP 的清单只含数字版本 `0.99.0.1`。从首轮 Actions 下载的四个 ZIP 通过独立 SHA-256、源码字节和 CycloneDX 校验。解压桌面包后，Windows 启动器生成了正确的 MCP 配置，独立 MCP 完成了音视频下载、任务复用和 CLI 帮助验收。
+
+文档提交的 [CI 复测](https://github.com/KaiserIIII/videosave/actions/runs/45966156565/job/140395223100) 报告 108/115。Range 测试在服务端写出 262,144 字节后立即断开时，客户端已写入 196,608 字节，并从该位置续传出完整文件。固定偏移断言失败，遗留的测试文件随后使五个子用例失败。夹具改为收到客户端落盘进度后断开，并在每个子用例结束后清理输出。独立 Range 套件复跑 9/9。
+
+原生 DASH 暂缺动态和直播、复杂 Period、内嵌 TTML/WVTT、分层 SIDX 及跨任务分片续传。托管跨域传输需要可验证的公网直连，第三方 CDN 凭据和依赖代理的 CDN 路径未覆盖。多 CDN 清单对其他来源的每个资源要求有同一播放器的确切观察证据，公网样片尚未验证完整的跨域分片和故障切换。Streamlink 自动调度、通用实时传输和商店签名仍待交付。现有证据无法支持 200 种受控场景、30 个独立公网来源或总体领先竞品的结论。
+
+复现时在源码根目录运行 `node tests/compatibility.mjs --browser=edge --strict --output=edge-rc.json`。使用 `--source` 指向已解压 v0.10.0 的目录，扩展文件放在其 `extension` 子目录。公网对照加 `--public-only`。跨 CDN 直链是独立的联网测试，设置 `VIDEOSAVE_TEST_PUBLIC_CDN=1` 后运行 `node --test --test-name-pattern=Edge tests/mcp-control-browser.test.mjs`。
+
+## v0.9.0 历史实测
 
 2026 年 11 月 27 日在 Windows、Node.js 24.19.0 上运行。对照版本为 v0.8.1（`f7d830a2501b9c6d673716ce3a421a9850534b07`）与 v0.9.0 候选版。全量候选版分两轮记录，第二轮包含 DASH 分片和延迟发现修正。场景由 [测试矩阵](../tests/compatibility-fixtures.mjs) 定义，涵盖自生成媒体、本地模拟播放器和七个合法公网样本。[逐场景记录](compatibility-data/)保留每轮候选文件名、通过情况、失败代码和可采集的用量指标。
 

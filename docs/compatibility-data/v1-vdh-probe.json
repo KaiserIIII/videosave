@@ -1,0 +1,145 @@
+{
+  "measurementDate": "2026-11-27",
+  "scope": "isolated Edge clean profiles, public W3C media page and an 8-second FFmpeg synthetic MP4",
+  "note": "VDH clean-profile terms prompt left pending. The local playback control shows the panel and terms prompt. Public playback timeouts occurred before counting a detection result. No competitor outcome inferred.",
+  "results": [
+    {
+      "trial": "initial public sample",
+      "rows": [
+        {
+          "product": "released-baseline",
+          "version": "0.10.0",
+          "source": "https://www.w3.org/2010/05/video/mediaevents.html",
+          "playing": "https://media.w3.org/2010/05/sintel/trailer.mp4",
+          "playingMs": 12964,
+          "text": "VideoSave\nConnect service\nVideos\n1\nDownloads\nSettings\n\nwww.w3.org\n\nHTML5 Video\n↻ Scan\nSintel Trailer\nMP4 · 0:52 · 854×4804.2 MB\n⋯\nDownload\nExport detection diagnostics\nPaste a media link\n\nBrowser downloads ↗",
+          "browser": "Edg/158.0.4370.45"
+        },
+        {
+          "product": "working-tree-candidate",
+          "version": "0.99.0.1",
+          "source": "https://www.w3.org/2010/05/video/mediaevents.html",
+          "playing": "https://media.w3.org/2010/05/sintel/trailer.mp4",
+          "playingMs": 6833,
+          "text": "VideoSave\nConnect service\nVideos\n1\nDownloads\nSettings\n\nwww.w3.org\n\nHTML5 Video\n↻ Scan\nSintel Trailer\nMP4 · 0:52 · 854×4804.2 MB\n⋯\nDownload\nExport detection diagnostics\nPaste a media link\n\nBrowser downloads ↗",
+          "browser": "Edg/158.0.4370.45"
+        },
+        {
+          "product": "video-downloadhelper",
+          "version": "10.7.9.2",
+          "source": "https://www.w3.org/2010/05/video/mediaevents.html",
+          "error": "Edge 调试请求超时（Runtime.evaluate）"
+        }
+      ]
+    },
+    {
+      "trial": "public retest with nonblocking playback",
+      "rows": [
+        {
+          "product": "video-downloadhelper",
+          "version": "10.7.9.2",
+          "source": "https://www.w3.org/2010/05/video/mediaevents.html",
+          "error": "Browser test condition timed out"
+        }
+      ]
+    },
+    {
+      "trial": "public retest with 30 second playback budget",
+      "rows": [
+        {
+          "product": "video-downloadhelper",
+          "version": "10.7.9.2",
+          "source": "https://www.w3.org/2010/05/video/mediaevents.html",
+          "browser": "Edg/158.0.4370.45",
+          "stage": "media playback",
+          "error": "Browser test condition timed out"
+        }
+      ]
+    },
+    {
+      "trial": "local control",
+      "rows": [
+        {
+          "product": "released-baseline",
+          "version": "0.10.0",
+          "source": "http://127.0.0.1:<ephemeral-port>/",
+          "browser": "Edg/158.0.4370.45",
+          "stage": "extension panel observed",
+          "playing": "http://127.0.0.1:<ephemeral-port>/sample.mp4",
+          "playingMs": 431,
+          "text": "VideoSave\nConnect service\nVideos\n1\nDownloads\nSettings\n\n127.0.0.1\n\nCompatibility fixture\n↻ Scan\nCompatibility fixture\nMP4 · 0:08 · 640×360810.4 KB\n⋯\nDownload\nExport detection diagnostics\nPaste a media link\n\nBrowser downloads ↗"
+        },
+        {
+          "product": "working-tree-candidate",
+          "version": "0.99.0.1",
+          "source": "http://127.0.0.1:<ephemeral-port>/",
+          "browser": "Edg/158.0.4370.45",
+          "stage": "extension panel observed",
+          "playing": "http://127.0.0.1:<ephemeral-port>/sample.mp4",
+          "playingMs": 358,
+          "text": "VideoSave\nConnect service\nVideos\n1\nDownloads\nSettings\n\n127.0.0.1\n\nCompatibility fixture\n↻ Scan\nCompatibility fixture\nMP4 · 0:08 · 640×360810.4 KB\n⋯\nDownload\nExport detection diagnostics\nPaste a media link\n\nBrowser downloads ↗"
+        },
+        {
+          "product": "video-downloadhelper",
+          "version": "10.7.9.2",
+          "source": "http://127.0.0.1:<ephemeral-port>/",
+          "browser": "Edg/158.0.4370.45",
+          "stage": "extension panel observed",
+          "playing": "http://127.0.0.1:<ephemeral-port>/sample.mp4",
+          "playingMs": 293,
+          "text": ""
+        }
+      ]
+    },
+    {
+      "trial": "local control VDH with panel labels",
+      "rows": [
+        {
+          "product": "video-downloadhelper",
+          "version": "10.7.9.2",
+          "source": "http://127.0.0.1:<ephemeral-port>/",
+          "browser": "Edg/158.0.4370.45",
+          "stage": "extension panel observed",
+          "playing": "http://127.0.0.1:<ephemeral-port>/sample.mp4",
+          "playingMs": 277,
+          "text": "",
+          "visibleLabels": [
+            "Accept the Terms Of Service",
+            "Video Download Helper is intended for lawful use only. You are responsible for the content you downl",
+            "Terms Of Service",
+            "Accept",
+            "Waiting for media…",
+            "No video?"
+          ]
+        }
+      ]
+    },
+    {
+      "trial": "local control VDH with accessibility and badge",
+      "rows": [
+        {
+          "product": "video-downloadhelper",
+          "version": "10.7.9.2",
+          "source": "http://127.0.0.1:<ephemeral-port>/",
+          "browser": "Edg/158.0.4370.45",
+          "stage": "extension panel observed",
+          "playing": "http://127.0.0.1:<ephemeral-port>/sample.mp4",
+          "playingMs": 355,
+          "action": {
+            "badge": "",
+            "title": "Video Download Helper"
+          },
+          "text": "",
+          "visibleLabels": [
+            "Accept the Terms Of Service",
+            "Video Download Helper is intended for lawful use only. You are responsible for the content you downl",
+            "Terms Of Service",
+            "Accept",
+            "Waiting for media…",
+            "No video?"
+          ]
+        }
+      ]
+    }
+  ]
+}

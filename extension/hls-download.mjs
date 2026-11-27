@@ -137,9 +137,14 @@ async function segmentBlob(segment, origin, signal, onBytes, validateRange) {
       }
       if (expected !== undefined && received !== expected) throw new Error('HLS 分片不完整');
       const blob = new Blob(parts);
-      const header = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
-      const box = String.fromCharCode(...header.slice(4));
-      const valid = segment.filename.endsWith('.ts') ? header[0] === 0x47
+      const header = new Uint8Array(await blob.slice(0, 512).arrayBuffer());
+      const box = String.fromCharCode(...header.slice(4, 8));
+      const id3Offset = header[0] === 0x49 && header[1] === 0x44 && header[2] === 0x33 && header.length >= 10
+        ? 10 + (((header[6] & 0x7f) << 21) | ((header[7] & 0x7f) << 14) | ((header[8] & 0x7f) << 7) | (header[9] & 0x7f))
+        : 0;
+      const tsStart = id3Offset > 0 && id3Offset < header.length ? id3Offset : 0;
+      const valid = segment.filename.endsWith('.ts')
+        ? header[tsStart] === 0x47 && (header.length <= tsStart + 188 || header[tsStart + 188] === 0x47)
         : segment.filename.endsWith('.mp4') ? box === 'ftyp' : ['styp','moof','sidx','emsg','prft','free'].includes(box);
       if (!valid) throw new Error('分片格式无法直接保存');
       return blob;
@@ -175,7 +180,7 @@ async function assemble(job, controller, update) {
     throw new Error('此 HLS 没有符合画质上限的版本，请连接本机服务');
   }
   const selected = rendition ? await read(rendition.video) : first;
-  const video = parseManifest(selected.text, selected.url, 'video', {byteRanges:true});
+  const video = parseManifest(selected.text, selected.url, 'video', {byteRanges:true, sniffTransport:true});
   if (!video) throw new Error('此 HLS 无法直接保存，请连接本机服务');
   const {segments} = video;
   const fragmented = segments[0].filename.endsWith('.mp4');

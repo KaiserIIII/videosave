@@ -36,13 +36,11 @@ if (nativeDownloads) {
   const mediaRequests = {...all,types:['media','xmlhttprequest','other']};
   browserApi.webRequest.onSendHeaders.addListener(details => {
     requestContexts.delete(details.requestId);
-    const origin = new URL(details.url).origin;
     const initiator = URL.parse(details.documentUrl ?? details.initiator ?? details.originUrl ?? '');
-    if (details.tabId < 0 || details.frameId !== 0 || details.method !== 'GET' || initiator?.origin !== origin) return;
-    const headers = playbackHeaders(Object.fromEntries((details.requestHeaders ?? []).map(({name,value}) => [name,value])),origin);
-    if (!Object.keys(headers).length) return;
+    if (details.tabId < 0 || details.method !== 'GET' || !['http:','https:'].includes(initiator?.protocol)) return;
+    const headers = playbackHeaders(Object.fromEntries((details.requestHeaders ?? []).map(({name,value}) => [name,value])),initiator.origin);
     if (requestContexts.size >= 256) requestContexts.delete(requestContexts.keys().next().value);
-    requestContexts.set(details.requestId,{url:details.url,headers});
+    requestContexts.set(details.requestId,{url:details.url,headers,playerOrigin:initiator.origin});
   },mediaRequests,['requestHeaders',...(!isFirefox ? ['extraHeaders'] : [])]);
   const clearContext = ({requestId}) => { requestContexts.delete(requestId); };
   browserApi.webRequest.onCompleted.addListener(clearContext,mediaRequests);
@@ -77,9 +75,17 @@ browserApi.webRequest.onHeadersReceived.addListener(details => {
   }
   const kind = classify(details.url, mime);
   if (!kind && isMediaFragment(new URL(details.url).pathname.toLowerCase(),mime.split(';')[0].trim().toLowerCase())) {
-    update(details.tabId, rows => rows.some(row => row.fragment && row.frameId === details.frameId)
-      ? rows : [...rows,{fragment:true,frameId:details.frameId,documentId:details.documentId,
-        documentUrl:details.documentUrl,timeStamp:details.timeStamp}].slice(-120));
+    const observed = context?.url === details.url && details.url.length <= 2048 && context.playerOrigin;
+    const fragment = {fragment:true,frameId:details.frameId,documentId:details.documentId,
+      documentUrl:details.documentUrl,timeStamp:details.timeStamp,
+      ...(observed && {url:details.url,playerOrigin:context.playerOrigin,requestHeaders:context.headers})};
+    update(details.tabId,rows => {
+      if (rows.some(row => row.fragment && row.frameId === fragment.frameId &&
+          row.documentId === fragment.documentId && row.url === fragment.url)) return rows;
+      let remaining = 47;
+      const recent = [...rows].reverse().filter(row => !row.fragment || remaining-- > 0);
+      return [...recent.reverse(),fragment].slice(-120);
+    });
     return;
   }
   if ((!kind && !classify(details.url)) || ['image','stylesheet','font','script','ping'].includes(details.type)) return;
@@ -87,14 +93,14 @@ browserApi.webRequest.onHeadersReceived.addListener(details => {
   const filename = /(?:^|;)\s*filename\*=UTF-8'[^']*'([^;]+)/i.exec(disposition)?.[1] ||
     /(?:^|;)\s*filename=(?:"([^"]+)"|([^;]+))/i.exec(disposition)?.slice(1).find(Boolean);
   const size = mediaResponseSize(kind, details.statusCode, header);
-  const requestHeaders = context?.url === details.url && context.headers || undefined;
+  const requestContext = context?.url === details.url ? context : null;
   const same = row => row.frameId === details.frameId && row.url === details.url && row.documentId === details.documentId;
   update(details.tabId, rows => {
     const prior = rows.find(same);
     const next = {url:details.url, mime, filename, size:size ?? prior?.size, type:details.type, frameId:details.frameId, documentId:details.documentId, documentUrl:details.documentUrl,
-      timeStamp:details.timeStamp, ...(requestHeaders && {requestHeaders})};
+      timeStamp:details.timeStamp, ...(requestContext && {requestHeaders:requestContext.headers,playerOrigin:requestContext.playerOrigin})};
     if (prior && prior.mime === mime && prior.size === next.size && prior.filename === filename &&
-        JSON.stringify(prior.requestHeaders) === JSON.stringify(requestHeaders)) return rows;
+        prior.playerOrigin === next.playerOrigin && JSON.stringify(prior.requestHeaders) === JSON.stringify(next.requestHeaders)) return rows;
     return [...rows.filter(row => !same(row)), next].slice(-120);
   });
 }, all, ['responseHeaders']);

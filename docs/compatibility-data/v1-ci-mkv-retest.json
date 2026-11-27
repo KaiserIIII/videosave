@@ -1,0 +1,72 @@
+{
+  "version": "1.0.0-rc.1",
+  "browser": "mcp-edge",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "sample": "local fixtures",
+  "scenarioCount": 2,
+  "count": {
+    "scenarios": 2,
+    "positive": 2,
+    "detected": 2,
+    "casesWithFalsePositives": 0,
+    "selectionTests": 0,
+    "selectionCorrect": 0,
+    "downloads": 0,
+    "downloaded": 0,
+    "firstProbeMedianMs": 4468,
+    "browserTaskMedianMs": null,
+    "browserHeapMedianBytes": null,
+    "fixtureRequests": 8,
+    "fixtureBytes": 270564,
+    "restrictedRequests": 0
+  },
+  "rows": [
+    {
+      "id": "mkv-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "selection": "selected",
+      "selected": "film.mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 3513,
+      "firstProbeMs": 3513,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 135282,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mkv"
+      ],
+      "names": [
+        "body-mkv"
+      ],
+      "selection": "selected",
+      "selected": "body-mkv",
+      "reason": "only-candidate",
+      "diagnostic": "media-found",
+      "blockers": [],
+      "probeMs": 5423,
+      "firstProbeMs": 5423,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 135282,
+      "restrictedRequests": 0
+    }
+  ]
+}

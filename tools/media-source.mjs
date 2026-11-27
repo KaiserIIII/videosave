@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { connectCdp, withChromium } from './edge-session.mjs';
+import { BrowserTransportError, connectCdp, withChromium } from './edge-session.mjs';
 import { mediaProcessEnvironment } from './media-proxy.mjs';
 import { classify, isMediaFragment, isPlaylist, mediaResponseSize, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
 import { assessCandidates, detectionDiagnostic, documentBlockers } from '../extension/detection.mjs';
@@ -202,26 +202,73 @@ async function observeEmbedded(page, target, embedded, observe, networkOptions) 
   await target.send('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:true,flatten:true});
 }
 
-function visibleReferenceCodes() {
+function visibleReferenceCodes(patternSource) {
   const description = document.querySelector('meta[name="description"],meta[property="og:description"]')?.content;
-  const text = [document.title.slice(0,1024),description?.slice(0,4096),document.body?.innerText.slice(0,32_768)].join('\n');
+  const text = [document.title.slice(0, 1024), description?.slice(0, 4096), document.body?.innerText.slice(0, 32_768)].join('\n');
   const results = new Set();
-  for (const [code] of text.matchAll(/\b[A-Z]{2,6}-\d{2,5}\b/g)) {
-    results.add(code);
-    if (results.size === 50) break;
+  const re = new RegExp(patternSource || '\\b[A-Z]{2,6}-\\d{2,5}\\b', 'g');
+  let iterations = 0;
+  for (const match of text.matchAll(re)) {
+    const token = (match[1] ?? match[0] ?? '').trim();
+    if (token && token.length <= 64) results.add(token);
+    if (results.size === 50 || ++iterations > 500) break;
   }
   return [...results];
 }
 
-export async function discover(url, cookies, signal, {
-  waitMs = 20_000, includeText = false, harvestCodes = false, clickPlay = false, captureXhrBody = false, includeFrames = false, mode = 'headless',
-  onMediaHeaders,
-} = {}) {
-  return withChromium(['--autoplay-policy=no-user-gesture-required'], async ({ list }) => {
-    const target = (await list()).find(t => t.type === 'page' && t.url === 'about:blank');
-    if (!target) throw new ApiError('PAGE_FAILED', '隔离浏览器未创建页面', 502);
-    const page = await connectCdp(target.webSocketDebuggerUrl, signal);
+const emptyPage = reason => ({pageTitle:null,pageContext:null,streams:[],pages:[],candidates:[],reason});
+
+export async function discover(url,cookies,signal,options = {}) {
+  const launchBudget = AbortSignal.timeout(Math.min(20_000, options.timeoutBudget ?? 20_000));
+  const overallSignal = options.timeoutBudget
+    ? AbortSignal.any([signal, AbortSignal.timeout(options.timeoutBudget)])
+    : signal;
+  for (let attempts = 1; attempts <= 2; attempts++) {
+    let stage = 'launch';
     try {
+      const result = await discoverOnce(url,cookies,overallSignal,launchBudget,options,value => { stage = value; });
+      return attempts === 1 && result.reason !== 'timeout' ? result : {...result,browserProbe:{stage,attempts}};
+    } catch (error) {
+      signal.throwIfAborted();
+      if (overallSignal.aborted) {
+        return {...emptyPage('timeout'),browserProbe:{stage,attempts}};
+      }
+      const dispatched = stage === 'navigate' || stage === 'observe';
+      const launchTimedOut = launchBudget.aborted && (error === launchBudget.reason || error.cause === launchBudget.reason);
+      if (!(error instanceof BrowserTransportError) && !launchTimedOut) throw error;
+      if (attempts === 2 || launchBudget.aborted || dispatched) {
+        return {...emptyPage('timeout'),browserProbe:{stage,attempts}};
+      }
+    }
+  }
+}
+
+async function discoverOnce(url, cookies, signal, launchBudget, {
+  waitMs = 20_000, includeText = false, harvestCodes = false, idPattern, clickPlay = false,
+  captureXhrBody = false, includeFrames = false, mode = 'headless',
+  userAgent, browser = 'auto', browserBinary, browserSessionId, profileMode = 'ephemeral',
+  networkMode, proxy, onMediaHeaders,
+}, setStage) {
+  const setup = new AbortController();
+  const abortSetup = () => setup.abort(launchBudget.reason);
+  launchBudget.addEventListener('abort',abortSetup,{once:true});
+  if (launchBudget.aborted) abortSetup();
+  const startupSignal = AbortSignal.any([signal,setup.signal]);
+  return withChromium(['--autoplay-policy=no-user-gesture-required'], async ({ list }) => {
+    setStage('target');
+    const targetDeadline = performance.now() + 600;
+    let target;
+    do {
+      const targets = await list();
+      target = Array.isArray(targets) && targets.find(t => t.type === 'page' && t.url === 'about:blank');
+      if (target?.webSocketDebuggerUrl) break;
+      await sleep(75,undefined,{signal:startupSignal});
+    } while (performance.now() < targetDeadline);
+    if (!target?.webSocketDebuggerUrl) throw new BrowserTransportError('隔离浏览器未创建页面');
+    setStage('connect');
+    const page = await connectCdp(target.webSocketDebuggerUrl,startupSignal);
+    try {
+      setStage('setup');
       const responses = new Map();
       const fragmentFrames = new Set();
       const blockedFrames = new Set();
@@ -333,15 +380,22 @@ export async function discover(url, cookies, signal, {
       }
       observe(page);
       await page.send('Network.enable',networkOptions);
+      if (userAgent) {
+        await page.send('Emulation.setUserAgentOverride',{userAgent}).catch(() => {});
+      }
       if (includeFrames) await observeEmbedded(page,page,embedded,observe,networkOptions);
       if (cookies.length) {
         await page.send('Network.setCookies', { cookies: cookies.map(cookie => ({ ...cookie, url: url.origin, path: '/', secure: url.protocol === 'https:' })) });
       }
+      startupSignal.throwIfAborted();
+      launchBudget.removeEventListener('abort',abortSetup);
+      setStage('navigate');
       const nav = await page.send('Page.navigate', { url: url.href });
       if (nav.errorText) {
         const reason = /BLOCKED|CERT_/i.test(nav.errorText) ? 'blocked' : 'timeout';
-        return {pageTitle:null,pageContext:null,streams:[],pages:[],candidates:[],reason};
+        return emptyPage(reason);
       }
+      setStage('observe');
       const deadline = Date.now() + waitMs;
       let collectUntil = deadline;
       let lastSignal;
@@ -389,7 +443,7 @@ export async function discover(url, cookies, signal, {
       } while (Date.now() < collectUntil);
       const blocker = frameBlockers.get(nav.frameId) || (found?.encrypted ? 'drm' : found?.blocker);
       const blocked = blockedFrames.has(nav.frameId) || Boolean(blocker);
-      const codes = harvestCodes && !blocked ? await page.evaluate(`(${visibleReferenceCodes})()`).catch(() => {
+      const codes = harvestCodes && !blocked ? await page.evaluate(`(${visibleReferenceCodes})(${JSON.stringify(idPattern ?? null)})`).catch(() => {
         signal.throwIfAborted();
         return [];
       }) : [];
@@ -459,16 +513,22 @@ export async function discover(url, cookies, signal, {
         reason: blocked || blockers.size ? 'blocked' : !found?.ready ? 'timeout' : found.playerCount ? 'no-playlist-request' : 'no-player',
       };
     } finally { page.close(); }
-  }, signal, {headed:mode === 'headed'});
+  },startupSignal,{headed:mode === 'headed',userAgent,browser,browserBinary,browserSessionId,profileMode,networkMode,proxy})
+    .finally(() => launchBudget.removeEventListener('abort',abortSetup));
 }
 
 function inputArgs(url, cookies = [], headers = {}) {
-  const fields = Object.entries(headers).map(([name,value]) => name + ': ' + value + '\r\n').join('');
+  const userAgent = headers['User-Agent'];
+  const fields = Object.entries(headers)
+    .filter(([name]) => name !== 'User-Agent')
+    .map(([name,value]) => name + ': ' + value + '\r\n')
+    .join('');
   return [
     '-protocol_whitelist', 'http,https,tcp,tls,httpproxy,crypto', '-rw_timeout', '15000000',
+    ...(userAgent ? ['-user_agent', userAgent] : []),
     ...(fields ? ['-headers',fields] : []),
     ...(cookies.length ? ['-cookies', cookies.map(({ name, value }) =>
-      `${name}=${value}; path=/; domain=${url.hostname};`).join('\n')] : []),
+      `${name}=${value}; path=/; domain=${url.host};`).join('\n')] : []),
   ];
 }
 
@@ -539,7 +599,8 @@ export async function runMedia(bin, args, signal, onLine, {onFailure, strict = f
     if (signal.aborted) stop();
     let stdout = '', stderr = '', pending = '', failure;
     proc.stdout.setEncoding('utf8').on('data', chunk => {
-      if (!onLine) { stdout = (stdout + chunk).slice(-65536); return; }
+      if (!onLine || onFailure) stdout = (stdout + chunk).slice(-65536);
+      if (!onLine) return;
       const lines = (pending + chunk).split('\n');
       pending = lines.pop();
       for (const line of lines) onLine(line.trim());
@@ -550,7 +611,7 @@ export async function runMedia(bin, args, signal, onLine, {onFailure, strict = f
       signal.removeEventListener('abort', stop);
       await stopping;
       if (signal.aborted) return reject(signal.reason);
-      if ((failure || code !== 0) && onFailure) return reject(onFailure({failure,stderr}));
+      if ((failure || code !== 0) && onFailure) return reject(onFailure({failure,stdout,stderr}));
       if (onLine && pending.trim()) onLine(pending.trim());
       if (failure) return reject(new ApiError('TOOL_UNAVAILABLE', '无法启动本机媒体工具', 503));
       if (code !== 0 || (strict && hasFatalStderr(stderr))) {
@@ -560,7 +621,7 @@ export async function runMedia(bin, args, signal, onLine, {onFailure, strict = f
           /(?:HTTP error|Server returned) (?:408|429|500|502|503|504|5XX)\b|(?:\[(?:tls|tcp) @ [^\]]+\].*(?:Error|timed out)|Connection reset by peer)/i.test(stderr);
         return reject(error);
       }
-      resolve(stdout);
+      resolve(onLine ? '' : stdout);
     });
   });
 }
@@ -633,8 +694,8 @@ export function mediaInput(source, cookies, headers, ...beforeSource) {
   if (typeof source === 'string') {
     const localHls = source.endsWith('.m3u8');
     return ['-protocol_whitelist', localHls ? 'file,crypto' : 'file',
-      ...(localHls ? ['-allowed_extensions', 'm3u8,mp4,m4s,ts,key'] : []),
-      ...(source.endsWith('.bin') ? ['-format_whitelist', 'mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,ogg,avi,mpegts,mpeg'] : []),
+      ...(localHls ? ['-allowed_extensions', 'm3u8,mp4,m4s,ts,key,vtt'] : []),
+      ...(source.endsWith('.bin') ? ['-format_whitelist', 'mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,ogg,avi,mpegts,mpeg,flv,aac,mp3,wav,flac'] : []),
       ...beforeSource, source];
   }
   return [...inputArgs(source, cookies, headers), ...beforeSource, source.href];

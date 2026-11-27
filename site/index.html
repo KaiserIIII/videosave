@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VideoSave — Open-Source Browser Media Extension, Local Companion &amp; MCP Server</title>
+  <meta name="description" content="Find, inspect, and save authorized web media with content-verified HLS &amp; DASH staging, SHA-256 resumable checkpoints, and permission-scoped MCP control for DSH, Codex, Claude, and Cursor.">
+  <link rel="icon" type="image/svg+xml" href="./logo.svg">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <a class="brand" href="#top">
+        <img src="./logo.svg" width="30" height="30" alt="">
+        <span>VideoSave</span>
+        <span class="version-pill" id="live-version">v1.0.0</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#downloads" data-i18n="nav.downloads">Download</a>
+        <a href="#mcp" data-i18n="nav.mcp">MCP Setup</a>
+        <a href="#architecture" data-i18n="nav.architecture">Architecture</a>
+        <a href="#benchmarks" data-i18n="nav.benchmarks">Benchmarks</a>
+        <a href="#dsh" data-i18n="nav.dsh">DSH Guide</a>
+      </nav>
+      <div class="topbar-actions">
+        <button type="button" class="pill-btn" id="lang-toggle" aria-label="Switch language">中文</button>
+        <button type="button" class="pill-btn" id="theme-toggle" aria-label="Toggle theme">◐</button>
+        <a class="btn-primary btn-sm" href="https://github.com/KaiserIIII/videosave" target="_blank" rel="noopener">GitHub ↗</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <div class="eyebrow" data-i18n="hero.eyebrow">MIT Open Source · Zero npm Dependencies · Built for Real Web Workflows</div>
+          <h1 data-i18n="hero.title">Precision media capture for browsers and AI agents.</h1>
+          <p class="lead" data-i18n="hero.lead">
+            VideoSave combines a cross-browser extension (Edge, Chrome, Firefox), a local multi-engine companion (HTTP Range, HLS, static DASH, yt-dlp), and a security-audited MCP server built for DeepSeek Harness (DSH), Codex, Claude, and Cursor.
+          </p>
+          <div class="hero-cta">
+            <a class="btn-primary" href="#downloads" data-i18n="hero.ctaDownload">Download Release</a>
+            <a class="btn-secondary" href="#mcp" data-i18n="hero.ctaMcp">Generate MCP Config</a>
+            <a class="btn-ghost" href="#benchmarks" data-i18n="hero.ctaData">Live Test Matrix →</a>
+          </div>
+          <div class="trust-strip">
+            <span data-i18n="hero.badge1">Unified HLS Request Context</span>
+            <span data-i18n="hero.badge2">Binary Media Content Sniffer</span>
+            <span data-i18n="hero.badge3">SHA-256 Resumable Checkpoints</span>
+            <span data-i18n="hero.badge4">Cross-Origin Cookie Isolation</span>
+          </div>
+        </div>
+        <div class="hero-panel">
+          <div class="terminal-card">
+            <div class="terminal-head">
+              <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
+              <span class="terminal-title">MCP · VideoSave v1.0.0</span>
+            </div>
+            <pre class="terminal-body"><code><span class="t-muted"># Check live version &amp; transfer engines</span>
+→ get_version()
+  { "version": "1.0.0", "mismatch": false }
+
+<span class="t-muted"># Probe &amp; auto-select highest verified quality</span>
+→ download_best_media({
+    "url": "https://media.example/watch/101",
+    "quality": "best",
+    "verify": true
+  })
+  { "status": "done", "engine": "hls",
+    "verification": { "ok": true, "height": 1080 } }
+
+<span class="t-muted"># Fault-tolerant checkpoint recovery</span>
+→ diagnose_download({ "id": "batch_…" })
+  { "resumable": true, "category": "ok" }</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="downloads">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker" data-i18n="dl.kicker">Official Packages</p>
+          <h2 data-i18n="dl.title">Download &amp; Integrity Verification</h2>
+          <p class="section-desc" data-i18n="dl.desc">
+            Every release ships deterministic ZIP archives, SHA-256 checksums, a CycloneDX 1.6 SBOM, and GitHub artifact provenance attestations.
+          </p>
+        </div>
+        <div class="card-grid four">
+          <article class="card">
+            <span class="tag tag-blue">Windows x64</span>
+            <h3 data-i18n="dl.winTitle">Desktop Portable Suite</h3>
+            <p data-i18n="dl.winDesc">Extension + local companion + MCP server + CLI + Windows launcher with verified Node.js &amp; FFmpeg setup.</p>
+            <a class="card-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.0.0.zip ↗</a>
+          </article>
+          <article class="card">
+            <span class="tag">Edge · Chrome · Brave</span>
+            <h3 data-i18n="dl.crTitle">Chromium Extension</h3>
+            <p data-i18n="dl.crDesc">Manifest V3 package with offscreen HLS staging, 5 themes, bilingual UI, and MCP Control Center.</p>
+            <a class="card-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.0.0-extension.zip ↗</a>
+          </article>
+          <article class="card">
+            <span class="tag">Firefox 136+</span>
+            <h3 data-i18n="dl.ffTitle">Firefox &amp; Android Dev</h3>
+            <p data-i18n="dl.ffDesc">Desktop Firefox package plus experimental Firefox for Android direct-link workflow package.</p>
+            <a class="card-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.0.0-firefox.zip ↗</a>
+          </article>
+          <article class="card">
+            <span class="tag tag-green">Supply Chain</span>
+            <h3 data-i18n="dl.sbomTitle">SHA-256 &amp; CycloneDX SBOM</h3>
+            <p data-i18n="dl.sbomDesc">Verify every archive locally before running, including pinned upstream commit hashes for portable tools.</p>
+            <a class="card-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt &amp; SBOM ↗</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="mcp">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker" data-i18n="mcp.kicker">AI &amp; Automation</p>
+          <h2 data-i18n="mcp.title">Interactive MCP Configuration Generator</h2>
+          <p class="section-desc" data-i18n="mcp.desc">
+            Generate a clean, credential-safe configuration snippet for DeepSeek Harness (DSH), Codex CLI, Claude Code, or Cursor.
+          </p>
+        </div>
+        <div class="config-workbench">
+          <div class="config-controls">
+            <label>
+              <span data-i18n="mcp.client">MCP Client</span>
+              <select id="cfg-client">
+                <option value="dsh">DeepSeek Harness (DSH)</option>
+                <option value="codex">Codex CLI</option>
+                <option value="claude">Claude Code / Desktop</option>
+                <option value="cursor">Cursor</option>
+              </select>
+            </label>
+            <label>
+              <span data-i18n="mcp.mode">Connection Mode</span>
+              <select id="cfg-mode">
+                <option value="standalone">Standalone MCP (Direct local queue)</option>
+                <option value="shared">Shared Queue (Connect to Start VideoSave.cmd)</option>
+                <option value="managed">Managed Scoped Client (Extension Control Center)</option>
+              </select>
+            </label>
+            <label>
+              <span data-i18n="mcp.path">Extracted VideoSave Folder</span>
+              <input id="cfg-path" type="text" value="C:/VideoSave/VideoSave-1.0.0" spellcheck="false">
+            </label>
+            <label id="cfg-client-id-wrap" hidden>
+              <span data-i18n="mcp.clientId">Managed Client ID (from AI &amp; MCP panel)</span>
+              <input id="cfg-client-id" type="text" value="dsh-main" spellcheck="false">
+            </label>
+            <div class="config-note" data-i18n="mcp.tip">
+              Tip: On Windows, you can also run <code>&amp; '.\Start VideoSave.cmd' -McpConfig</code> inside the extracted release folder to auto-detect absolute Node.js and FFmpeg paths.
+            </div>
+          </div>
+          <div class="config-output">
+            <div class="config-output-head">
+              <span id="cfg-filename">mcp-config.json</span>
+              <button type="button" class="pill-btn" id="cfg-copy" data-i18n="mcp.copy">Copy</button>
+            </div>
+            <pre><code id="cfg-code"></code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="architecture">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker" data-i18n="arch.kicker">System Engineering</p>
+          <h2 data-i18n="arch.title">Layered Media Pipeline &amp; Security Boundaries</h2>
+          <p class="section-desc" data-i18n="arch.desc">
+            Zero third-party npm dependencies. Built strictly on Node.js 24 standard modules, browser WebExtensions APIs, and local FFmpeg/FFprobe verification.
+          </p>
+        </div>
+        <div class="card-grid three">
+          <article class="card">
+            <h3 data-i18n="arch.c1Title">1. Unified Request Context</h3>
+            <p data-i18n="arch.c1Desc">Propagates explicit Referer, Origin, and User-Agent consistently across Master Playlist, Media Playlist, Init, Segments, Byte-Ranges, Audio, Subtitles, AES-128 keys, Retries, Resume, Refresh, and FFmpeg fallback — while strictly blocking cross-origin Cookie and Authorization leakage.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="arch.c2Title">2. Binary Content Inspector</h3>
+            <p data-i18n="arch.c2Desc">Ignores misleading URL suffixes (.jpeg, .png, extensionless) and MIME types. Inspects actual binary container signatures (MPEG-TS, ID3-TS, custom-prefixed TS, fMP4/ISOBMFF, AES-128 post-decrypt plaintext) and strictly rejects HTML/JSON error pages, real images, corrupt payloads, and DRM boxes.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="arch.c3Title">3. SHA-256 Checkpoint Recovery</h3>
+            <p data-i18n="arch.c3Desc">Verifies every staged HLS segment, DASH fragment, and HTTP Range chunk with SHA-256 sidecars. Survives process crashes, network drops, service restarts, and signed URL refreshes while detecting and re-fetching only corrupted parts.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="arch.c4Title">4. Smart Quality Negotiation</h3>
+            <p data-i18n="arch.c4Desc">Supports best, max, auto, lowest, integer height caps, exact:HEIGHT, bitrate/byte budgets, and SDR/HDR preference across real observed variants, backed by post-download FFprobe verification.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="arch.c5Title">5. Isolated Dedicated Browser Sessions</h3>
+            <p data-i18n="arch.c5Desc">Supports custom User-Agent, browser selection, proxy routing, and dedicated VideoSave-managed profiles without ever touching system browser cookies, passwords, or history.</p>
+          </article>
+          <article class="card">
+            <h3 data-i18n="arch.c6Title">6. Clear Legal &amp; Safety Scope</h3>
+            <p data-i18n="arch.c6Desc">Designed strictly for public and authorized media. Never bypasses DRM, CAPTCHAs, Cloudflare challenges, or HTTP 403/401 restrictions; reports exact failure stages clearly.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section alt" id="benchmarks">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker" data-i18n="bench.kicker">Measured Evidence</p>
+          <h2 data-i18n="bench.title">Live Compatibility Matrix &amp; Historical Benchmarks</h2>
+          <p class="section-desc" data-i18n="bench.desc">
+            Every number below is loaded directly from real JSON test reports stored in <code>docs/compatibility-data/</code>. Controlled local fixtures test regression precision and do not claim 100% compatibility across the open internet.
+          </p>
+        </div>
+
+        <div class="honesty-banner" data-i18n="bench.honesty">
+          <strong>Measurement Note:</strong> Local fixture scores verify deterministic detection, false-positive suppression, header isolation, and download integrity across Edge, Chrome, Firefox, and MCP. Public web sample runs and real DSH acceptance runs are displayed separately.
+        </div>
+
+        <div class="metric-row" id="summary-metrics"></div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3 data-i18n="bench.historyTitle">Version-over-Version Progress (Controlled Fixtures &amp; Public Samples)</h3>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table" id="history-table">
+              <thead>
+                <tr>
+                  <th data-i18n="bench.colReport">Report</th>
+                  <th data-i18n="bench.colVersion">Version</th>
+                  <th data-i18n="bench.colTarget">Target</th>
+                  <th data-i18n="bench.colScope">Sample Scope</th>
+                  <th data-i18n="bench.colDetected">Detected</th>
+                  <th data-i18n="bench.colFp">False Positives</th>
+                  <th data-i18n="bench.colDownloads">Verified Downloads</th>
+                  <th data-i18n="bench.colLatency">Median Probe</th>
+                </tr>
+              </thead>
+              <tbody id="history-body">
+                <tr><td colspan="8" class="muted-cell">Loading real JSON reports from ./data/…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top: 20px;">
+          <div class="panel-head row-between">
+            <h3 data-i18n="bench.inspectorTitle">Raw JSON Report Browser</h3>
+            <select id="report-picker" aria-label="Select JSON report"></select>
+          </div>
+          <pre class="json-viewer"><code id="report-json">Select a report above to inspect its raw verified output.</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="dsh">
+      <div class="container">
+        <div class="section-head">
+          <p class="section-kicker" data-i18n="dsh.kicker">Real-User Feedback Remediation</p>
+          <h2 data-i18n="dsh.title">Built Around DeepSeek Harness (DSH) Workflows</h2>
+          <p class="section-desc" data-i18n="dsh.desc">
+            VideoSave 1.0 directly resolves all 12 real-world issues reported from DSH usage — from stale v0.9.0 process drift and HLS 403 header mismatches to nonstandard segment extensions, reliable SIGKILL resume, and strict test sandbox isolation.
+          </p>
+        </div>
+        <div class="card-grid three">
+          <article class="card">
+            <h3 data-i18n="dsh.doc1Title">DSH Integration Guide</h3>
+            <p data-i18n="dsh.doc1Desc">Step-by-step setup, stale version detection via <code>get_version</code>, Netscape cookie import, and batch workflows.</p>
+            <a class="card-link" href="https://github.com/KaiserIIII/videosave/blob/main/docs/dsh-guide.md" target="_blank" rel="noopener">docs/dsh-guide.md ↗</a>
+          </article>
+          <article class="card">
+            <h3 data-i18n="dsh.doc2Title">12-Item Feedback Tracker</h3>
+            <p data-i18n="dsh.doc2Desc">Complete audit trail from v0.9.0 reports through source fixes, fault-injection tests, and real DSH acceptance.</p>
+            <a class="card-link" href="https://github.com/KaiserIIII/videosave/blob/main/docs/dsh-feedback-tracker.md" target="_blank" rel="noopener">docs/dsh-feedback-tracker.md ↗</a>
+          </article>
+          <article class="card">
+            <h3 data-i18n="dsh.doc3Title">Security &amp; Privacy Model</h3>
+            <p data-i18n="dsh.doc3Desc">Scoped permissions, sandbox guards, cross-origin credential isolation, and loopback origin protections.</p>
+            <a class="card-link" href="https://github.com/KaiserIIII/videosave/blob/main/docs/v1-security.md" target="_blank" rel="noopener">docs/v1-security.md ↗</a>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <img src="./logo.svg" width="22" height="22" alt="">
+        <span>VideoSave · MIT License</span>
+      </div>
+      <div class="footer-links">
+        <a href="https://github.com/KaiserIIII/videosave" target="_blank" rel="noopener">Repository</a>
+        <a href="https://github.com/KaiserIIII/videosave/releases" target="_blank" rel="noopener">Releases</a>
+        <a href="https://github.com/KaiserIIII/videosave/blob/main/docs/mcp.md" target="_blank" rel="noopener">MCP Docs</a>
+        <a href="https://github.com/KaiserIIII/videosave/issues" target="_blank" rel="noopener">Issues</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
