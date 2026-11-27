@@ -13,6 +13,7 @@ const port = Number(process.env.PORT ?? 8765);
 const pairingCode = process.env.MEDIA_TOOLKIT_TOKEN || (process.env.MEDIA_TOOLKIT_LOCAL_PAIRING === '1'
   ? localPairingCode({create:true}) : randomBytes(24).toString('base64url'));
 const expected = Buffer.from('Bearer ' + pairingCode);
+const maxBody = 1024 * 1024;
 function authorized(request) {
   const actual = Buffer.from(request.headers.authorization ?? '');
   return actual.length === expected.length && timingSafeEqual(actual, expected);
@@ -27,14 +28,13 @@ async function body(req) {
   if (!/^application\/json\s*(?:;|$)/i.test(req.headers['content-type'] || '')) {
     throw new ApiError('INVALID_CONTENT_TYPE', '请求应使用 application/json', 415);
   }
+  const tooLarge = () => new ApiError('BODY_TOO_LARGE', '请求超过 1 MiB', 413);
+  if (Number(req.headers['content-length']) > maxBody) throw tooLarge();
   const chunks = [];
   let size = 0;
   for await (const chunk of req.iterator({ destroyOnReturn: false })) {
     size += chunk.length;
-    if (size > 1024 * 1024) {
-      req.resume();
-      throw new ApiError('BODY_TOO_LARGE', '请求超过 1 MiB', 413);
-    }
+    if (size > maxBody) throw tooLarge();
     chunks.push(chunk);
   }
   let data;
@@ -66,7 +66,16 @@ function sendFile(req, res, {file, name, size}) {
   pipeline(createReadStream(file, {start, end}), res, () => {});
 }
 
-const server = http.createServer(async (req, res) => {
+function responseSignal(res) {
+  const controller = new AbortController();
+  res.once('close', () => {
+    if (!res.writableEnded) controller.abort();
+  });
+  return controller.signal;
+}
+
+const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, async (req, res) => {
+  res.setHeader('x-content-type-options', 'nosniff');
   try {
     const localPort = req.socket.localPort;
     const hosts = [`127.0.0.1:${localPort}`, `localhost:${localPort}`];
@@ -88,6 +97,9 @@ const server = http.createServer(async (req, res) => {
       return res.end();
     }
     if (!authorized(req)) throw new ApiError('UNAUTHORIZED', '配对码无效', 401);
+    if (!/^\/(?![\/\\])/.test(req.url) || req.url.includes('\\')) {
+      throw new ApiError('INVALID_REQUEST_TARGET', '仅接受本机接口路径');
+    }
     const { pathname, searchParams } = new URL(req.url, 'http://127.0.0.1');
     const route = req.method + ' ' + pathname;
     switch (route) {
@@ -104,12 +116,15 @@ const server = http.createServer(async (req, res) => {
         return reply(res, 200, downloads.updateSettings({scope:'browser',settings:(await body(req)).settings}));
       case 'GET /api/batches':
         return reply(res, 200, downloads.listBatches({limit:searchParams.has('limit') ? Number(searchParams.get('limit')) : undefined}));
-      case 'POST /api/probe':
-        return reply(res, 200, await downloads.probe(await body(req)));
+      case 'POST /api/probe': {
+        const signal = responseSignal(res);
+        const found = await downloads.probe(await body(req), signal);
+        if (!res.destroyed) reply(res, 200, found);
+        return;
+      }
       case 'POST /api/preview': {
-        const controller = new AbortController();
-        res.once('close', () => controller.abort());
-        const clip = await downloads.preview(await body(req), controller.signal);
+        const signal = responseSignal(res);
+        const clip = await downloads.preview(await body(req), signal);
         if (res.destroyed) return;
         res.writeHead(200, {'content-type':'video/mp4','content-length':clip.length,'cache-control':'no-store'});
         return res.end(clip);
@@ -142,10 +157,9 @@ const server = http.createServer(async (req, res) => {
       const [, id, action] = batch;
       if (!action) return reply(res, 200, downloads.progress(id));
       if (action === 'wait') {
-        const controller = new AbortController();
-        res.once('close', () => controller.abort());
+        const signal = responseSignal(res);
         const timeoutMs = searchParams.has('timeoutMs') ? Number(searchParams.get('timeoutMs')) : undefined;
-        const outcome = await downloads.waitForBatch({id, timeoutMs}, controller.signal);
+        const outcome = await downloads.waitForBatch({id, timeoutMs}, signal);
         if (!res.destroyed) reply(res, 200, outcome);
         return;
       }
@@ -161,8 +175,11 @@ const server = http.createServer(async (req, res) => {
     }
     throw new ApiError('NOT_FOUND', '找不到此接口', 404);
   } catch (error) {
-    if (!res.headersSent && !res.destroyed) reply(res, error instanceof ApiError ? error.status : 500, { error: downloads.errorDetails(error) });
-    else if (!res.writableEnded) res.end();
+    if (res.destroyed) return;
+    if (!res.headersSent) {
+      if (error.code === 'BODY_TOO_LARGE') res.setHeader('connection','close');
+      reply(res, error instanceof ApiError ? error.status : 500, { error: downloads.errorDetails(error) });
+    } else if (!res.writableEnded) res.end();
   }
 });
 
