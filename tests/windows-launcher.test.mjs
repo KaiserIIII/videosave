@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -101,8 +101,10 @@ test('the Windows launcher configures MCP downloads and keeps shared pairing aft
         });
       assert.equal(launch.status,0,launch.stderr);
       const cached = JSON.parse(launch.stdout).mcpServers.videosave;
-      assert.equal(cached.command,path.join(nodeDir,'node.exe'));
-      assert.deepEqual(cached.env,{FFMPEG_BIN:ffmpeg,FFPROBE_BIN:ffprobe});
+      assert.equal(await realpath(cached.command),await realpath(path.join(nodeDir,'node.exe')));
+      assert.deepEqual(Object.keys(cached.env).sort(),['FFMPEG_BIN','FFPROBE_BIN']);
+      assert.equal(await realpath(cached.env.FFMPEG_BIN),await realpath(ffmpeg));
+      assert.equal(await realpath(cached.env.FFPROBE_BIN),await realpath(ffprobe));
       assert.doesNotMatch(launch.stderr,/Downloading/);
     }
 
@@ -117,7 +119,7 @@ test('the Windows launcher configures MCP downloads and keeps shared pairing aft
       });
     assert.equal(setup.status,0,setup.stderr);
     const degraded = JSON.parse(setup.stdout).mcpServers.videosave;
-    assert.deepEqual(degraded.args,[path.join(folder,'tools','mcp-server.mjs')]);
+    assert.deepEqual(degraded.args,[path.join(await realpath(folder),'tools','mcp-server.mjs')]);
     assert.deepEqual(degraded.env,config.env);
     assert.match(setup.stderr,/platform downloads are unavailable/i);
   }

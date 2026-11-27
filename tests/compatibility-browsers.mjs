@@ -167,8 +167,11 @@ export async function withFirefoxExtension(source, work, output, run) {
     'browser.startup.page':0,
     'extensions.update.enabled':false,
   }).map(([key,value]) => 'user_pref(' + JSON.stringify(key) + ', ' + JSON.stringify(value) + ');').join('\n'));
+  // Marionette needs system access to install and inspect the extension in this isolated test profile.
   const browser = spawn(executable('firefox'),['-headless','-no-remote','-profile',profile,'-marionette',
-    '-remote-allow-system-access','about:blank'],{stdio:'ignore',windowsHide:true});
+    '-remote-allow-system-access','about:blank'],{
+    stdio:'ignore',windowsHide:true,env:{...process.env,MOZ_REMOTE_ALLOW_SYSTEM_ACCESS:'1'},
+  });
   let launched;
   browser.on('error',error => { launched = error; });
   let driver;

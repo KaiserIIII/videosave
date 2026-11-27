@@ -102,7 +102,9 @@ def windows_smoke(archive_path, name, version):
         require(executable.is_absolute() and executable.is_file(),
                 "Launcher did not provide an absolute Node.js executable")
         entry = package / "tools" / "mcp-server.mjs"
-        require(config["args"] == [str(entry)], "MCP configuration does not reference the extracted package")
+        args = config["args"]
+        require(len(args) == 1 and Path(args[0]).is_absolute() and Path(args[0]).samefile(entry),
+                "MCP configuration does not reference the extracted package")
         for key in ("FFMPEG_BIN", "FFPROBE_BIN"):
             executable = Path(config["env"][key])
             require(executable.is_absolute() and executable.is_file(), f"Launcher did not provide {key}")
