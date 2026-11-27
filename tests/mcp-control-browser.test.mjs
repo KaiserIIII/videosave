@@ -92,7 +92,9 @@ test('Edge shares a login only after approval and saves a verified file through 
     }
     const call = async (name,args = {}) => (await rpc('tools/call',{name,arguments:args})).structuredContent;
     await rpc('initialize',{protocolVersion:'2025-11-25'});
-    assert.ok((await rpc('tools/list',{})).tools.some(tool => tool.name === 'probe_active_tab'));
+    const {tools} = await rpc('tools/list',{});
+    assert.ok(tools.some(tool => tool.name === 'probe_active_tab'));
+    assert.ok(tools.every(tool => tool.outputSchema?.type === 'object'));
     const grant = await call('request_site_authorization',{origin:mediaUrl});
 
     await withEdge(['--disable-features=DisableLoadExtensionCommandLineSwitch',

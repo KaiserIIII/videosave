@@ -1,5 +1,5 @@
 import * as downloads from './media-downloads.mjs';
-import { activeTab, consumeGrant, grantStatus, handleGrantRevocation, listGrants, recordActivity, requestGrant, requireScope, revokeGrant, sitePreferences, verifyInput } from './mcp-control.mjs';
+import { activeTab, consumeGrant, grantStatus, handleGrantRevocation, listGrants, preferenceProperties, recordActivity, requestGrant, requireScope, revokeGrant, sitePreferences, verifyInput } from './mcp-control.mjs';
 
 const {ApiError} = downloads;
 const object = (properties = {}, required = []) => ({type:'object',properties,required,additionalProperties:false});
@@ -9,6 +9,42 @@ const id = string(36);
 const origin = string();
 const options = {authorizationId:id};
 const selection = {candidateId:id,quality:int(144,4320),format:{enum:['mp4','mkv']}};
+const stringResult = {type:'string'};
+const boolean = {type:'boolean'};
+const measured = {type:['number','null']};
+const array = items => ({type:'array',items});
+const grantFields = {id,clientId:id,clientName:stringResult,origin,status:stringResult,expiresAt:stringResult};
+const grantResult = object(grantFields,Object.keys(grantFields));
+const tabFields = {origin,title:stringResult,playing:boolean,sessionShared:boolean};
+const tab = object(tabFields,Object.keys(tabFields));
+const diagnosticFields = {code:stringResult,nextAction:stringResult,candidateCount:measured,players:measured,
+  unloaded:measured,opaque:measured,blockedFrames:measured,unsupported:measured,excluded:measured,blockers:array(stringResult)};
+const diagnostic = object(diagnosticFields,['code','nextAction','candidateCount']);
+const siteResult = object({origin,settings:object(preferenceProperties,Object.keys(preferenceProperties))},['origin','settings']);
+const info = object({duration:measured,width:measured,height:measured,size:measured,subtitleTracks:measured,
+  audioCodec:{type:['string','null']},codec:{type:['string','null']},container:{type:['string','null']}});
+const status = {id,status:stringResult};
+const batch = object({...status,timedOut:boolean,items:array(object({status:stringResult,errorCode:{type:['string','null']},
+  percent:measured,bytes:measured,totalBytes:measured,speed:measured,etaSec:measured,prefetch:{type:['boolean','null']},info,
+  file:{type:['string','null']},outputs:array(object({file:stringResult,name:stringResult,size:measured,info},['file','name'])),
+  verification:array(object({status:stringResult,info,errorCode:stringResult},['status'])),
+},['status']))},['id','status','items']);
+const outputSchemas = {
+  get_capabilities:object({mode:{const:'managed'},id,preset:stringResult,permissions:array(stringResult),tools:array(stringResult)},
+    ['mode','id','preset','permissions','tools']),
+  request_site_authorization:grantResult, get_authorization_status:grantResult, revoke_site_authorization:grantResult,
+  list_authorized_sites:object({items:array(grantResult)},['items']),
+  get_active_tab:object({authorizationId:id,tab},['authorizationId','tab']),
+  probe_active_tab:object({authorizationId:id,tab,diagnostic,streams:array(object({
+    candidateId:id,kind:stringResult,duration:measured,height:measured,downloadable:boolean,
+  },['candidateId','kind','downloadable']))},['authorizationId','tab','diagnostic','streams']),
+  diagnose_probe:diagnostic, get_site_preferences:siteResult, get_effective_settings:siteResult,
+  start_download:object({id,total:int(1,8)},['id','total']),
+  get_progress:batch, wait_for_download:batch, verify_download:batch,
+  list_batches:object({items:array(object({...status,delivery:stringResult,createdAt:stringResult,completed:measured,
+    total:measured,failed:measured,resumable:boolean},['id','status','total']))},['items']),
+  cancel_download:object({ok:boolean},['ok']), open_file:object({ok:boolean},['ok']),
+};
 const specs = [
   [null,'get_capabilities','Report this registered client’s current MCP permissions.',object()],
   ['session','request_site_authorization','Ask the user to share a snapshot from the matching browser tab.',object({origin},['origin'])],
@@ -34,7 +70,7 @@ const batches = new Map();
 
 export function managedTools(client) {
   return specs.filter(([scope]) => !scope || client.scopes.includes(scope))
-    .map(([,name,description,inputSchema]) => ({name,description,inputSchema}));
+    .map(([,name,description,inputSchema]) => ({name,description,inputSchema,outputSchema:outputSchemas[name]}));
 }
 
 function assertOwned(client,id) {

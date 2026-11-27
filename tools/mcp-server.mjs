@@ -156,7 +156,10 @@ async function dispatch({ method, params }) {
   if (!protocol) throw new RpcError(-32002, 'Session is not initialized');
   if (method === 'tools/list') {
     if (!managedMode) return {tools:listedTools(protocol >= '2025-06-18')};
-    try { return await callCompanion(null); }
+    try {
+      const {tools} = await callCompanion(null);
+      return {tools:protocol >= '2025-06-18' ? tools : tools.map(({outputSchema,...tool}) => tool)};
+    }
     catch { throw new RpcError(-32002,'Managed MCP client unavailable. Check the companion connection and client status.'); }
   }
   if (method !== 'tools/call') throw new RpcError(-32601, 'Method not found');

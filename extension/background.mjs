@@ -2,6 +2,7 @@ import { browserApi, nativeDownloads } from './browser.mjs';
 
 import { classify, isMediaFragment, mediaResponseSize } from './media.mjs';
 import { documentBlockers } from './detection.mjs';
+import { isPublicPlayerJson } from './live-detection.mjs';
 import { startTabGrantCleanup } from './mcp-center.mjs';
 import { registerDownloads } from './downloads.mjs';
 
@@ -48,6 +49,12 @@ browserApi.webRequest.onHeadersReceived.addListener(details => {
   }
   if (details.statusCode < 200 || details.statusCode >= 300) return;
   const mime = header('content-type') ?? '';
+  if (details.type === 'xmlhttprequest' && details.frameId === 0 && isPublicPlayerJson(details.url,mime,details.method)) {
+    update(details.tabId,rows => rows.some(row => row.playerJson && row.url === details.url)
+      ? rows : [...rows,{playerJson:true,url:details.url,frameId:0,documentId:details.documentId,
+        documentUrl:details.documentUrl,timeStamp:details.timeStamp}].slice(-120));
+    return;
+  }
   const kind = classify(details.url, mime);
   if (!kind && isMediaFragment(new URL(details.url).pathname.toLowerCase(),mime.split(';')[0].trim().toLowerCase())) {
     update(details.tabId, rows => rows.some(row => row.fragment && row.frameId === details.frameId)

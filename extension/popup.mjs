@@ -1,5 +1,5 @@
 import { assessCandidates, detectionDiagnostic, diagnosticReport } from './detection.mjs';
-import { observeMediaChanges, inspectPublicManifest } from './live-detection.mjs';
+import { observeMediaChanges, inspectPublicManifest, inspectPublicPlayerJson, publicPlayerJsonUrl } from './live-detection.mjs';
 import { browserApi, downloadsPage, downloadSettingsPage, isAndroid, nativeDownloads } from './browser.mjs';
 import { canUseMediaTitle, classify, isPlaylist, pageStreams, platformVideo, scanDocument, selectPageStream, sourceTitle } from './media.mjs';
 import { bindMcpCenter } from './mcp-center.mjs';
@@ -70,6 +70,7 @@ let watchingTab;
 let scannedUrl;
 let scannedDocument;
 const manifestCache = new Map();
+const playerJsonCache = new Map();
 const diagnosticHints = {
   'multiple-candidates':'检测到多个候选，请确认要下载的视频。',
   'no-player':'页面中未检测到播放器。',
@@ -609,6 +610,7 @@ async function refresh(manual = true) {
     const observations = frames.map(frame => frame.result);
     const topFrame = frames.find(frame => frame.frameId === 0);
     const top = topFrame?.result;
+    if (scannedDocument?.timeOrigin !== top?.documentTimeOrigin || pageChanged) playerJsonCache.clear();
     scannedDocument = top && {url:top.documentUrl,timeOrigin:top.documentTimeOrigin,id:topFrame.documentId ?? null};
     const previousPageTitle = pageTitle;
     pageTitle = top?.pageTitle?.trim() || tab.title?.trim() || '';
@@ -619,7 +621,7 @@ async function refresh(manual = true) {
     const key = 'media:' + tab.id;
     const stored = (await browserApi.storage.session.get(key))[key] || [];
     const allowedFrames = new Map(frames.map(frame => [frame.frameId,frame]));
-    const requests = stored.filter(row => {
+    const matchedRequests = stored.filter(row => {
       const frame = allowedFrames.get(row.frameId);
       if ((!row.url && !row.fragment) || !frame) return false;
       if (row.documentId && frame.documentId && row.documentId !== frame.documentId) return false;
@@ -630,6 +632,19 @@ async function refresh(manual = true) {
     if (top?.blocker) blockers.add(top.blocker);
     if (top?.encrypted) blockers.add('drm');
     const available = !blockers.size;
+    const requests = matchedRequests.filter(row => !row.playerJson);
+    if (available && top && nativeDownloads) {
+      const origin = URL.parse(top.documentUrl)?.origin;
+      const jsonUrls = new Set([...(top.publicJsonRequests ?? []),...matchedRequests.filter(row => row.playerJson).map(row => row.url)]);
+      const eligible = [...jsonUrls].filter(url => URL.parse(url)?.origin === origin && publicPlayerJsonUrl(url)).slice(-4);
+      const sources = await Promise.all(eligible.map(async url => {
+        if (!playerJsonCache.has(url) && playerJsonCache.size < 12) {
+          playerJsonCache.set(url,await inspectPublicPlayerJson(url,top.documentUrl));
+        }
+        return playerJsonCache.get(url) ?? [];
+      }));
+      requests.push(...sources.flat().map(source => ({...source,frameId:0,xhrJson:true})));
+    }
     streams = available ? pageStreams(frames, requests) : [];
     const manifests = nativeDownloads ? streams.filter(stream => isPlaylist(stream.kind)).slice(0,4) : [];
     await Promise.all(manifests.map(async stream => {

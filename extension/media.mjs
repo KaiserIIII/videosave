@@ -468,7 +468,12 @@ export function scanDocument(includeContext = false, includeText = false) {
   const blocker = visibleBlocker('#challenge-form, #cf-challenge-running, #cf-challenge-stage') ? 'cloudflare-challenge'
     : visibleBlocker('#captcha-form, form[action*="captcha"]') ? 'captcha'
     : !videos.length && visibleBlocker('iframe[src*="challenges.cloudflare.com"], .cf-turnstile') ? 'cf-turnstile' : null;
-  return { pageTitle:document.title, pageMetadata, pageContext, playerCount:videos.length, candidates, pages,
+  const publicJsonRequests = includeContext ? performance.getEntriesByType('resource').slice(-48)
+    .filter(entry => ['fetch','xmlhttprequest'].includes(entry.initiatorType) &&
+      entry.startTime >= (globalThis.videoSaveRouteStart ?? 0) &&
+      (entry.responseStatus === undefined || entry.responseStatus >= 200 && entry.responseStatus < 300))
+    .map(entry => entry.name).filter(name => /\.json$/i.test(name)).slice(-8) : [];
+  return { pageTitle:document.title, pageMetadata, pageContext, playerCount:videos.length, candidates, pages,publicJsonRequests,
     documentUrl:location.href, documentTimeOrigin:performance.timeOrigin, blocker,
     routeStartedAt:globalThis.videoSaveRouteStart && performance.timeOrigin + globalThis.videoSaveRouteStart,
     ...(detailPages && {detailPages:[...detailPages.values()]}), opaquePlayer, excludedMedia:[...excludedMedia],

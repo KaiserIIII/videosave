@@ -266,7 +266,7 @@ const count = {
 };
 const core = new Set(['mp4','webm','source-elements','extensionless-network','network-webm','network-hls',
   'network-hls-mime','network-dash','fmp4-hls','same-origin-iframe','play-event','preroll','empty','http-paywall',
-  'challenge-header','only-fragments']);
+  'challenge-header','only-fragments','dynamic-json']);
 const regression = rows.filter(row => core.has(row.id) && (row.detected === false || row.falsePositives.length ||
   row.diagnosticCorrect === false || ['mp4','webm'].includes(row.id) && row.download !== 'verified'));
 const report = {version,browser,browserVersion,node:process.version,platform:process.platform,

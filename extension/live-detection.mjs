@@ -1,4 +1,30 @@
 import { manifestEvidence } from './manifest-evidence.mjs';
+import { publicMediaSources } from './media-adapters.mjs';
+import { readManifest } from './hls.mjs';
+
+export function publicPlayerJsonUrl(value) {
+  const url = URL.parse(value);
+  return url && /^https?:$/.test(url.protocol) && !url.username && !url.password && !url.search && !url.hash &&
+    /(?:^|\/)(?:sources?|players?|playback|media|videos?|playlists?)(?:[./_-]|$)/i.test(url.pathname);
+}
+
+export function isPublicPlayerJson(value, mime, method) {
+  return method === 'GET' && publicPlayerJsonUrl(value) &&
+    /^application\/(?:json|[^;]+\+json)(?:\s*;|$)/i.test(mime);
+}
+
+export async function inspectPublicPlayerJson(url, base) {
+  try {
+    const response = await fetch(url,{credentials:'omit',redirect:'error',signal:AbortSignal.timeout(1200)});
+    if (!response.ok || !response.body || Number(response.headers.get('content-length')) > 128*1024 ||
+        !isPublicPlayerJson(url,response.headers.get('content-type') ?? '','GET')) {
+      await response.body?.cancel();
+      return [];
+    }
+    const json = JSON.parse(await readManifest(response.body));
+    return publicMediaSources(json,base,{strategy:'xhr-json',sameOrigin:true});
+  } catch { return []; }
+}
 
 export function observeMediaChanges(enabled) {
   // Executed in the extension's isolated world for this document.
