@@ -387,7 +387,7 @@ async function checkPairingRecovery(popup, worker, endpoint) {
     assert.match(instruction, expected);
   };
   await until(() => state('unpaired'), 5000);
-  await submitPlatformLink(/node tools\/server\.mjs/);
+  await submitPlatformLink(/Start VideoSave\.cmd/);
   const unused = createServer().listen(0, '127.0.0.1');
   await once(unused, 'listening');
   const offlineEndpoint = 'http://127.0.0.1:' + unused.address().port;

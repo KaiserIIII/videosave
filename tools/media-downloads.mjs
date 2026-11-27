@@ -7,7 +7,8 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import manifest from '../extension/manifest.json' with {type:'json'};
 import { defaultConcurrency, maxConcurrency, validConcurrency } from '../extension/settings.mjs';
-import { canUseMediaTitle, classify, longestFirst, platformVideo, primaryCandidates, selectPageStream } from '../extension/media.mjs';
+import { assessCandidates, detectionDiagnostic } from '../extension/detection.mjs';
+import { audioFormats, canUseMediaTitle, classify, isPlaylist, longestFirst, platformVideo, primaryCandidates, selectPageStream } from '../extension/media.mjs';
 import { checkManifestProtection, hlsQualities, prefetchHls } from './hls-prefetch.mjs';
 import { prefetchRanges } from './range-prefetch.mjs';
 import { ApiError, FFMPEG, discover, inspectOutput, mediaInput, mediaUrl, parseCookies, parseMediaHeaders, probeStream, runMedia, streamExpiry } from './media-source.mjs';
@@ -107,7 +108,7 @@ export function errorDetails(error) {
 
 async function inspectPage(url, cookies, signal, {
   selectionOnly = false, waitMs = 20_000, retries = 2, includeText = false,
-  clickPlay = false, captureXhrBody = false, includeFrames = false, mode = 'headless', singleWindow = false,
+  clickPlay = false, captureXhrBody = true, includeFrames = true, mode = 'headless', singleWindow = false,
 } = {}) {
   let result;
   for (let attempt = 0; attempt <= retries; attempt++) {
@@ -121,8 +122,11 @@ async function inspectPage(url, cookies, signal, {
     });
     if (result.streams.length || result.reason === 'blocked' || result.candidates.length && result.reason === 'no-player') break;
   }
-  const pending = selectionOnly ? primaryCandidates(result.streams) : [...result.streams];
-  if (!selectionOnly || pending.length > 1) {
+  const protectedUrls = new Set();
+  const pending = selectionOnly ? [...new Set([...primaryCandidates(result.streams),
+    ...result.streams.filter(stream => isPlaylist(stream.kind))])] : [...result.streams];
+  const inspectMetadata = !selectionOnly || pending.length > 1;
+  if (pending.length) {
     const budget = AbortSignal.timeout(45_000);
     const metadataSignal = AbortSignal.any([signal,budget]);
     await Promise.all(Array.from({length:Math.min(4, pending.length)}, async () => {
@@ -132,6 +136,21 @@ async function inspectPage(url, cookies, signal, {
         const source = mediaUrl(stream.url);
         const scopedCookies = source.origin === url.origin ? cookies : [];
         const headers = capturedHeaders(source.href);
+        if (isPlaylist(stream.kind)) {
+          try {
+            await checkManifestProtection(source,scopedCookies,metadataSignal,{kind:stream.kind,headers});
+          } catch (error) {
+            signal.throwIfAborted();
+            if (budget.aborted) return;
+            if (error.code === 'DRM') {
+              protectedUrls.add(stream.url);
+              continue;
+            }
+            if (error instanceof ApiError) continue;
+            throw error;
+          }
+        }
+        if (!inspectMetadata) continue;
         const [info, quality] = await Promise.all([
           probeStream(source, scopedCookies, metadataSignal, false, stream.kind, headers),
           !selectionOnly && stream.kind === 'm3u8' ? hlsQualities(source, scopedCookies, metadataSignal, headers) : null,
@@ -152,6 +171,11 @@ async function inspectPage(url, cookies, signal, {
       }
     }));
   }
+  if (protectedUrls.size) {
+    result.streams = result.streams.filter(stream => !protectedUrls.has(stream.url));
+    result.blockers = [...new Set(['drm',...(result.blockers ?? [])])];
+    if (!result.streams.length) result.reason = 'blocked';
+  }
   result.streams.sort(longestFirst);
   if (!selectionOnly) {
     const players = Map.groupBy(result.streams.filter(stream => stream.player), stream => stream.player.id);
@@ -164,15 +188,18 @@ async function inspectPage(url, cookies, signal, {
     }
   }
   const {reason,...page} = result;
+  for (const stream of page.streams) Object.assign(stream,assessCandidates([stream])[0]);
   const selection = selectPageStream(page.streams);
   if (selection.status === 'unavailable') selection.reason = reason;
-  return {...page, selection};
+  return {...page, selection, diagnostic:detectionDiagnostic({
+    ...page.diagnostic, streams:page.streams, blockers:page.blockers, selection, reason,
+  })};
 }
 
 export async function probe({
   url: value, cookie, waitMs = 20_000, waitForMediaMs, retries = waitForMediaMs === undefined ? 2 : 0, includeText = false,
   clickPlay = false, captureXhrBody = false, includeFrames = false, mode = 'headless', profile, useBrowserCookies,
-} = {}) {
+} = {}, requestSignal) {
   const url = mediaUrl(value);
   const cookies = parseCookies(cookie);
   if (!Number.isInteger(waitMs) || waitMs < 100 || waitMs > 30_000) {
@@ -192,14 +219,18 @@ export async function probe({
   if (typeof clickPlay !== 'boolean') throw new ApiError('INVALID_CLICK_PLAY', 'clickPlay 必须为布尔值');
   if (typeof captureXhrBody !== 'boolean') throw new ApiError('INVALID_CAPTURE_XHR', 'captureXhrBody 必须为布尔值');
   if (typeof includeFrames !== 'boolean') throw new ApiError('INVALID_INCLUDE_FRAMES', 'includeFrames 必须为布尔值');
-  return schedule(session.signal, async () => {
+  const signal = requestSignal ? AbortSignal.any([session.signal,requestSignal]) : session.signal;
+  signal.throwIfAborted();
+  return schedule(signal, async () => {
+    signal.throwIfAborted();
     const platform = platformVideo(url);
     if (platform && platformDownloadsEnabled()) {
-      const target = await probePlatform(platform, session.signal);
+      const target = await probePlatform(platform, signal);
       return {pageTitle:target.title, pageContext:{url:target.url,untrusted:true}, streams:[], pages:[], candidates:[],
-        downloadTargets:[target], selection:{status:'selected',url:target.url,reason:'platform'}};
+        downloadTargets:[target], selection:{status:'selected',url:target.url,reason:'platform'},
+        diagnostic:detectionDiagnostic({streams:[target]})};
     }
-    return inspectPage(url, cookies, session.signal, {waitMs:waitForMediaMs ?? waitMs,retries,includeText,clickPlay,captureXhrBody,
+    return inspectPage(url, cookies, signal, {waitMs:waitForMediaMs ?? waitMs,retries,includeText,clickPlay,captureXhrBody,
       includeFrames,mode,singleWindow:waitForMediaMs !== undefined});
   });
 }
@@ -460,7 +491,7 @@ function durationLimit(value) {
   return Number(value);
 }
 
-const directMedia = /^(?:mp4|webm|mkv|mov|m4v|ogv|avi)$/i;
+const directMedia = /^(?:mp4|webm|mkv|mov|m4v|ogv|avi|ts|mp3|m4a|ogg|wav|flac)$/i;
 
 export function queueOriginal({ url, title, extension, connections, requestId } = {}) {
   if (typeof extension !== 'string' || !directMedia.test(extension)) {
@@ -672,13 +703,17 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     if (!found.streams.length) {
       if (found.blockers?.includes('drm')) throw new ApiError('DRM', '网页播放器使用 DRM', 422);
       if (supportedPage) throw new ApiError('PLATFORM_TOOL_REQUIRED', '请配置本机 yt-dlp 后重试', 503);
-      throw new ApiError('NO_MEDIA', '页面里没有找到可下载的媒体', 422, {reason:found.selection.reason,stderr:'',
+      const message = found.blockers?.includes('cloudflare-challenge')
+        ? '站点返回 Cloudflare 验证页，未探测到媒体流'
+        : '页面里没有找到可下载的媒体';
+      throw new ApiError('NO_MEDIA', message, 422, {reason:found.selection.reason,diagnostic:found.diagnostic,stderr:'',
         ...(found.blockers && {blockers:found.blockers})});
     }
     const stream = found.streams.find(candidate => candidate.url === found.selection.url);
     if (!stream) throw new ApiError('AMBIGUOUS_MEDIA', '页面中有多个视频，请选择明确的视频来源', 422);
     source = mediaUrl(stream.url);
     sourceKind ||= ['m3u8','mpd'].includes(stream.kind) ? stream.kind : undefined;
+    if (audioFormats.has(stream.kind) && target.mode === 'combined') target = {...target,mode:'audio'};
     if (!item.title) {
       item.title = stream.title || found.pageTitle || '';
       resolvedTitleSource = stream.titleSource;
@@ -779,6 +814,10 @@ async function runItem(batch, item, target, limit, cookies, signal) {
       info = await probeStream(media, scopedCookies, signal, true, undefined, headers);
     }
     const { duration, width, height, mediaTitle, tracks } = info;
+    if (target.mode === 'combined' && tracks?.some(row => row.codec_type === 'audio') &&
+        !tracks.some(row => row.codec_type === 'video' && !row.disposition?.attached_pic)) {
+      target = {...target,mode:'audio'};
+    }
     if (mediaTitle && (!item.title || (target.kind === 'page' && !target.title && canUseMediaTitle(resolvedTitleSource) && !platform))) {
       item.title = mediaTitle;
     }

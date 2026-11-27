@@ -4,6 +4,9 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { connectCdp, withChromium } from './edge-session.mjs';
 import { classify, isPlaylist, mediaResponseSize, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
+import { assessCandidates, detectionDiagnostic, documentBlockers } from '../extension/detection.mjs';
+import { publicMediaSources } from '../extension/media-adapters.mjs';
+import { manifestEvidence } from '../extension/manifest-evidence.mjs';
 
 export class ApiError extends Error {
   constructor(code, message, status = 400, detail) {
@@ -118,29 +121,20 @@ function startVisiblePlayback() {
 }
 
 function jsonPlaybackSources(value, base) {
-  const results = new Set();
   const keys = new Set();
-  const fields = ['file','src','url','source'];
   const pending = [value];
   let visited = 0;
-  while (pending.length && visited++ < 400 && results.size < 12) {
+  while (pending.length && visited++ < 400) {
     const current = pending.pop();
     if (!current || typeof current !== 'object') continue;
     if (!Array.isArray(current)) for (const key of Object.keys(current).slice(0,40)) {
       if (keys.size < 32 && /^[a-z][\w.-]{0,63}$/i.test(key)) keys.add(key);
     }
-    const sources = Object.hasOwn(current,'sources') && current.sources;
-    if (Array.isArray(sources)) for (const entry of sources.slice(0,12)) {
-      const values = typeof entry === 'string' ? [entry] : fields.map(field => entry?.[field]);
-      for (const text of values) {
-        if (typeof text !== 'string' || text.length > 8192) continue;
-        const media = URL.parse(text,base);
-        if (media?.origin === base.origin && classify(media)) results.add(media.href);
-      }
-    }
     pending.push(...Object.values(current).filter(child => child && typeof child === 'object').slice(0,40));
   }
-  return {media:[...results].slice(0,12),keys:[...keys].sort()};
+  const media = publicMediaSources(value,base,{strategy:'xhr-json',sameOrigin:true})
+    .filter(row => classify(row.url,row.mime));
+  return {media,keys:[...keys].sort()};
 }
 
 async function inspectChildFrames(page, embedded, expression, blockedFrames, signal) {
@@ -158,6 +152,7 @@ async function inspectChildFrames(page, embedded, expression, blockedFrames, sig
   for (const [target,tree] of trees) collect(target,tree,target !== page);
   const urls = new Map();
   let skippedFrames = 0;
+  let inaccessibleFrames = 0;
   const frames = await Promise.all([...children.values()].map(async ({frame,target}) => {
     const frameId = frame.id;
     const url = URL.parse(frame.url);
@@ -182,10 +177,11 @@ async function inspectChildFrames(page, embedded, expression, blockedFrames, sig
       }
     } catch {
       signal.throwIfAborted();
+      if (web) inaccessibleFrames++;
     }
     if (inline) skippedFrames++;
   }));
-  return {urls,frames:frames.filter(Boolean),skippedFrames};
+  return {urls,frames:frames.filter(Boolean),skippedFrames,inaccessibleFrames};
 }
 
 async function observeEmbedded(page, target, embedded, observe, networkOptions) {
@@ -224,10 +220,12 @@ export async function discover(url, cookies, signal, {
       const jsonSummaries = [];
       const pendingBodies = new Set();
       let captured = 0;
+      let manifests = 0;
       const networkOptions = captureXhrBody ? {maxResourceBufferSize:jsonLimit,maxTotalBufferSize:50*jsonLimit} : {};
       function observe(target) {
         const jsonRequests = new Map();
         const requests = new Map();
+        const manifestRequests = new Map();
         target.on('Network.requestWillBeSent', ({requestId,request,documentURL,type}) => {
           if (!['Media','XHR','Fetch','Other'].includes(type) && !classify(request.url)) return;
           const headers = observedHeaders(request.headers,documentURL);
@@ -243,12 +241,13 @@ export async function discover(url, cookies, signal, {
             frameUrls.set(frameId,response.url);
             blockedFrames.delete(frameId);
             frameBlockers.delete(frameId);
-            if ([401,402,403,407,429,451].includes(response.status)) blockedFrames.add(frameId);
-            if (Object.entries(response.headers).some(([name,value]) =>
-              name.toLowerCase() === 'cf-mitigated' && value === 'challenge')) {
-              frameBlockers.set(frameId,'cloudflare-challenge');
+            const challenged = Object.entries(response.headers).some(([name,value]) =>
+              name.toLowerCase() === 'cf-mitigated' && value === 'challenge');
+            const [blocker] = documentBlockers(response.status,challenged);
+            if (blocker) {
+              frameBlockers.set(frameId,blocker);
               blockedFrames.add(frameId);
-            } else if (response.status === 402) frameBlockers.set(frameId,'paywall');
+            }
           }
           if (captureXhrBody && captured < 50 && ['XHR','Fetch'].includes(type) && response.status === 200 &&
               /^application\/(?:json|[\w.+-]+\+json)$/i.test(response.mimeType)) {
@@ -265,11 +264,35 @@ export async function discover(url, cookies, signal, {
             const headers = new Map(Object.entries(response.headers).map(([name,value]) => [name.toLowerCase(),String(value)]));
             const size = mediaResponseSize(kind, response.status, name => headers.get(name)) ?? responses.get(key)?.size;
             const playbackHeaders = sent?.url === response.url ? sent.headers : null;
-            responses.set(key, {url:response.url, mime:response.mimeType, size, frameId, type:type?.toLowerCase(),playbackHeaders});
+            const entry = {url:response.url, mime:response.mimeType, size, frameId, type:type?.toLowerCase(),playbackHeaders};
+            responses.set(key, entry);
+            if (isPlaylist(kind) && manifests < 16) {
+              manifests++;
+              manifestRequests.set(requestId,{key,kind,entry});
+            }
           }
         });
+        target.on('Network.loadingFailed', ({requestId}) => {
+          manifestRequests.delete(requestId);
+          jsonRequests.delete(requestId);
+        });
+        target.on('Network.loadingFinished', ({requestId,encodedDataLength}) => {
+          const manifest = manifestRequests.get(requestId);
+          manifestRequests.delete(requestId);
+          if (!manifest || encodedDataLength > 128 * 1024 || blockedFrames.has(manifest.entry.frameId)) return;
+          const pending = target.send('Network.getResponseBody',{requestId}).then(({body,base64Encoded}) => {
+            const max = 128 * 1024;
+            if (base64Encoded) {
+              if (body.length > Math.ceil(max / 3) * 4) return;
+              body = Buffer.from(body,'base64').toString('utf8');
+            }
+            if (Buffer.byteLength(body) > max) return;
+            const evidence = manifestEvidence(body,manifest.entry.url,manifest.kind);
+            if (evidence) Object.assign(responses.get(manifest.key) ?? {},evidence);
+          }).catch(() => {}).finally(() => pendingBodies.delete(pending));
+          pendingBodies.add(pending);
+        });
         if (captureXhrBody) {
-          target.on('Network.loadingFailed', ({requestId}) => jsonRequests.delete(requestId));
           target.on('Network.loadingFinished', ({requestId,encodedDataLength}) => {
             const request = jsonRequests.get(requestId);
             jsonRequests.delete(requestId);
@@ -282,9 +305,9 @@ export async function discover(url, cookies, signal, {
               if (Buffer.byteLength(body) > jsonLimit) return;
               const {media,keys} = jsonPlaybackSources(JSON.parse(body),request.endpoint);
               jsonSummaries.push({frameId:request.frameId,keys,found:media.length});
-              for (const url of media) {
+              for (const source of media) {
                 if (jsonSources.size >= 24) break;
-                jsonSources.set(request.frameId + ' ' + url,{url,frameId:request.frameId,xhrJson:true});
+                jsonSources.set(request.frameId + ' ' + source.url,{...source,frameId:request.frameId,xhrJson:true});
               }
             }).catch(() => {}).finally(() => pendingBodies.delete(pending));
             pendingBodies.add(pending);
@@ -304,6 +327,8 @@ export async function discover(url, cookies, signal, {
       }
       const deadline = Date.now() + waitMs;
       let collectUntil = deadline;
+      let lastSignal;
+      let stableSince = 0;
       let found;
       let clicked = false;
       const expression = `({...(${scanDocument})(true, ${includeText}), blocker: (${visiblePageBlocker})()})`;
@@ -323,8 +348,27 @@ export async function discover(url, cookies, signal, {
             clicked = await (frame?.target ?? page).evaluate(`(${startVisiblePlayback})()`,frame?.executionContextId);
           }
         }
-        if (found?.candidates.some(candidate => classify(candidate.url, candidate.mime, candidate.mediaElement)) || responses.size || jsonSources.size) collectUntil = Math.min(collectUntil, Date.now() + 1200);
-        else if (found?.ready && !found.playerCount && found.detailPages.length) collectUntil = Math.min(collectUntil, Date.now() + 3000);
+        const credible = found?.candidates.some(candidate => candidate.mediaElement &&
+          /^(?:https?):/.test(candidate.url) && classify(candidate.url, candidate.mime, true) &&
+          !assessCandidates([candidate])[0].evidence.includes('preview-label'));
+        const adaptive = [...responses.values()].some(row => isPlaylist(classify(row.url,row.mime)) && !row.drm && row.frameId === nav.frameId) ||
+          found?.opaqueCount === 1 && [...responses.values()].some(row =>
+            isPlaylist(classify(row.url,row.mime)) && !/\/(?:ads?|preroll|midroll)\//i.test(new URL(row.url).pathname));
+        const signature = JSON.stringify([found?.documentUrl,found?.candidates
+          .filter(row => row.mediaElement && !assessCandidates([row])[0].evidence.includes('preview-label'))
+          .map(row => row.url), [...responses.values()].filter(row => row.manifestRole === 'master').map(row => row.url),
+          [...jsonSources.keys()]]);
+        const now = Date.now();
+        if (signature !== lastSignal) {
+          lastSignal = signature;
+          stableSince = now;
+        }
+        if (credible || adaptive && found?.opaqueCount === 1 || jsonSources.size && found?.playerCount) {
+          collectUntil = Math.min(deadline,stableSince + 1800);
+        } else {
+          collectUntil = found?.ready && !found.playerCount && found.detailPages.length && !found.iframeCount
+            ? Math.min(deadline,stableSince + 3000) : deadline;
+        }
       } while (Date.now() < collectUntil);
       const blocker = frameBlockers.get(nav.frameId) || (found?.encrypted ? 'drm' : found?.blocker);
       const blocked = blockedFrames.has(nav.frameId) || Boolean(blocker);
@@ -345,6 +389,13 @@ export async function discover(url, cookies, signal, {
           else if (result.blocker) blockers.add(result.blocker);
         }
       }
+      if (!streams.length && observed.some(row => row.drm)) blockers.add('drm');
+      const results = frames.map(frame => frame.result);
+      const diagnostic = detectionDiagnostic({streams,blockers:[...blockers],players:results.reduce((n,row) => n + row.playerCount,0),
+        unloaded:results.reduce((n,row) => n + row.unloaded,0),opaque:results.reduce((n,row) => n + row.opaqueCount,0),
+        unsupported:results.reduce((n,row) => n + row.unsupported,0),excluded:results.reduce((n,row) => n + row.excludedMedia.length,0),
+        blockedFrames:childFrames?.inaccessibleFrames ?? 0,
+        reason:blocked ? 'blocked' : !found?.ready ? 'timeout' : undefined});
       return {
         pageTitle: found?.pageMetadata?.title || found?.pageTitle || null,
         pageContext: found?.pageContext ?? null,
@@ -359,19 +410,24 @@ export async function discover(url, cookies, signal, {
           if (headers) onMediaHeaders?.(url,headers);
           const expiresAt = streamExpiry(new URL(url));
           return {url, kind, title, titleSource:stream.titleSource ?? (title ? 'media-url' : null),
+            ...assessCandidates([stream])[0],
+            ...(stream.observed && {observed:true}), ...(stream.role && {role:stream.role}),
+            ...(stream.adapter && {adapter:stream.adapter}), ...(stream.manifestRole && {manifestRole:stream.manifestRole}),
+            ...(stream.quality?.length && {quality:stream.quality}), ...(stream.bitrate && {bitrate:stream.bitrate}),
             duration:currentSource === false ? null : duration ?? null,
             width:currentSource === false ? null : width ?? null,
             height:currentSource === false ? null : height ?? null, size:size ?? null,
-            discoveredBy:stream.mediaElement ? 'player' : stream.xhrJson ? 'xhr-json' : stream.fromPlayer ? 'player-playlist' : 'network',
+            discoveredBy:stream.mediaElement ? 'player' : stream.xhrJson ? 'xhr-json' : stream.fromPlayer ? 'player-playlist' : stream.observed ? 'network' : stream.strategy || 'network',
             currentSource:currentSource ?? null,
             ...(expiresAt && {expiresAt}),
             ...(childFrames?.urls.has(stream.frameId) && {frameUrl:childFrames.urls.get(stream.frameId)}),
             ...(stream.xhrJson && playerId && {playerId}),
-            player:playerContext ? {id:playerId, ...playerContext, playing:stream.playing} : null,
+            player:playerContext ? {id:playerId, ...playerContext, type:stream.playerType || 'html5', playing:stream.playing} : null,
             ...(recommended && {recommended:true})};
         }),
         pages: found?.pages || [],
         candidates: found?.detailPages || [],
+        diagnostic,
         ...(includeFrames && {skippedFrames:childFrames?.skippedFrames ?? 0}),
         ...(captureXhrBody && !blocked && !streams.some(stream => stream.xhrJson) && {
           xhrJson:jsonSummaries.filter(summary => allowedFrame(summary.frameId)).map(({keys,found}) => ({keys,found})),
@@ -502,7 +558,7 @@ export async function probeStream(url, cookies, signal, tracks = false, kind, he
   try {
     const entries = tracks
       ? 'format=duration:format_tags=title:stream=index,codec_type,codec_name,width,height,bit_rate:stream_disposition=attached_pic,default'
-      : 'format=duration,size,format_name:format_tags=title:stream=width,height,bit_rate:stream_tags=variant_bitrate';
+      : 'format=duration,size,format_name:format_tags=title:stream=codec_type,width,height,bit_rate:stream_tags=variant_bitrate';
     const raw = await runMedia(FFPROBE, ['-v', 'error', '-show_entries', entries,
       '-of', 'json', ...mediaInput(url, cookies, headers)], AbortSignal.any([signal, AbortSignal.timeout(25000)]));
     const parsed = JSON.parse(raw);
@@ -516,7 +572,8 @@ export async function probeStream(url, cookies, signal, tracks = false, kind, he
     const mediaTitle = parsed.format?.tags?.title?.replace(/[\s\x00-\x1f]+/g,' ').trim().slice(0,300);
     return { duration, width: video?.width ?? null, height: video?.height ?? null,
       ...(mediaTitle && {mediaTitle}),
-      ...(!tracks && {size, ...(bitRate > 0 && {bitrate:bitRate}),
+      ...(!tracks && {size, trackSummary:{video:parsed.streams?.some(row => row.codec_type === 'video') ?? false,
+        audio:parsed.streams?.some(row => row.codec_type === 'audio') ?? false}, ...(bitRate > 0 && {bitrate:bitRate}),
         ...(estimate > 0 && Number.isSafeInteger(estimate) && {size:estimate, sizeEstimated:true})}),
       ...(tracks && {tracks:parsed.streams ?? []}) };
   } catch (error) {

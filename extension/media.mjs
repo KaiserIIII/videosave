@@ -1,6 +1,15 @@
 
+import { assessCandidates } from './detection.mjs';
+import { declaredMediaSources } from './media-adapters.mjs';
+
 const adaptive = new Set(['m3u8', 'mpd']);
 const formats = new Set(['mp4', 'webm', 'mkv', 'mov', 'm4v', 'ogv', 'avi', 'm3u8', 'mpd']);
+export const audioFormats = new Set(['mp3','m4a','ogg','wav','flac']);
+const mediaMimes = {
+  'video/mp4':'mp4', 'video/webm':'webm', 'video/quicktime':'mov', 'video/x-matroska':'mkv', 'video/ogg':'ogv',
+  'video/x-msvideo':'avi', 'audio/mpeg':'mp3', 'audio/mp4':'m4a', 'audio/ogg':'ogg', 'audio/wav':'wav',
+  'audio/x-wav':'wav', 'audio/flac':'flac',
+};
 
 export function platformVideo(value) {
   const url = URL.parse(value);
@@ -41,13 +50,17 @@ export function classify(value, contentType = '', mediaElement = false) {
   const mime = contentType.split(';')[0].trim().toLowerCase();
   if (/^(?:application|audio)\/(?:vnd\.apple\.mpegurl|x-mpegurl|mpegurl)$/.test(mime)) return 'm3u8';
   if (mime === 'application/dash+xml') return 'mpd';
-  if (/^(?:text\/|image\/|audio\/|font\/)|(?:json|xml|javascript|iso\.segment)$/.test(mime) ||
-      /\.(?:ts|m4s|cmfv|cmfa|m4a|aac|vtt)$/.test(pathname) ||
-      /\/(?:init|segment|chunk|fragment)(?:[-_\d][^/]*)?\.(?:mp4|m4v|mov|webm)$/.test(pathname)) return null;
+  if (/^(?:text\/|image\/|font\/)|(?:json|xml|javascript|iso\.segment)$/.test(mime) ||
+      /\.(?:m4s|cmfv|cmfa|aac|vtt)$/.test(pathname) ||
+      /\/(?:init|seg(?:ment)?|chunk|fragment)(?:[-_\d][^/]*)?\.(?:mp4|m4v|mov|webm|m4a|ts)$/.test(pathname)) return null;
   const extension = pathname.match(/\.([a-z0-9]+)$/)?.[1];
+  if (extension === 'ts' || mime === 'video/mp2t') return mediaElement ? 'ts' : null;
+  if (mime.startsWith('audio/') || audioFormats.has(extension)) {
+    return mediaElement ? mediaMimes[mime] || (audioFormats.has(extension) ? extension : null) : null;
+  }
+  if (Object.hasOwn(mediaMimes,mime)) return mediaMimes[mime];
   if (formats.has(extension)) return extension;
-  const subtype = { 'video/webm':'webm', 'video/quicktime':'mov', 'video/x-matroska':'mkv', 'video/ogg':'ogv' }[mime];
-  if (subtype || mime.startsWith('video/') || (mediaElement && !mime)) return subtype || 'mp4';
+  if (mime.startsWith('video/') || (mediaElement && !mime)) return 'mp4';
   return null;
 }
 
@@ -59,8 +72,10 @@ export function pickStreams(candidates) {
     const url = new URL(candidate.url);
     url.hash = '';
     const previous = streams.get(url.href);
-    const fields = Object.fromEntries(Object.entries(candidate).filter(([, value]) => value != null));
-    streams.set(url.href, { ...previous, ...fields, url: url.href,
+    const fields = Object.fromEntries(Object.entries(candidate).filter(([, value]) => value != null && value !== ''));
+    const strategies = [...new Set([...(previous?.strategies ?? []),
+      candidate.strategy || (candidate.mediaElement ? 'player' : candidate.xhrJson ? 'xhr-json' : 'network')])];
+    streams.set(url.href, { ...previous, ...fields, url: url.href, strategies,
       kind: previous && adaptive.has(previous.kind) ? previous.kind : kind });
   }
   return [...streams.values()].sort((a, b) => Number(adaptive.has(b.kind)) - Number(adaptive.has(a.kind)));
@@ -82,12 +97,32 @@ export function primaryCandidates(streams) {
 }
 
 export function selectPageStream(streams) {
-  const candidates = primaryCandidates(streams).sort(longestFirst);
+  const scored = assessCandidates(streams);
+  const safe = streams.filter((_, index) => !scored[index].evidence.includes('preview-label'));
+  if (!safe.length) return {status:streams.length ? 'ambiguous' : 'unavailable'};
+  const video = safe.filter(stream => stream.role !== 'audio' && !audioFormats.has(stream.kind));
+  const candidates = primaryCandidates(video.length ? video : safe).sort(longestFirst);
   const [longest, next] = candidates;
   if (!longest) return {status:'unavailable'};
-  if (!next) return {status:'selected', url:longest.url, reason:'only-candidate'};
+  if (!next) {
+    const previous = primaryCandidates(streams).sort(longestFirst);
+    const [first,second] = previous;
+    const legacyLead = first === longest && second && previous.every(usableDuration) &&
+      first.duration - second.duration >= Math.max(1,first.duration * 0.1);
+    return {status:'selected', url:longest.url, reason:legacyLead ? 'longest-player' : 'only-candidate'};
+  }
+  const ranked = candidates.map(stream => ({stream, evidence:scored[streams.indexOf(stream)]}))
+    .sort((a,b) => b.evidence.score - a.evidence.score);
+  const [best, runnerUp] = ranked;
   const duration = usableDuration(longest);
   const clearLead = candidates.every(usableDuration) && duration - usableDuration(next) >= Math.max(1, duration * 0.1);
+  if (clearLead && best.stream === longest && !['network','xhr-json'].includes(longest.discoveredBy)) {
+    return {status:'selected', url:longest.url, reason:'longest-player'};
+  }
+  if (best.evidence.score - runnerUp.evidence.score >= 4 && best.evidence.confidence === 'high' &&
+      best.evidence.evidence.some(code => ['full-content-label','audio-video','adaptive-variants'].includes(code))) {
+    return {status:'selected',url:best.stream.url,reason:'candidate-evidence'};
+  }
   if (!clearLead || ['network','xhr-json'].includes(longest.discoveredBy)) return {status:'ambiguous'};
   return {status:'selected', url:longest.url, reason:'longest-player'};
 }
@@ -97,24 +132,31 @@ export function pageStreams(frames, requests) {
   const declared = new Set();
   const covered = new Set();
   const inferred = [];
-  const rejected = new Set(requests.filter(row => row.mime && !classify(row.url,row.mime)).map(row => row.url));
+  const rejected = new Set(requests.filter(row => row.mime && !classify(row.url,row.mime,true)).map(row => row.url));
+  const protectedUrls = new Set(requests.filter(row => row.drm).flatMap(row => [row.url,...(row.manifestChildren ?? [])]));
+  const mediaParts = new Set(requests.flatMap(row => (row.manifestParts ?? []).map(url => row.frameId + ' ' + url)));
+  const documents = new Map(frames.map(frame => [frame.frameId,frame.result.documentUrl]));
+  const encryptedFrames = new Set(frames.filter(frame => frame.result.encrypted || frame.result.blocker).map(frame => frame.frameId));
   const excluded = new Set(frames.flatMap(({result}) => result.excludedMedia ?? []));
   const metadata = frames.find(frame => frame.frameId === 0)?.result.pageMetadata;
   const playerCount = frames.reduce((count, frame) => count + (frame.result.playerCount || 0), 0);
   const observed = frames.flatMap(({ frameId, result }) => {
-    const candidates = result.candidates.map(candidate => ({...candidate, frameId}));
+    if (result.encrypted || result.blocker) return [];
+    const candidates = [...declaredMediaSources(result), ...result.candidates].filter(candidate => candidate.url !== result.documentUrl)
+      .map(candidate => ({...candidate, frameId}));
     for (const candidate of candidates) {
       if (candidate.mediaElement && classify(candidate.url, candidate.mime, true)) declared.add(new URL(candidate.url).href);
     }
     if (!result.opaquePlayer || result.encrypted) return candidates;
-    const playlists = pickStreams([...requests.filter(row => row.frameId === frameId), ...candidates])
-      .filter(stream => adaptive.has(stream.kind) && !noisy.test(new URL(stream.url).pathname));
+    const playlists = pickStreams([...requests.filter(row => row.frameId === frameId && !row.drm), ...candidates])
+      .filter(stream => adaptive.has(stream.kind) && !protectedUrls.has(stream.url) && !noisy.test(new URL(stream.url).pathname));
     const masters = playlists.filter(stream => stream.kind === 'm3u8' &&
-      /\/(?:master|multivariant|main)(?:[-_][\w-]+)?\.m3u8$/i.test(new URL(stream.url).pathname));
+      (stream.manifestRole === 'master' || /\/(?:master|multivariant|main)(?:[-_][\w-]+)?\.m3u8$/i.test(new URL(stream.url).pathname)));
     const master = masters.length === 1 && masters[0];
     const base = master && new URL('.', master.url).href;
     const samePlaylistFamily = base && (result.opaqueCount ?? 1) <= 1 &&
-      playlists.every(stream => stream.kind === 'm3u8' && stream.url.startsWith(base));
+      playlists.every(stream => stream.kind === 'm3u8' && (stream.url === master.url ||
+        (master.manifestChildren ? master.manifestChildren.includes(stream.url) : stream.url.startsWith(base))));
     if (samePlaylistFamily) {
       for (const stream of playlists) if (stream.url !== master.url && !stream.mediaElement) covered.add(`${frameId} ${stream.url}`);
     }
@@ -122,15 +164,24 @@ export function pageStreams(frames, requests) {
     if (playlist) inferred.push({...playlist, ...result.opaquePlayer, frameId, fromPlayer:true});
     return candidates;
   });
-  const eligible = url => !rejected.has(url.href) && (!excluded.has(url.href) || declared.has(url.href));
+  for (const row of requests) {
+    if (row.drm || encryptedFrames.has(row.frameId)) continue;
+    for (const url of row.manifestChildren ?? []) {
+      if (!declared.has(url)) covered.add(row.frameId + ' ' + url);
+    }
+  }
+  const eligible = url => !protectedUrls.has(url.href) &&
+    !rejected.has(url.href) &&
+    (!excluded.has(url.href) || declared.has(url.href));
   const network = requests.filter(request => {
     const url = URL.parse(request.url);
-    return url && eligible(url) && !covered.has(`${request.frameId} ${url.href}`) && (declared.has(url.href) ||
+    return url && url.href !== documents.get(request.frameId) && !mediaParts.has(request.frameId + ' ' + url.href) &&
+      !encryptedFrames.has(request.frameId) && eligible(url) && !covered.has(`${request.frameId} ${url.href}`) && (declared.has(url.href) ||
       !noisy.test(url.pathname) && request.type !== 'image');
   });
-  const streams = pickStreams([...network, ...observed.filter(candidate => {
+  const streams = pickStreams([...network.map(request => request.xhrJson || request.manifestOnly ? request : {...request,observed:true}), ...observed.filter(candidate => {
     const url = URL.parse(candidate.url);
-    return url && eligible(url) && !covered.has(`${candidate.frameId} ${url.href}`) &&
+    return url && !mediaParts.has(candidate.frameId + ' ' + url.href) && eligible(url) && !covered.has(`${candidate.frameId} ${url.href}`) &&
       (candidate.mediaElement || !noisy.test(url.pathname));
   }), ...inferred]);
   const players = new Map();
@@ -203,7 +254,7 @@ export function scanDocument(includeContext = false, includeText = false) {
     return [null, ''];
   };
   const normalizeUrl = value => {
-    const url = typeof value === 'string' && URL.parse(value, document.baseURI);
+    const url = typeof value === 'string' && value.trim() && URL.parse(value, document.baseURI);
     if (!url) return '';
     url.hash = '';
     return url.href;
@@ -215,13 +266,25 @@ export function scanDocument(includeContext = false, includeText = false) {
     const duration = days * 86400 + hours * 3600 + minutes * 60 + Number(secs);
     return Number.isFinite(duration) && duration > 0 ? duration : null;
   };
+  const roots = [document];
+  const mediaNodes = new Set(document.querySelectorAll('video, audio'));
+  let walked = 0;
+  for (const root of roots) {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+    for (let node = walker.nextNode(); node && walked++ < 3000 && roots.length < 32; node = walker.nextNode()) {
+      if (node.shadowRoot) {
+        roots.push(node.shadowRoot);
+        for (const media of node.shadowRoot.querySelectorAll('video, audio')) mediaNodes.add(media);
+      }
+    }
+  }
   const videos = [];
   const excludedMedia = new Set();
   const adMarker = /^(?:(?:vjs[-_])?(?:pre|mid|post)[-_]?roll(?:[-_](?:video|player|ad|container))?|(?:video[-_]ad|ad[-_]video))$/i;
-  for (const video of document.querySelectorAll('video')) {
+  for (const video of [...mediaNodes].slice(0, 48)) {
     let element = video;
     let isAd = false;
-    for (let depth = 0; element && depth < 4; depth++, element = element.parentElement) {
+    for (let depth = 0; element && depth < 4; depth++, element = element.parentElement ?? element.getRootNode().host) {
       if (adMarker.test(element.id) || [...element.classList].some(name => adMarker.test(name))) {
         isAd = true;
         break;
@@ -234,20 +297,30 @@ export function scanDocument(includeContext = false, includeText = false) {
       }
     } else videos.push(video);
   }
-  const structured = [];
-  for (const script of document.querySelectorAll('script[type="application/ld+json"]')) {
+  const publicConfigs = [];
+  let remainingConfig = 192_000;
+  for (const root of roots) {
+    for (const script of root.querySelectorAll('script[type="application/ld+json"], script[type="application/json"]')) {
       const json = script.textContent;
-      if (!json || json.length > 512_000) continue;
+      if (!json || json.length > remainingConfig || json.length > 96_000 || publicConfigs.length >= 12) continue;
+      publicConfigs.push({json,base:document.baseURI,
+        strategy:script.type === 'application/ld+json' ? 'structured-data' : 'page-config'});
+      remainingConfig -= json.length;
+    }
+  }
+  const structured = [];
+  for (const {json,strategy} of publicConfigs) {
+      if (strategy !== 'structured-data') continue;
       let data;
       try { data = JSON.parse(json); } catch { continue; }
       const pending = [data];
-      for (let visited = 0; pending.length && visited < 2_000; visited++) {
+      for (let visited = 0; pending.length && visited < 400; visited++) {
         const entry = pending.pop();
         if (!entry || typeof entry !== 'object') continue;
         if ([entry['@type']].flat().some(type => typeof type === 'string' && /(?:^|\/)VideoObject$/.test(type))) {
           structured.push(entry);
         }
-        for (const value of Object.values(entry)) {
+        for (const value of Object.values(entry).slice(0,40)) {
           if (value && typeof value === 'object') pending.push(value);
         }
       }
@@ -292,9 +365,10 @@ export function scanDocument(includeContext = false, includeText = false) {
     titleSource, playerCount:videos.length, untrusted:true} : undefined;
   const nearbyText = video => {
     let heading = '', description = '';
-    let container = video.parentElement;
-    for (let depth = 0; container && depth < 4 && container !== document.body; depth++, container = container.parentElement) {
-      if (container.querySelectorAll('video').length !== 1) break;
+    let container = video.parentElement ?? video.getRootNode().host;
+    for (let depth = 0; container && depth < 4 && container !== document.body;
+      depth++, container = container.parentElement ?? container.getRootNode().host) {
+      if ((container.shadowRoot ?? container).querySelectorAll('video, audio').length !== 1) break;
       heading ||= visibleText(container, 'h1, h2, h3, h4, h5, h6');
       description ||= visibleText(container, 'figcaption, [itemprop="description"], p');
       if (heading && description || container.matches('article, aside, figure, section')) break;
@@ -302,12 +376,21 @@ export function scanDocument(includeContext = false, includeText = false) {
     return {heading:heading || null, description:description || null};
   };
   let opaquePlayer = null;
+  let unloaded = 0, unsupported = 0;
+  const roleFor = video => video.localName === 'audio' ? 'audio' : 'video';
   const candidates = [
     ...videos.flatMap((video, playerIndex) => {
       if (video.mediaKeys) return [];
-      const source = video.currentSrc || video.src;
-      const sources = [...video.querySelectorAll('source')].map(node => ({ url: node.src, mime: node.type || undefined }));
-      const urls = new Set([source, video.src, ...sources.map(item => item.url)].filter(Boolean).map(normalizeUrl));
+      const elementSrc = video.getAttribute('src')?.trim() ? video.src : '';
+      const source = video.currentSrc && video.currentSrc !== location.href ? video.currentSrc : elementSrc;
+      const lazy = video.getAttribute('data-src');
+      const sources = [...video.querySelectorAll('source')].slice(0, 16).map(node => ({
+        url:node.getAttribute('src') ? node.src : normalizeUrl(node.getAttribute('data-src')), mime:node.type || undefined,
+      }));
+      if (lazy && !source) sources.push({url:normalizeUrl(lazy),strategy:'page-config'});
+      if (!source && !sources.some(row => row.url)) unloaded++;
+      if (source && !/^(?:https?|blob):/.test(source)) unsupported++;
+      const urls = new Set([source, elementSrc, ...sources.map(item => item.url)].filter(Boolean).map(normalizeUrl));
       const opaque = source.startsWith('blob:');
       const matching = structured.find(entry => [entry.contentUrl].flat().some(url => urls.has(normalizeUrl(url))));
       const only = video === primary ? pageVideo : null;
@@ -328,14 +411,26 @@ export function scanDocument(includeContext = false, includeText = false) {
         duration, width: video.videoWidth || null, height: video.videoHeight || null,
         poster: normalizeUrl(video.poster || (video === primary ? pageMetadata.poster : '')) || null,
         playing: !video.paused && !video.ended, namedByPlayer:Boolean(playerTitle), playerIndex,
-        ...(context && {playerContext:{...context, description:clean(info?.description) || context.description, visible:visible(video)}}) };
+        role:roleFor(video), playerType:video.closest('.video-js') ? 'videojs' : video.closest('.plyr') ? 'plyr'
+          : video.closest('.jwplayer') ? 'jwplayer' : 'html5',
+        ...(context && {playerContext:{...context, description:clean(info?.description) || context.description,
+          visible:visible(video),large:video.clientWidth >= 320 && video.clientHeight >= 150}}) };
       if (opaque && video === primary) opaquePlayer = metadata;
-      return [...new Map([{ url: video.src }, { url: source }, ...sources]
+      return [...new Map([{ url: elementSrc }, ...sources, {url:source,mime:sources.find(item => item.url === source)?.mime}]
         .filter(item => item.url).map(item => [item.url, item])).values()]
-        .map(item => ({ ...item, mediaElement:true, currentSource:item.url === source, ...metadata }));
+        .map(item => ({ ...metadata, ...item, mediaElement:true,
+          currentSource:source ? item.url === source : undefined,
+          ...(source && item.url !== source && {width:null,height:null}) }));
     }),
-    ...performance.getEntriesByType('resource').filter(resource =>
-      ['video','fetch','xmlhttprequest'].includes(resource.initiatorType)).map(resource => ({url:resource.name})),
+    ...['og:video:secure_url','og:video:url','og:video','twitter:player:stream'].flatMap(property => {
+      const url = normalizeUrl(meta('property', property) || meta('name',property));
+      const mime = meta('property', 'og:video:type') || meta('name','twitter:player:stream:content_type');
+      return url ? [{url,mime,strategy:'structured-data'}] : [];
+    }),
+    ...performance.getEntriesByType('resource').slice(-150).filter(resource =>
+      resource.startTime >= (globalThis.videoSaveRouteStart || 0) &&
+      ['video','audio','fetch','xmlhttprequest'].includes(resource.initiatorType)).map(resource =>
+      ({url:resource.name,strategy:'performance'})),
   ];
   const pages = [...new Map([...document.querySelectorAll('a[href]')]
     .filter(a => /^https?:/.test(a.href) && a.href !== location.href && /\/(?:watch|videos?|clip)(?:[/?#]|$)/i.test(a.href))
@@ -359,8 +454,14 @@ export function scanDocument(includeContext = false, includeText = false) {
     detailPages.set(url.href, {url:url.href, title, kind:'page', ...(duration && {duration})});
   }
   const opaqueCount = videos.filter(video => (video.currentSrc || video.src).startsWith('blob:')).length;
+  const visibleBlocker = selector => [...document.querySelectorAll(selector)].some(visible);
+  const blocker = visibleBlocker('#challenge-form, #cf-challenge-running, #cf-challenge-stage') ? 'cloudflare-challenge'
+    : visibleBlocker('#captcha-form, form[action*="captcha"]') ? 'captcha'
+    : !videos.length && visibleBlocker('iframe[src*="challenges.cloudflare.com"], .cf-turnstile') ? 'cf-turnstile' : null;
   return { pageTitle:document.title, pageMetadata, pageContext, playerCount:videos.length, candidates, pages,
+    documentUrl:location.href, blocker, routeStartedAt:globalThis.videoSaveRouteStart && performance.timeOrigin + globalThis.videoSaveRouteStart,
     ...(detailPages && {detailPages:[...detailPages.values()]}), opaquePlayer, excludedMedia:[...excludedMedia],
     encrypted:videos.some(video => video.mediaKeys),
+    publicConfigs, unloaded, unsupported, iframeCount:document.querySelectorAll('iframe, frame').length,
     opaqueCount, opaque:opaqueCount > 0, ready:document.readyState === 'complete' };
 }
