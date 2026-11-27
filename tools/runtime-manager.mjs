@@ -4,10 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { detectAvailableBrowsers } from './edge-session.mjs';
 
 const execFileAsync = promisify(execFile);
-const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
 export const PINNED_COMPONENTS = Object.freeze({
   node: {
@@ -49,7 +47,7 @@ export function managedToolsRoot() {
 }
 
 export function portableToolsRoot() {
-  return path.join(repoRoot, '.local-tools');
+  return path.join(fileURLToPath(new URL('..', import.meta.url)), '.local-tools');
 }
 
 function findInToolRoots(subpaths) {
@@ -122,6 +120,7 @@ export async function getRuntimeHealth() {
     streamlinkFound ? probeBinaryVersion(streamlinkFound.path, ['--version']) : Promise.resolve(null),
   ]);
 
+  const { detectAvailableBrowsers } = await import('./edge-session.mjs');
   const browsers = detectAvailableBrowsers();
   const nodeMajor = Number.parseInt(process.versions.node, 10);
   const distributionMode = existsSync(path.join(portableToolsRoot(), 'ffmpeg-8.1.2-essentials_build', 'bin', 'ffmpeg.exe')) ||

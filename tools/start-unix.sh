@@ -47,11 +47,11 @@ fi
 mkdir -p "$TOOLS_DIR"
 
 if [[ "$MODE" == "health" ]]; then
-  exec "$NODE_BIN" --input-type=module -e "import { getRuntimeHealth } from '$PROJECT_DIR/tools/runtime-manager.mjs'; console.log(JSON.stringify(await getRuntimeHealth(), null, 2));"
+  exec env VIDEOSAVE_ROOT="$PROJECT_DIR" "$NODE_BIN" --input-type=module -e "import path from 'node:path'; import { pathToFileURL } from 'node:url'; const { getRuntimeHealth } = await import(pathToFileURL(path.join(process.env.VIDEOSAVE_ROOT, 'tools', 'runtime-manager.mjs')).href); console.log(JSON.stringify(await getRuntimeHealth(), null, 2));"
 fi
 
 if [[ "$MODE" == "setup" ]]; then
-  "$NODE_BIN" --input-type=module -e "import { getRuntimeHealth } from '$PROJECT_DIR/tools/runtime-manager.mjs'; const h = await getRuntimeHealth(); console.log(JSON.stringify(h, null, 2)); if (!h.ready) process.exit(1);"
+  env VIDEOSAVE_ROOT="$PROJECT_DIR" "$NODE_BIN" --input-type=module -e "import path from 'node:path'; import { pathToFileURL } from 'node:url'; const { getRuntimeHealth } = await import(pathToFileURL(path.join(process.env.VIDEOSAVE_ROOT, 'tools', 'runtime-manager.mjs')).href); const h = await getRuntimeHealth(); console.log(JSON.stringify(h, null, 2)); if (!h.ready) process.exit(1);"
   echo "VideoSave runtime verified on $(uname -s) $(uname -m)."
   exit 0
 fi
@@ -60,7 +60,7 @@ if [[ "$MODE" == "mcp-config" ]]; then
   TARGET_CLIENT="${CLIENT:-claude-desktop}"
   MCP_MODE="standalone"
   if [[ "$SHARED_QUEUE" -eq 1 ]]; then MCP_MODE="shared-queue"; fi
-  exec "$NODE_BIN" --input-type=module -e "import { generateMcpClientConfig } from '$PROJECT_DIR/tools/mcp-config-generator.mjs'; const cfg = generateMcpClientConfig('$TARGET_CLIENT', { mode: '$MCP_MODE', companionPort: $PORT }); console.log(cfg.content);"
+  exec env VIDEOSAVE_ROOT="$PROJECT_DIR" TARGET_CLIENT="$TARGET_CLIENT" MCP_MODE="$MCP_MODE" PORT="$PORT" "$NODE_BIN" --input-type=module -e "import path from 'node:path'; import { pathToFileURL } from 'node:url'; const { generateMcpClientConfig } = await import(pathToFileURL(path.join(process.env.VIDEOSAVE_ROOT, 'tools', 'mcp-config-generator.mjs')).href); const cfg = generateMcpClientConfig(process.env.TARGET_CLIENT, { mode: process.env.MCP_MODE, companionPort: Number(process.env.PORT) }); console.log(cfg.content);"
 fi
 
 export MEDIA_TOOLKIT_LOCAL_PAIRING=1

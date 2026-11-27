@@ -88,7 +88,10 @@ def package_entries(manifest):
         "tools/start-windows.ps1", "tools/install-windows.ps1", "tools/uninstall-windows.ps1",
         "tools/start-unix.sh",
     ):
-        desktop[file] = (ROOT / file).read_bytes()
+        raw = (ROOT / file).read_bytes()
+        if file.endswith(".sh"):
+            raw = raw.replace(b"\r\n", b"\n")
+        desktop[file] = raw
 
     unix_desktop = {
         k: v for k, v in desktop.items()

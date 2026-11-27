@@ -4,7 +4,7 @@
   "homepage": "https://kaiseriiii.github.io/videosave/",
   "license": "MIT",
   "url": "https://github.com/KaiserIIII/videosave/releases/download/v1.1.0/VideoSave-1.1.0.zip",
-  "hash": "2d3a0bd3589294877ce21005afad95476c815f1da6977af70fa934de50cbeeda",
+  "hash": "6ce8df821c62a0923e950980e4989f00ada166133a247e882dda79af2d6142dc",
   "extract_dir": "VideoSave-1.1.0",
   "bin": [
     ["Start VideoSave.cmd", "videosave"]

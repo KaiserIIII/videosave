@@ -43,8 +43,10 @@ jobs:
             tests/http-boundaries.test.mjs tests/download-proxy.test.mjs tests/platform-download.test.mjs \
             tests/range-performance.test.mjs tests/mcp-control.test.mjs tests/compatibility-policy.test.mjs \
             tests/test-isolation-and-security.test.mjs
-          bash tools/start-unix.sh --mcp-config --client deepseek-harness | grep -q 'videosave-mcp'
-          bash tools/start-unix.sh --mcp-config --client codex | grep -q '\[mcp_servers.videosave\]'
+          dsh_cfg="$(bash tools/start-unix.sh --mcp-config --client deepseek-harness)"
+          printf '%s\n' "$dsh_cfg" | grep -q 'videosave-mcp'
+          codex_cfg="$(bash tools/start-unix.sh --mcp-config --client codex)"
+          printf '%s\n' "$codex_cfg" | grep -q '\[mcp_servers.videosave\]'
           python3 tools/build_release.py
           python3 tools/verify_release.py
 
@@ -66,7 +68,8 @@ jobs:
           node --test tests/detection.test.mjs tests/media.test.mjs tests/media-source.test.mjs \
             tests/http-boundaries.test.mjs tests/mcp-control.test.mjs tests/compatibility-policy.test.mjs \
             tests/test-isolation-and-security.test.mjs
-          bash tools/start-unix.sh --mcp-config --client claude-desktop | grep -q 'mcp-server.mjs'
+          claude_cfg="$(bash tools/start-unix.sh --mcp-config --client claude-desktop)"
+          printf '%s\n' "$claude_cfg" | grep -q 'mcp-server.mjs'
           python3 tools/build_release.py
           python3 tools/verify_release.py
 

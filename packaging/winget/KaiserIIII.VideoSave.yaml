@@ -22,6 +22,6 @@ NestedInstallerFiles:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/KaiserIIII/videosave/releases/download/v1.1.0/VideoSave-1.1.0.zip
-    InstallerSha256: 2D3A0BD3589294877CE21005AFAD95476C815F1DA6977AF70FA934DE50CBEEDA
+    InstallerSha256: 6CE8DF821C62A0923E950980E4989F00ADA166133A247E882DDA79AF2D6142DC
 ManifestType: singleton
 ManifestVersion: 1.6.0
