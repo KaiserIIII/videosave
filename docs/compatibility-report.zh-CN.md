@@ -77,3 +77,11 @@ node tests/compatibility.mjs --browser=chrome '--only=shadow-delayed|delay-late|
 ```
 
 另见 [HLS 下载性能与竞品对照](hls-benchmark.zh-CN.md)，包含受控慢尾、两个公网样片和 Video DownloadHelper 的探测核对。
+
+## 0.10.0 候选版复测
+
+2026 年 11 月 27 日，提交 `6a8b86e` 的 Windows CI 从解压后的发行包运行同一组本地场景。Edge 和 Firefox 各识别 39/39 个正样本，Chrome 识别 37/39。三个扩展各落盘 5/5，均无误报。独立 MCP 探测识别 38/38，落盘 7/7，两个选片场景均通过。四个通道向测试保留资源发出的请求数均为 0。 [原始 CI 和逐场景附件](https://github.com/KaiserIIII/videosave/actions/runs/45940753966)
+
+Chrome 漏检 `shadow-delayed` 和 `shadow-attach-late`。复现中，已有元素调用 `attachShadow` 时，外层文档观察不到这个变化。将空结果的补扫改为有限次数后，Chrome 158.0.8127.38 的发行格式扩展包完整复测识别 39/39、落盘 5/5、正片选择 1/1，48 个场景无误报。两个 Shadow DOM 场景首次命中分别用了 3,330 和 2,091 ms。首个命中中位数为 233 ms，页面 JS 堆中位数为 12.43 MiB。该轮在本机运行，CI 数据来自 GitHub Windows runner。
+
+同一批七个合法公网样本在 Windows 的候选版中均被 Edge 扩展和独立 MCP 命中。Edge 扩展落盘 1/1，独立 MCP 落盘 2/2。独立 MCP 探测返回耗时中位数为 11,716 ms。样本用于验证公开资源，登录授权另用本地媒体服务器和隔离浏览器账户验证。

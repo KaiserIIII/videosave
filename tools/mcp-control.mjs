@@ -144,6 +144,16 @@ export function listGrants(client) {
   return {items:[...sessions.values()].filter(grant => !client || grant.clientId === client.id).reverse().map(publicGrant)};
 }
 
+export function sessionStatus(client,value) {
+  const origin = siteOrigin(value);
+  sweep();
+  const matching = [...sessions.values()].filter(grant => grant.clientId === client.id && grant.origin === origin);
+  const grant = matching.find(entry => entry.status === 'approved') ?? matching.at(-1);
+  if (!grant) return {origin,status:'unavailable'};
+  return {origin,status:grant.status,authorizationId:grant.id,expiresAt:publicGrant(grant).expiresAt,
+    sessionShared:grant.tab?.sessionShared ?? false,singleTask:grant.singleTask ?? false,used:grant.used ?? false};
+}
+
 export function approveGrant({id,tab,minutes = 5,shareSession = false,singleTask = false} = {}) {
   const grant = getGrant(id);
   if (grant.status !== 'pending') throw new ApiError('MCP_AUTHORIZATION_INACTIVE','Request is no longer pending',409);
@@ -163,6 +173,7 @@ export function approveGrant({id,tab,minutes = 5,shareSession = false,singleTask
         url.username || url.password || item.restricted || item.drm) continue;
     const cookiesFor = shareSession && !['m3u8','mpd'].includes(item.kind) ? approvedCookies(item.cookies) : () => [];
     streams.set(url.href,{candidateId:randomUUID(),url:url.href,kind:item.kind,cookiesFor,
+      ...(Number.isSafeInteger(item.size) && item.size > 0 && !['m3u8','mpd'].includes(item.kind) && {size:item.size}),
       ...(Number.isFinite(item.duration) && item.duration > 0 && {duration:item.duration}),
       ...(Number.isInteger(item.height) && item.height > 0 && {height:item.height})});
   }

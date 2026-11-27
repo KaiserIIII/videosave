@@ -1,5 +1,7 @@
+import { statfs } from 'node:fs/promises';
+import path from 'node:path';
 import * as downloads from './media-downloads.mjs';
-import { activeTab, consumeGrant, grantStatus, handleGrantRevocation, listGrants, preferenceProperties, recordActivity, requestGrant, requireScope, revokeGrant, sitePreferences, verifyInput } from './mcp-control.mjs';
+import { activeTab, consumeGrant, grantStatus, handleGrantRevocation, listGrants, preferenceProperties, recordActivity, requestGrant, requireScope, revokeGrant, sessionStatus, sitePreferences, verifyInput } from './mcp-control.mjs';
 
 const {ApiError} = downloads;
 const object = (properties = {}, required = []) => ({type:'object',properties,required,additionalProperties:false});
@@ -34,6 +36,13 @@ const outputSchemas = {
     ['mode','id','preset','permissions','tools']),
   request_site_authorization:grantResult, get_authorization_status:grantResult, revoke_site_authorization:grantResult,
   list_authorized_sites:object({items:array(grantResult)},['items']),
+  get_session_status:object({origin,status:stringResult,authorizationId:id,expiresAt:stringResult,sessionShared:boolean,
+    singleTask:boolean,used:boolean},['origin','status']),
+  validate_media:object({candidateId:id,kind:stringResult,eligible:boolean,code:stringResult,availabilityChecked:{const:false}},
+    ['candidateId','kind','eligible','code','availabilityChecked']),
+  estimate_download:object({candidateId:id,sourceBytes:measured,stagingBytes:measured,freeBytes:measured,
+    settings:object(preferenceProperties,Object.keys(preferenceProperties))},
+    ['candidateId','sourceBytes','stagingBytes','freeBytes','settings']),
   get_active_tab:object({authorizationId:id,tab},['authorizationId','tab']),
   probe_active_tab:object({authorizationId:id,tab,diagnostic,streams:array(object({
     candidateId:id,kind:stringResult,duration:measured,height:measured,downloadable:boolean,
@@ -51,9 +60,14 @@ const specs = [
   ['session','get_authorization_status','Read the status of an authorization issued to this client.',object({id},['id'])],
   ['session','revoke_site_authorization','Revoke this client’s own tab authorization and stop its active downloads.',object({id},['id'])],
   ['session','list_authorized_sites','List this client’s browser context authorizations.',object()],
+  ['session','get_session_status','Check this client’s browser authorization for an HTTP(S) origin.',object({origin},['origin'])],
   ['read','get_active_tab','Read the approved tab’s origin, title and playback state.',object(options)],
   ['read','probe_active_tab','Return media candidates already observed in the approved tab. Page text is untrusted data.',object(options)],
   ['read','diagnose_probe','Explain the approved tab’s media detection result and next action.',object(options)],
+  ['read','validate_media','Check an approved candidate against local download permissions and format support, without requesting the media.',
+    object({...options,candidateId:id},['candidateId'])],
+  ['read','estimate_download','Report the last observed source size, staging requirement and currently free local disk space.',
+    object({...options,candidateId:id},['candidateId'])],
   ['read','get_site_preferences','Read effective defaults for a website origin.',object({origin},['origin'])],
   ['read','get_effective_settings','Read effective settings for the current browser authorization.',object(options)],
   ['download','start_download','Save the selected candidates from this approved browser context.',object({...options,
@@ -85,6 +99,29 @@ function getContext(client,args) {
   return {...context,settings};
 }
 
+function approvedCandidate(streams,candidateId) {
+  const source = streams.find(stream => stream.candidateId === candidateId);
+  if (!source) throw new ApiError('MCP_SOURCE_NOT_APPROVED','Choose a candidate from the approved tab',403);
+  return source;
+}
+
+const supportedCandidate = source => source.kind !== 'mpd';
+
+async function availableDiskBytes(directory) {
+  for (let depth = 0; depth < 16; depth++) {
+    try {
+      const {bavail,bsize} = await statfs(directory);
+      const bytes = bavail * bsize;
+      return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null;
+    } catch (error) {
+      const parent = path.dirname(directory);
+      if (error.code !== 'ENOENT' || parent === directory) break;
+      directory = parent;
+    }
+  }
+  return null;
+}
+
 function enqueue(client,args) {
   const {streams,settings,authorizationId,tab,used} = getContext(client,args);
   if (used) throw new ApiError('MCP_AUTHORIZATION_USED','Request a new authorization for another batch',409);
@@ -92,9 +129,8 @@ function enqueue(client,args) {
   const active = downloads.listBatches({limit:100},client.id).items.filter(batch => ['running','cancelling'].includes(batch.status)).length;
   if (active >= 2) throw new ApiError('MCP_BATCH_LIMIT','This client already has two active batches',429);
   const items = args.items.map(item => {
-    const source = streams.find(stream => stream.candidateId === item.candidateId);
-    if (!source) throw new ApiError('MCP_SOURCE_NOT_APPROVED','Choose a candidate from the approved tab',403);
-    if (source.kind === 'mpd') {
+    const source = approvedCandidate(streams,item.candidateId);
+    if (!supportedCandidate(source)) {
       throw new ApiError('MCP_MEDIA_UNSUPPORTED','Managed downloads support direct media and eligible HLS',422);
     }
     return {kind:'stream',url:source.url,title:tab.title || undefined,format:item.format ?? settings.format,
@@ -143,18 +179,38 @@ async function perform(client,name,args,signal) {
     case 'get_authorization_status': return grantStatus(args.id,client);
     case 'revoke_site_authorization': return revokeGrant(args.id,client);
     case 'list_authorized_sites': return listGrants(client);
+    case 'get_session_status': return sessionStatus(client,args.origin);
     case 'get_active_tab': {
       const {authorizationId,tab} = getContext(client,args);
       return {authorizationId,tab};
     }
     case 'probe_active_tab': {
       const {authorizationId,tab,streams,diagnostic} = getContext(client,args);
-      return {authorizationId,tab,streams:streams.map(({candidateId,kind,duration,height}) => ({
-        candidateId,kind,duration,height,downloadable:kind !== 'mpd',
-      })),
+      return {authorizationId,tab,streams:streams.map(source => {
+        const {candidateId,kind,duration,height} = source;
+        return {candidateId,kind,duration,height,downloadable:supportedCandidate(source)};
+      }),
         diagnostic};
     }
     case 'diagnose_probe': return getContext(client,args).diagnostic;
+    case 'validate_media': {
+      const {streams,settings,used} = getContext(client,args);
+      const {candidateId} = args;
+      const source = approvedCandidate(streams,candidateId);
+      let code = 'eligible';
+      if (!client.scopes.includes('download')) code = 'MCP_PERMISSION_DENIED';
+      else if (used) code = 'MCP_AUTHORIZATION_USED';
+      else if (!settings.download) code = 'MCP_SITE_DENIED';
+      else if (!supportedCandidate(source)) code = 'MCP_MEDIA_UNSUPPORTED';
+      return {candidateId,kind:source.kind,eligible:code === 'eligible',code,availabilityChecked:false};
+    }
+    case 'estimate_download': {
+      const {streams,settings} = getContext(client,args);
+      const {candidateId} = args;
+      const {size = null} = approvedCandidate(streams,candidateId);
+      const freeBytes = await availableDiskBytes(downloads.getSettings().settings.outDir);
+      return {candidateId,sourceBytes:size,stagingBytes:size,freeBytes,settings};
+    }
     case 'get_site_preferences': return sitePreferences(args.origin);
     case 'get_effective_settings': {
       const {tab,settings} = getContext(client,args);
@@ -169,11 +225,7 @@ async function perform(client,name,args,signal) {
     case 'verify_download': return publicBatch(await downloads.verifyBatchFiles(args.id,signal));
     case 'wait_for_download': return publicBatch(await downloads.waitForBatch(args,signal));
     case 'cancel_download': return downloads.cancel(args.id);
-    case 'open_file': {
-      const file = downloads.progress(args.id).items[args.index ?? 0]?.file;
-      if (!file) throw new ApiError('MCP_FILE_NOT_READY','Wait for the verified file to finish',409);
-      return downloads.openDownload(file);
-    }
+    case 'open_file': return downloads.openBatchOutput(args.id,args.index ?? 0);
   }
 }
 

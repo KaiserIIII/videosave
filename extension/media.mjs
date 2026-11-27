@@ -189,7 +189,9 @@ export function pageStreams(frames, requests) {
       !encryptedFrames.has(request.frameId) && eligible(url) && !covered.has(`${request.frameId} ${url.href}`) && (declared.has(url.href) ||
       !noisy.test(url.pathname) && request.type !== 'image');
   });
-  const streams = pickStreams([...network.map(request => request.xhrJson || request.manifestOnly ? request : {...request,observed:true}), ...observed.filter(candidate => {
+  const streams = pickStreams([...network.map(request => request.xhrJson || request.manifestOnly ? request : {
+    ...request,observed:true,...(request.frameId === 0 && {observedTopFrame:true}),
+  }), ...observed.filter(candidate => {
     const url = URL.parse(candidate.url);
     return url && !isPart(url,candidate.frameId) && eligible(url) && !covered.has(`${candidate.frameId} ${url.href}`) &&
       (candidate.mediaElement || !noisy.test(url.pathname));

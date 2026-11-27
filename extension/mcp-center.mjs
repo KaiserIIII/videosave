@@ -54,7 +54,7 @@ export function startTabGrantCleanup() {
         const grant = await companion(local.connection,valid ? '/api/ai/renew' : '/api/ai/revoke',{id});
         if (grant.status !== 'approved') await browserApi.storage.session.remove(key);
       } catch (error) {
-        if (error.status === 404) await browserApi.storage.session.remove(key);
+        if (error.status === 404 || error.code === 'MCP_AUTHORIZATION_INACTIVE') await browserApi.storage.session.remove(key);
       }
     }));
   }
@@ -87,7 +87,12 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
   let selectedClient;
   let configText;
   let epoch = 0;
+  let rawCookieOrigin;
   const scopes = [...root.querySelectorAll('[data-mcp-scope]')];
+  byId('mcp-session-text').addEventListener('input',event => {
+    if (!event.target.value) rawCookieOrigin = undefined;
+    else rawCookieOrigin ??= ownOrigin();
+  });
 
   function safeClick(button,work) {
     button.addEventListener('click', async () => {
@@ -137,11 +142,18 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
     if (page?.origin !== grant.origin || !sameDocument(snapshot.document,document) || document?.url !== current.url || snapshot.restricted) {
       throw new Error(label('请打开申请的网站，完成正常播放并扫描后再批准。','Open the requested site, play the media normally, and scan before approving.'));
     }
+    if (raw && rawCookieOrigin !== page.origin) {
+      byId('mcp-session-text').value = '';
+      rawCookieOrigin = undefined;
+      throw new Error(label('当前站点已更改，请重新输入本站 Cookie。','The site changed. Re-enter its cookies.'));
+    }
     const streams = snapshot.streams.flatMap(stream => [stream,...(stream.alternates ?? [])]).filter(stream => {
       const source = cleanUrl(stream.url);
       return source?.origin === page.origin && !source.search && !source.hash && !stream.drm && !stream.restricted;
-    }).slice(0,40).map(({url,kind,duration,height,observed,frameId}) => ({url,kind,duration,height,observed,frameId}));
-    const sessionCandidates = streams.filter(stream => stream.observed && stream.frameId === 0)
+    }).slice(0,40).map(({url,kind,duration,height,size,sizeEstimated,observedTopFrame}) => ({
+      url,kind,duration,height,observedTopFrame,...(size && !sizeEstimated && {size}),
+    }));
+    const sessionCandidates = streams.filter(stream => stream.observedTopFrame)
       .map(({url,kind}) => ({url,kind}));
     if (file?.size > maxCredentialFileBytes) throw new Error(label('Cookie 文件超过 64 KB。','The cookie file exceeds 64 KB.'));
     const state = shareBrowser ? await cookieState(tab.id,sessionCandidates) : null;
@@ -152,14 +164,14 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
     const sessionScope = state && {digest:state.digest,candidates:sessionCandidates};
     if (state) for (const stream of streams) stream.cookies = state.cookies.get(stream.url);
     if (manual) for (const stream of streams) {
-      if (stream.observed && stream.frameId === 0 && !['m3u8','mpd'].includes(stream.kind)) stream.cookies = manual;
+      if (stream.observedTopFrame && !['m3u8','mpd'].includes(stream.kind)) stream.cookies = manual;
     }
     for (const stream of streams) {
-      delete stream.observed;
-      delete stream.frameId;
+      delete stream.observedTopFrame;
     }
     byId('mcp-share-session').checked = false;
     byId('mcp-session-text').value = '';
+    rawCookieOrigin = undefined;
     byId('mcp-session-file').value = '';
     const singleTask = byId('mcp-single-task').checked;
     byId('mcp-single-task').checked = false;

@@ -21,7 +21,9 @@ export async function companion(connection, route, body) {
     signal:AbortSignal.timeout(6500),
   }).catch(() => { throw new Error('本机服务未响应'); });
   const data = await response.json();
-  if (!response.ok) throw Object.assign(new Error(data.error?.message || '本机服务请求失败'), {status:response.status});
+  if (!response.ok) throw Object.assign(new Error(data.error?.message || '本机服务请求失败'), {
+    status:response.status,code:data.error?.code,
+  });
   return data;
 }
 

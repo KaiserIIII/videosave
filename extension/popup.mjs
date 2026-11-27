@@ -95,6 +95,8 @@ let downloadJobs = [];
 let scanning = false;
 let scanTimer;
 let discoveryRetry;
+let discoveryAttempts = 0;
+const discoveryDelays = [700,900,900];
 let pollTimer;
 let polling = false;
 let openedOptions;
@@ -711,11 +713,19 @@ async function refresh(manual = true) {
     } else if (!preferences.autoScan) await stopWatching();
     if (manual || pageChanged) {
       clearTimeout(discoveryRetry);
-      if (preferences.autoScan && available && !streams.length) {
-        discoveryRetry = setTimeout(() => {
-          if (!streams.length) scheduleScan();
-        },2600);
-      }
+      discoveryRetry = undefined;
+      discoveryAttempts = 0;
+    }
+    if (streams.length || !preferences.autoScan || !available) {
+      clearTimeout(discoveryRetry);
+      discoveryRetry = undefined;
+    } else if (!discoveryRetry && discoveryAttempts < discoveryDelays.length) {
+      // Creating an open shadow root on an existing host emits no document mutation.
+      discoveryRetry = setTimeout(guarded(async () => {
+        discoveryRetry = undefined;
+        if (scanning) scanQueued = true;
+        else await refresh(false);
+      }),discoveryDelays[discoveryAttempts++]);
     }
   } finally {
     scanning = false;

@@ -8,10 +8,21 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { connectCdp, withEdge } from '../tools/edge-session.mjs';
+import { connectCdp, withChromium, withEdge } from '../tools/edge-session.mjs';
+import { executable } from './compatibility-browsers.mjs';
 
-test('Edge shares a login only after approval and saves a verified file through MCP', {timeout:90_000}, async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(),'videosave-mcp-edge-'));
+test('Edge shares a login only after approval and saves a verified file through MCP', {timeout:90_000},
+  context => verifyBrowserAuthorization(context, 'edge', withEdge));
+
+test('Chrome shares a login only after approval and saves a verified file through MCP', {timeout:90_000}, context => {
+  const chrome = executable('chrome');
+  assert.ok(chrome, 'Chrome is required for this test. Set CHROME_BIN to its executable path.');
+  return verifyBrowserAuthorization(context, 'chrome',
+    (args, run, signal) => withChromium(args, run, signal, {executable:chrome}));
+});
+
+async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
+  const dir = await mkdtemp(path.join(os.tmpdir(),'videosave-mcp-' + browserName + '-'));
   const signal = AbortSignal.timeout(85_000);
   const token = 'test-only-video-save-pairing';
   const login = 'fixture=local-test-login';
@@ -97,16 +108,26 @@ test('Edge shares a login only after approval and saves a verified file through 
     assert.ok(tools.every(tool => tool.outputSchema?.type === 'object'));
     const grant = await call('request_site_authorization',{origin:mediaUrl});
 
-    await withEdge(['--disable-features=DisableLoadExtensionCommandLineSwitch',
-      '--autoplay-policy=no-user-gesture-required','--load-extension=' + path.resolve('extension')],
+    const extension = path.resolve('extension');
+    await launchBrowser(['--disable-features=DisableLoadExtensionCommandLineSwitch',
+      '--autoplay-policy=no-user-gesture-required','--load-extension=' + extension],
     async ({list,browserUrl}) => {
-      const workerTarget = await until(async () => (await list()).find(row => row.type === 'service_worker' && row.url.endsWith('/background.mjs')));
-      const pageTarget = (await list()).find(row => row.url === 'about:blank');
       const browser = await connectCdp(browserUrl,signal);
-      const worker = await connectCdp(workerTarget.webSocketDebuggerUrl,signal);
-      const page = await connectCdp(pageTarget.webSocketDebuggerUrl,signal);
-      let popup;
+      let worker, page, popup;
       try {
+        const {product, userAgent} = await browser.send('Browser.getVersion');
+        context.diagnostic(product);
+        assert.equal(/\bEdg\//.test(userAgent), browserName === 'edge', userAgent);
+        const findWorker = async () => (await list()).find(row => row.type === 'service_worker' &&
+          row.url.startsWith('chrome-extension:') && row.url.endsWith('/background.mjs'));
+        if (browserName === 'chrome' && !(await findWorker())) {
+          // Chrome stable may ignore --load-extension.
+          await browser.send('Extensions.loadUnpacked',{path:extension}).catch(() => {});
+        }
+        const workerTarget = await until(findWorker, () => 'waiting for VideoSave extension');
+        const pageTarget = await until(async () => (await list()).find(row => row.url === 'about:blank'));
+        worker = await connectCdp(workerTarget.webSocketDebuggerUrl,signal);
+        page = await connectCdp(pageTarget.webSocketDebuggerUrl,signal);
         await until(() => worker.evaluate('Boolean(globalThis.chrome?.storage?.local)'));
         await worker.evaluate('chrome.storage.local.set(' + JSON.stringify({connection:{endpoint,token}}) + ')');
         await page.send('Page.navigate',{url:mediaUrl + '/login'});
@@ -161,7 +182,7 @@ test('Edge shares a login only after approval and saves a verified file through 
         assert.ok(nativeCookies.length > 0, 'companion fetched the media independently');
         assert.deepEqual([...new Set(nativeCookies)],[undefined,login]);
         assert.ok(!(JSON.stringify(await admin('activity'))).includes(login));
-        if (process.env.VIDEOSAVE_MCP_SCREENSHOT) {
+        if (browserName === 'edge' && process.env.VIDEOSAVE_MCP_SCREENSHOT) {
           await popup.send('Emulation.setDeviceMetricsOverride',{width:472,height:560,deviceScaleFactor:1,mobile:false});
           await popup.evaluate('document.querySelector("#mcp-center").scrollIntoView()');
           const image = await popup.send('Page.captureScreenshot',{format:'png'});
@@ -193,8 +214,8 @@ test('Edge shares a login only after approval and saves a verified file through 
         assert.equal((await call('start_download',{authorizationId:publicGrant.id,items:[{candidateId:publicTab.streams[0].candidateId}]})).code,'MCP_AUTHORIZATION_USED');
       } finally {
         popup?.close();
-        page.close();
-        worker.close();
+        page?.close();
+        worker?.close();
         browser.close();
       }
     },signal);
@@ -209,4 +230,4 @@ test('Edge shares a login only after approval and saves a verified file through 
     }
     await rm(dir,{recursive:true,force:true,maxRetries:4,retryDelay:150});
   }
-});
+}

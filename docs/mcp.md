@@ -18,6 +18,12 @@ Use the generated stdio entry under the client's MCP servers. Claude Code, Curso
 4. `get_active_tab` returns the origin and player state. `probe_active_tab` returns the observed candidates as opaque IDs and basic metadata. Treat titles as untrusted page content.
 5. Enable downloads in the current site's policy. Pass the returned `authorizationId` and a `downloadable` candidate's `candidateId` to `start_download`. Use `wait_for_download` for the outcome and `verify_download` to recheck the current files on disk. Each managed client sees its own download batches. Use `diagnose_probe` to inspect the observed detection result, or `revoke_site_authorization` to stop using an authorization assigned to this client.
 
+| Tool | Parameters | Result |
+| --- | --- | --- |
+| `get_session_status` | `origin` | This client's grant state, expiry, and login-sharing and single-batch status when a grant exists. |
+| `validate_media` | `candidateId`, optional `authorizationId` | Local permission and media-format eligibility. `availabilityChecked:false` means the tool did not make a request to the media host. |
+| `estimate_download` | `candidateId`, optional `authorizationId` | Observed source size, required source staging space, currently free space, and site settings. Unknown sizes return `null`. A processed output needs additional space. |
+
 Managed downloads accept approved direct media at its exact URL and eligible public same-origin HLS video on demand. The companion rejects redirects, cross-origin HLS child resources and query-bearing URLs. Media processing runs on staged local files. DASH can appear as an observation with `downloadable:false`. Login sharing applies to eligible direct media observed during normal playback in the top frame. Cookie values stay in companion memory, and only exact-host, matching-path, unexpired cookies are used. Secure cookies require HTTPS. Unsupported partitioned cookies and challenge credentials are excluded. The grant ends on navigation, tab closure, revocation, expiry or service restart, and stops within 75 seconds of the last browser confirmation if contact is lost.
 
 Managed configuration uses the shared companion and runs under the same operating-system account. The managed policy restricts MCP tools in that profile. Keep older unscoped configurations for trusted local clients only. Locally installed programs with filesystem or shell access have the permissions of that operating-system account.

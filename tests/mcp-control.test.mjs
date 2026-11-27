@@ -87,7 +87,7 @@ test('paired management and managed sessions use separate permissions', {timeout
   assert.equal(pending.body.status,'pending');
   const requestId = pending.body.id;
   const tab = {url:'https://media.example/watch?private=1',title:'Test media',
-    streams:[{url:'https://media.example/film.mp4',kind:'mp4'},
+    streams:[{url:'https://media.example/film.mp4',kind:'mp4',size:1048576},
       {url:'https://media.example/signed.mp4?signature=secret',kind:'mp4'},
       {url:'https://other.example/film.mp4',kind:'mp4'}]};
   const approved = await request('/api/ai/approve',{id:requestId,tab,minutes:5});
@@ -101,6 +101,22 @@ test('paired management and managed sessions use separate permissions', {timeout
   assert.equal(active.body.tab.origin,'https://media.example');
   assert.ok(!JSON.stringify(active.body).includes('secret'));
   assert.ok(!JSON.stringify(active.body).includes('private'));
+  const status = await call('get_session_status',{origin:'https://media.example'});
+  assert.equal(status.body.status,'approved');
+  assert.equal(status.body.authorizationId,requestId);
+  assert.equal(status.body.sessionShared,false);
+  assert.deepEqual((await call('get_session_status',{origin:'https://unapproved.example'})).body,
+    {origin:'https://unapproved.example',status:'unavailable'});
+  const candidate = {authorizationId:requestId,candidateId:active.body.streams[0].candidateId};
+  const validation = await call('validate_media',candidate);
+  assert.deepEqual(validation.body,{candidateId:candidate.candidateId,kind:'mp4',eligible:false,
+    code:'MCP_PERMISSION_DENIED',availabilityChecked:false});
+  assert.equal((await call('validate_media',{...candidate,candidateId:requestId})).body.error.code,'MCP_SOURCE_NOT_APPROVED');
+  const estimate = await call('estimate_download',candidate);
+  assert.equal(estimate.body.sourceBytes,1048576);
+  assert.ok(estimate.body.freeBytes > 0);
+  assert.equal(estimate.body.settings.connections,8);
+  assert.ok(!JSON.stringify(estimate.body).includes(temp));
   const diagnostic = await call('diagnose_probe',{authorizationId:requestId});
   assert.equal(diagnostic.body.code,'media-found');
   assert.equal(diagnostic.body.candidateCount,1);

@@ -8,8 +8,10 @@
 - Accept a site-specific cookie header or Netscape file for a temporary approval. Optionally limit any authorization to one download batch.
 - Stage eligible public same-origin HLS, report probe diagnostics, and recheck completed files on disk through managed MCP.
 - Recover additional sources from observed public same-origin player JSON in Edge, Chrome, and Firefox.
+- Recheck an empty media panel within a bounded window for players attached to open Shadow DOM after loading.
 - Apply website settings to managed downloads. Add batch ownership, download limits and an optional activity log with retention and export controls.
-- Exercise Edge login approval, denied access, redirect rejection, dual-track output and same-URL reload revocation through MCP in CI.
+- Report site authorization status, candidate eligibility and observed download size without requesting media again.
+- Exercise Edge and Chrome login approval, denied access, redirect rejection, dual-track output and same-URL reload revocation through MCP in CI.
 
 ## 0.9.0
 

@@ -323,6 +323,15 @@ export function progress(id) {
 
 export function batchPrincipal(id) { return lookup(id).principal; }
 
+async function checkedBatchOutput(batch,file) {
+  const directory = await realpath(batch.outDir);
+  const actual = await realpath(file);
+  if (path.relative(directory,path.dirname(actual)) || !(await lstat(file)).isFile()) {
+    throw new ApiError('INVALID_PATH','The saved output is outside its download directory');
+  }
+  return actual;
+}
+
 export async function verifyBatchFiles(id, signal) {
   const batch = lookup(id);
   const result = snapshot(batch);
@@ -333,13 +342,10 @@ export async function verifyBatchFiles(id, signal) {
       const {file,info} = output;
       try {
         budget.throwIfAborted();
-        const directory = await realpath(batch.outDir);
-        const actual = await realpath(file);
-        if (path.relative(directory,path.dirname(actual)) || !(await lstat(file)).isFile()) {
-          throw new ApiError('INVALID_PATH','The saved output is outside its download directory');
-        }
+        const actual = await checkedBatchOutput(batch,file);
         const current = await inspectOutput(actual,budget,/\.(mp3|m4a)$/i.test(file) ? 'audio' : 'video',info?.duration);
-        if (info?.size !== current.size || info.audioCodec !== current.audioCodec || info.codec !== current.codec ||
+        const savedFields = ['size','audioCodec','codec','width','height','container','subtitleTracks'];
+        if (!info || savedFields.some(key => info[key] !== undefined && info[key] !== current[key]) ||
             Math.abs(info.duration-current.duration) > 0.05) {
           throw new ApiError('OUTPUT_CHANGED','The output differs from its saved media properties',409);
         }
@@ -991,6 +997,24 @@ export async function openDownload(file) {
     }
     args = ['/select,', actual];
   }
+  return showInExplorer(args);
+}
+
+export async function openBatchOutput(id,index) {
+  const batch = lookup(id);
+  const file = batch.items[index]?.outputs?.at(0)?.file;
+  if (!file) throw new ApiError('MCP_FILE_NOT_READY','Wait for the verified file to finish',409);
+  if (!/\.(mp4|mkv|m4a|mp3)$/i.test(file) || /[\x00-\x1f,]/.test(file)) {
+    throw new ApiError('INVALID_PATH','Choose a supported output file');
+  }
+  const actual = await checkedBatchOutput(batch,file).catch(error => {
+    if (error.code === 'ENOENT') throw new ApiError('FILE_NOT_FOUND','The output file was not found',404);
+    throw error;
+  });
+  return showInExplorer(['/select,',actual]);
+}
+
+async function showInExplorer(args) {
   await new Promise((resolve, reject) => {
     const child = spawn('explorer.exe', args, { detached: true, stdio: 'ignore' });
     child.once('error', () => reject(new ApiError('OPEN_FAILED', '无法打开资源管理器', 503)));
