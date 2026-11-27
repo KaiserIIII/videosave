@@ -323,6 +323,37 @@ export function progress(id) {
 
 export function batchPrincipal(id) { return lookup(id).principal; }
 
+export async function verifyBatchFiles(id, signal) {
+  const batch = lookup(id);
+  const result = snapshot(batch);
+  const budget = AbortSignal.any([signal,AbortSignal.timeout(25_000)]);
+  for (const item of result.items) {
+    item.verification = [];
+    for (const output of item.outputs ?? []) {
+      const {file,info} = output;
+      try {
+        budget.throwIfAborted();
+        const directory = await realpath(batch.outDir);
+        const actual = await realpath(file);
+        if (path.relative(directory,path.dirname(actual)) || !(await lstat(file)).isFile()) {
+          throw new ApiError('INVALID_PATH','The saved output is outside its download directory');
+        }
+        const current = await inspectOutput(actual,budget,/\.(mp3|m4a)$/i.test(file) ? 'audio' : 'video',info?.duration);
+        if (info?.size !== current.size || info.audioCodec !== current.audioCodec || info.codec !== current.codec ||
+            Math.abs(info.duration-current.duration) > 0.05) {
+          throw new ApiError('OUTPUT_CHANGED','The output differs from its saved media properties',409);
+        }
+        item.verification.push({status:'verified',info:current});
+      } catch (error) {
+        signal.throwIfAborted();
+        const errorCode = budget.aborted ? 'VERIFY_TIMEOUT' : error.code === 'ENOENT' ? 'FILE_NOT_FOUND' : errorDetails(error).code;
+        item.verification.push({status:'error',errorCode});
+      }
+    }
+  }
+  return result;
+}
+
 export function listBatches({limit = 20} = {}, principal) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ApiError('INVALID_LIMIT', 'limit must be 1–100');
   const items = [];
@@ -771,10 +802,14 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     sourceKind ||= classify(source);
     let staged;
     if (authorization) {
-      staged = await prefetchRanges(source,scopedCookies,staging,signal,downloadProgress,{
-        connections:batch.connections,stageFull:true,exactSource:true,cookiesFor:authorization.cookiesFor,
-      });
-      if (!staged) throw new ApiError('MCP_MEDIA_UNAVAILABLE','The approved URL did not return a complete direct media file',422);
+      staged = sourceKind === 'm3u8'
+        ? await prefetchHls(source,[],staging,signal,downloadProgress,{
+          quality:target.quality,sourceKind,connections:batch.connections,restrictedOrigin:true,
+        })
+        : await prefetchRanges(source,scopedCookies,staging,signal,downloadProgress,{
+          connections:batch.connections,stageFull:true,exactSource:true,cookiesFor:authorization.cookiesFor,
+        });
+      if (!staged) throw new ApiError('MCP_MEDIA_UNAVAILABLE','The approved source did not return complete eligible media',422);
     } else if (platform) {
       staged = await stagePlatform(platform,target,staging,batch.connections,signal,downloadProgress,headers);
     } else if (batch.request.prefetch) {

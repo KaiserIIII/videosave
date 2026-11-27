@@ -590,16 +590,17 @@ export async function probeStream(url, cookies, signal, tracks = false, kind, he
 }
 
 export async function inspectOutput(file, signal, expectedTrack, expectedDuration) {
+  const extension = file.split('.').at(-1).toLowerCase();
+  const container = {mp4:'mov',m4a:'mov',mkv:'matroska',mp3:'mp3'}[extension];
   const raw = await runMedia(FFPROBE, ['-v','error','-count_packets','-show_entries',
     'format=duration,size,format_name:stream=codec_type,codec_name,width,height,nb_read_packets',
-    '-of','json',...mediaInput(file, [])], signal, undefined, {strict:true});
+    '-of','json',...(container ? ['-f',container] : []),...mediaInput(file, [])], signal, undefined, {strict:true});
   const {format,streams = []} = JSON.parse(raw);
   const video = streams.find(track => track.codec_type === 'video');
   const audio = streams.find(track => track.codec_type === 'audio');
   const duration = Number(format?.duration);
   const size = Number(format?.size);
   const formats = (format?.format_name ?? '').split(',');
-  const extension = file.split('.').at(-1).toLowerCase();
   if (!streams.some(track => track.codec_type === expectedTrack && Number(track.nb_read_packets) > 0) ||
       !(duration > 0 && Number.isSafeInteger(size) && size > 0) ||
       expectedDuration > 0 && duration + Math.max(1, expectedDuration * 0.02) < expectedDuration) {

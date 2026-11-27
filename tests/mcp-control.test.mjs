@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import { approvedCookies } from '../tools/approved-cookies.mjs';
+import { importedCookies } from '../extension/session-credentials.mjs';
 import { after, test } from 'node:test';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createInterface } from 'node:readline';
+import { createServer } from 'node:http';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -12,6 +14,37 @@ const settingsTemp = await mkdtemp(path.join(os.tmpdir(),'videosave-control-sett
 process.env.MEDIA_TOOLKIT_SETTINGS = path.join(settingsTemp,'settings.sqlite');
 after(() => rm(settingsTemp,{recursive:true,force:true,maxRetries:4,retryDelay:100}));
 const {activeTab,approveGrant,boundClientToken,grantStatus,renewGrant,requestGrant} = await import('../tools/mcp-control.mjs');
+const {prefetchHls} = await import('../tools/hls-prefetch.mjs');
+
+test('managed HLS stages same-origin VOD and stops at a foreign child or redirect', async t => {
+  const staging = await mkdtemp(path.join(os.tmpdir(),'videosave-managed-hls-'));
+  let destination;
+  let foreignRequests = 0;
+  let child = '/segment.ts';
+  const remote = createServer((_req,res) => { foreignRequests++; res.end('foreign'); }).listen(0,'127.0.0.1');
+  const local = createServer((req,res) => {
+    if (req.url === '/main.m3u8') return res.end('#EXTM3U\n#EXT-X-TARGETDURATION:2\n#EXTINF:2,\n' + child + '\n#EXTINF:2,\n/second.ts\n#EXT-X-ENDLIST');
+    if (req.url === '/redirect.ts') return res.writeHead(302,{location:destination}).end();
+    return res.end('local media fixture');
+  }).listen(0,'127.0.0.1');
+  t.after(async () => {
+    local.closeAllConnections();
+    remote.closeAllConnections();
+    await Promise.all([new Promise(resolve => local.close(resolve)),new Promise(resolve => remote.close(resolve))]);
+    await rm(staging,{recursive:true,force:true,maxRetries:4,retryDelay:100});
+  });
+  await Promise.all([once(local,'listening'),once(remote,'listening')]);
+  const source = new URL('http://127.0.0.1:' + local.address().port + '/main.m3u8');
+  destination = 'http://127.0.0.1:' + remote.address().port + '/foreign.ts';
+  const stage = () => prefetchHls(source,[],staging,AbortSignal.timeout(4000),() => {},{restrictedOrigin:true});
+  child = destination;
+  await assert.rejects(stage,{code:'MCP_MEDIA_SCOPE'});
+  child = '/redirect.ts';
+  await assert.rejects(stage,{code:'MCP_MEDIA_REDIRECT'});
+  assert.equal(foreignRequests,0);
+  child = '/segment.ts';
+  assert.ok(await stage());
+});
 
 test('paired management and managed sessions use separate permissions', {timeout:20000}, async t => {
   const temp = await mkdtemp(path.join(os.tmpdir(),'videosave-control-'));
@@ -68,8 +101,12 @@ test('paired management and managed sessions use separate permissions', {timeout
   assert.equal(active.body.tab.origin,'https://media.example');
   assert.ok(!JSON.stringify(active.body).includes('secret'));
   assert.ok(!JSON.stringify(active.body).includes('private'));
+  const diagnostic = await call('diagnose_probe',{authorizationId:requestId});
+  assert.equal(diagnostic.body.code,'media-found');
+  assert.equal(diagnostic.body.candidateCount,1);
   const other = await request('/api/ai/clients',{name:'Other QA',preset:'standard'});
   assert.equal((await request('/api/ai/call',{name:'get_authorization_status',args:{id:requestId}},boundClientToken(owner,other.body.id))).status,404);
+  assert.equal((await request('/api/ai/call',{name:'revoke_site_authorization',args:{id:requestId}},boundClientToken(owner,other.body.id))).status,404);
   const second = await call('request_site_authorization',{origin:'https://second.example'});
   await request('/api/ai/approve',{id:second.body.id,tab:{url:'https://second.example',streams:[]}});
   assert.equal((await call('probe_active_tab')).body.error.code,'MCP_AUTHORIZATION_REQUIRED');
@@ -108,6 +145,18 @@ test('temporary browser credentials respect domain, path, expiry and secure attr
   assert.deepEqual(matcher(new URL('https://media.example/videotrailer/movie.mp4')),[]);
   assert.deepEqual(matcher(new URL('https://cdn.media.example/video/movie.mp4')),[]);
   assert.deepEqual(matcher(new URL('http://media.example/video/movie.mp4')),[]);
+});
+
+test('manually selected credentials are scoped to the approved hostname and paths', () => {
+  const origin = new URL('https://media.example');
+  const raw = importedCookies('session=fixture; theme=dark',origin);
+  assert.deepEqual(approvedCookies(raw)(new URL('/film.mp4',origin)).map(row => row.name),['session','theme']);
+  assert.throws(() => importedCookies('session=fixture\nAuthorization: hidden',origin));
+  const file = '# Netscape HTTP Cookie File\n#HttpOnly_media.example\tFALSE\t/media\tTRUE\t0\tsession\tfixture\n' +
+    'other.example\tFALSE\t/\tTRUE\t0\tsession\tignored\n';
+  const parsed = approvedCookies(importedCookies(file,origin,{file:true}));
+  assert.deepEqual(parsed(new URL('/media/film.mp4',origin)).map(row => row.name),['session']);
+  assert.deepEqual(parsed(new URL('/film.mp4',origin)),[]);
 });
 
 

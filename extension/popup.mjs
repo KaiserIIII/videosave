@@ -821,7 +821,7 @@ function saveJson(filename, report) {
 }
 bindMcpCenter({root:$('mcp-center'),translate:(zh,en) => language === 'en' ? en : zh,
   getConnection:() => connection,getTab:() => tab,saveJson,
-  getSnapshot:() => ({document:scanning ? null : scannedDocument,title:pageTitle,restricted:Boolean(detection.blockers?.length),
+  getSnapshot:() => ({document:scanning ? null : scannedDocument,title:pageTitle,restricted:Boolean(detection.blockers?.length),diagnostic:detection,
     playing:streams.some(stream => stream.playing),streams:scanning ? [] : streams})});
 $('mcp-center').hidden = !nativeDownloads;
 

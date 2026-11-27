@@ -5,6 +5,8 @@
 - Add **AI & MCP** settings with individually scoped local clients and credential-free stdio configuration generation.
 - Share a user-approved current-tab snapshot and use candidate IDs to queue same-origin media. Grants have a short expiry and can be revoked.
 - Add opt-in, temporary browser login sharing for observed same-origin direct media. Managed requests reject redirects and keep cookies out of tool results and persisted settings.
+- Accept a site-specific cookie header or Netscape file for a temporary approval. Optionally limit any authorization to one download batch.
+- Stage eligible public same-origin HLS, report probe diagnostics, and recheck completed files on disk through managed MCP.
 - Apply website settings to managed downloads. Add batch ownership, download limits and an optional activity log with retention and export controls.
 - Exercise Edge login approval, denied access, redirect rejection, dual-track output and same-URL reload revocation through MCP in CI.
 

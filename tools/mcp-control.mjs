@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { ApiError } from './media-source.mjs';
 import { approvedCookies } from './approved-cookies.mjs';
+import { detectionDiagnostic, diagnosticReport } from '../extension/detection.mjs';
 import { settingsFile } from './preferences.mjs';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
@@ -143,11 +144,12 @@ export function listGrants(client) {
   return {items:[...sessions.values()].filter(grant => !client || grant.clientId === client.id).reverse().map(publicGrant)};
 }
 
-export function approveGrant({id,tab,minutes = 5,shareSession = false} = {}) {
+export function approveGrant({id,tab,minutes = 5,shareSession = false,singleTask = false} = {}) {
   const grant = getGrant(id);
   if (grant.status !== 'pending') throw new ApiError('MCP_AUTHORIZATION_INACTIVE','Request is no longer pending',409);
   const valid = tab && tab.restricted !== true && Array.isArray(tab.streams) && tab.streams.length <= 40;
-  if (!valid || siteOrigin(tab.url) !== grant.origin || ![1,5,15].includes(minutes) || typeof shareSession !== 'boolean') {
+  if (!valid || siteOrigin(tab.url) !== grant.origin || ![1,5,15].includes(minutes) ||
+      typeof shareSession !== 'boolean' || typeof singleTask !== 'boolean') {
     throw new ApiError('MCP_INVALID_TAB','Open the requested site and select an allowed authorization duration');
   }
   const {settings} = sitePreferences(grant.origin);
@@ -168,8 +170,11 @@ export function approveGrant({id,tab,minutes = 5,shareSession = false} = {}) {
     if (previous.clientId === grant.clientId && previous.origin === grant.origin && previous.status === 'approved') revoke(previous);
   }
   grant.tab = {origin:grant.origin,title:typeof tab.title === 'string' ? tab.title.replace(/[\x00-\x1f\x7f]/g,' ').slice(0,160) : '',
-    playing:tab.playing === true,sessionShared:shareSession,streams:[...streams.values()]};
+    playing:tab.playing === true,sessionShared:shareSession,streams:[...streams.values()],
+    diagnostic:detectionDiagnostic({...diagnosticReport({diagnostic:tab.diagnostic ?? {}}).diagnostic,streams:[...streams.values()],
+      selection:{status:streams.size > 1 ? 'ambiguous' : 'selected'}})};
   grant.status = 'approved';
+  grant.singleTask = singleTask;
   grant.expiresAt = Date.now() + minutes * 60_000;
   grant.leaseUntil = Date.now() + tabLeaseMs;
   return publicGrant(grant);
@@ -192,8 +197,8 @@ function revoke(grant) {
   grant.tab = null;
 }
 
-export function revokeGrant(id) {
-  const grant = getGrant(id);
+export function revokeGrant(id, client) {
+  const grant = getGrant(id,client);
   revoke(grant);
   return publicGrant(grant);
 }
@@ -204,8 +209,13 @@ export function activeTab(client, id) {
   if (approved.length > 1) throw new ApiError('MCP_AUTHORIZATION_REQUIRED','Select an authorization ID from list_authorized_sites',409);
   const [grant] = approved;
   if (!grant?.tab) throw new ApiError('MCP_TAB_REQUIRED','Approve a current tab in VideoSave to use its media context',409);
-  const {streams,...tab} = grant.tab;
-  return {authorizationId:grant.id,tab,streams};
+  const {streams,diagnostic,...tab} = grant.tab;
+  return {authorizationId:grant.id,tab,streams,diagnostic,singleTask:grant.singleTask,used:grant.used === true};
+}
+
+export function consumeGrant(id,client) {
+  const grant = getGrant(id,client);
+  if (grant.singleTask) grant.used = true;
 }
 
 export function auditSettings(update) {

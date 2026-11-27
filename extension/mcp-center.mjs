@@ -1,5 +1,6 @@
 import { browserApi } from './browser.mjs';
 import { companion } from './downloads.mjs';
+import { importedCookies, maxCredentialFileBytes } from './session-credentials.mjs';
 
 const grantPrefix = 'mcp-grant:';
 const grantAlarm = 'mcp-tab-authorizations';
@@ -119,8 +120,13 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
   async function approve(grant) {
     const tab = getTab();
     if (!tab?.id) throw new Error(label('请打开申请的网站。','Open the requested site.'));
-    const shareSession = byId('mcp-share-session').checked;
-    if (shareSession && cleanUrl(tab.url)?.origin === grant.origin) {
+    const shareBrowser = byId('mcp-share-session').checked;
+    const raw = byId('mcp-session-text').value;
+    const file = byId('mcp-session-file').files[0];
+    if (Number(Boolean(file)) + Number(Boolean(raw)) + Number(shareBrowser) > 1) {
+      throw new Error(label('请选择一种登录会话来源。','Choose one login session source.'));
+    }
+    if (shareBrowser && cleanUrl(tab.url)?.origin === grant.origin) {
       const allowed = await browserApi.permissions.request({permissions:['cookies']});
       if (!allowed) throw new Error(label('浏览器未授予 Cookie 权限。','The browser did not grant cookie permission.'));
     }
@@ -137,20 +143,32 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
     }).slice(0,40).map(({url,kind,duration,height,observed,frameId}) => ({url,kind,duration,height,observed,frameId}));
     const sessionCandidates = streams.filter(stream => stream.observed && stream.frameId === 0)
       .map(({url,kind}) => ({url,kind}));
-    const state = shareSession ? await cookieState(tab.id,sessionCandidates) : null;
+    if (file?.size > maxCredentialFileBytes) throw new Error(label('Cookie 文件超过 64 KB。','The cookie file exceeds 64 KB.'));
+    const state = shareBrowser ? await cookieState(tab.id,sessionCandidates) : null;
+    const manual = file || raw ? await (async () => {
+      try { return importedCookies(file ? await file.text() : raw,page,{file:Boolean(file)}); }
+      catch { throw new Error(label('本站 Cookie 格式无效或已过期。','The cookies for this site are invalid or expired.')); }
+    })() : null;
     const sessionScope = state && {digest:state.digest,candidates:sessionCandidates};
     if (state) for (const stream of streams) stream.cookies = state.cookies.get(stream.url);
+    if (manual) for (const stream of streams) {
+      if (stream.observed && stream.frameId === 0 && !['m3u8','mpd'].includes(stream.kind)) stream.cookies = manual;
+    }
     for (const stream of streams) {
       delete stream.observed;
       delete stream.frameId;
     }
     byId('mcp-share-session').checked = false;
+    byId('mcp-session-text').value = '';
+    byId('mcp-session-file').value = '';
+    const singleTask = byId('mcp-single-task').checked;
+    byId('mcp-single-task').checked = false;
     const minutes = Number(byId('mcp-duration').value);
     const key = grantPrefix + grant.id;
     await browserApi.storage.session.set({[key]:{tabId:tab.id,document,sessionScope,expiresAt:Date.now()+minutes*60_000+6500}});
     if (!await browserApi.alarms.get(grantAlarm)) await browserApi.alarms.create(grantAlarm,{periodInMinutes:0.5});
-    await call('approve',{id:grant.id,minutes,shareSession,
-      tab:{url:page.origin,title:snapshot.title,playing:snapshot.playing,streams}});
+    await call('approve',{id:grant.id,minutes,shareSession:Boolean(shareBrowser || manual),singleTask,
+      tab:{url:page.origin,title:snapshot.title,playing:snapshot.playing,diagnostic:snapshot.diagnostic,streams}});
     if (!sameDocument(await tabDocument(tab.id).catch(() => null),document)) {
       await call('revoke',{id:grant.id});
       throw new Error(label('页面已变化，请重新申请。','The page changed. Request authorization again.'));

@@ -124,6 +124,12 @@
             <p class="details" data-i18n>分享当前页的同源媒体候选。授权在标签页导航、关闭或到期时撤销。</p>
             <label><span data-i18n>授权时长</span><select id="mcp-duration"><option value="1">1 min</option><option value="5" selected>5 min</option><option value="15">15 min</option></select></label>
             <label class="check-row"><input type="checkbox" id="mcp-share-session" autocomplete="off"><span data-i18n>本次授权同时使用当前站点的登录会话</span></label>
+            <label class="check-row"><input type="checkbox" id="mcp-single-task" autocomplete="off"><span data-i18n>仅允许一个下载批次</span></label>
+            <details class="settings-block">
+              <summary data-i18n>手动提供本站 Cookie</summary>
+              <label><span data-i18n>本站 Cookie</span><input type="password" id="mcp-session-text" maxlength="8192" autocomplete="off" spellcheck="false"></label>
+              <label><span data-i18n>Netscape Cookie 文件</span><input type="file" id="mcp-session-file" accept=".txt,text/plain"></label>
+            </details>
             <ul class="mcp-list" id="mcp-grants"></ul>
           </section>
           <section class="mcp-section">
