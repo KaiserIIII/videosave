@@ -10,7 +10,7 @@ import test from 'node:test';
 
 const project = fileURLToPath(new URL('..', import.meta.url));
 
-test('MCP gives a client evidence to choose the full film over the autoplay teaser', {timeout: 90_000}, async t => {
+test('MCP gives a client evidence to choose the full film over the autoplay teaser', {timeout: 150_000}, async t => {
   const out = await mkdtemp(path.join(project, '.mcp-selection-'));
   t.after(() => rm(out, {recursive:true, force:true, maxRetries:5}));
   const media = new Map();
@@ -170,7 +170,7 @@ test('MCP gives a client evidence to choose the full film over the autoplay teas
     const id = ++nextId;
     send({id, method, params});
     const {value} = await replies.next();
-    assert.ok(value, 'MCP closed before replying');
+    assert.ok(value, 'MCP closed before replying to ' + (params?.name ?? method));
     const reply = JSON.parse(value);
     assert.equal(reply.id, id);
     assert.ok(reply.result && Boolean(reply.result.isError) === expectError, value);

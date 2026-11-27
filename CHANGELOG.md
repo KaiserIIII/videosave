@@ -4,10 +4,11 @@
 
 - Combine visible player evidence, media request MIME, open Shadow DOM, public source metadata and adaptive manifests.
 - Refresh the browser panel when players, sources or observed responses change. Group alternate qualities and suppress manifest initialization fragments.
+- Recheck an empty panel once for players that attach open Shadow DOM after the initial scan. Group observed DASH fragments with their manifest and distinguish fragment-only playback from a page with no player.
 - Give HTTP and MCP consumers candidate evidence, confidence and legal next actions. Recognize DRM and site access restrictions when the observable evidence identifies them.
 - Export a diagnostic report through a local allowlist and back up, import or reset browser preferences.
 - Produce portable Windows, Chromium, Firefox and experimental Android archives with SHA-256 checksums and a software bill of materials.
-- Add cross-browser, packaging and local service security checks. See the [compatibility report](docs/compatibility-report.zh-CN.md) for the measurements and failures.
+- Add cross-browser, packaging and local service security checks. See the [compatibility report](docs/compatibility-report.zh-CN.md) and [HLS benchmarks](docs/hls-benchmark.zh-CN.md) for measurements, source data and failures.
 
 ## 0.8.1
 

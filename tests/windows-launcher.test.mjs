@@ -26,7 +26,7 @@ test('the Windows launcher configures MCP downloads and keeps shared pairing aft
   assert.deepEqual(Object.keys(config.env).sort(), ['FFMPEG_BIN','FFPROBE_BIN']);
   assert.ok(Object.values(config.env).every(file => path.isAbsolute(file)));
 
-  const folder = await mkdtemp(path.join(tmpdir(), 'videosave-mcp-config-'));
+  const folder = await realpath(await mkdtemp(path.join(tmpdir(), 'videosave-mcp-config-')));
   let server;
   let child;
   let closed;
@@ -119,7 +119,7 @@ test('the Windows launcher configures MCP downloads and keeps shared pairing aft
       });
     assert.equal(setup.status,0,setup.stderr);
     const degraded = JSON.parse(setup.stdout).mcpServers.videosave;
-    assert.deepEqual(degraded.args,[path.join(await realpath(folder),'tools','mcp-server.mjs')]);
+    assert.deepEqual(degraded.args,[path.join(folder,'tools','mcp-server.mjs')]);
     assert.deepEqual(degraded.env,config.env);
     assert.match(setup.stderr,/platform downloads are unavailable/i);
   }

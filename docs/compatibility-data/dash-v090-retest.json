@@ -1,0 +1,48 @@
+{
+  "version": "0.9.0",
+  "browser": "mcp-edge",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "sample": "includes public media",
+  "scenarioCount": 1,
+  "count": {
+    "scenarios": 1,
+    "positive": 1,
+    "detected": 1,
+    "casesWithFalsePositives": 0,
+    "selectionTests": 0,
+    "selectionCorrect": 0,
+    "downloads": 0,
+    "downloaded": 0,
+    "firstProbeMedianMs": 23636,
+    "browserTaskMedianMs": null,
+    "browserHeapMedianBytes": null,
+    "fixtureRequests": 0,
+    "fixtureBytes": 0,
+    "restrictedRequests": 0
+  },
+  "rows": [
+    {
+      "id": "public-dashjs-demo",
+      "public": true,
+      "positive": true,
+      "expected": [
+        "bbb_30fps.mpd"
+      ],
+      "names": [
+        "bbb_30fps.mpd"
+      ],
+      "selection": "selected",
+      "selected": "bbb_30fps.mpd",
+      "reason": "only-candidate",
+      "blockers": [],
+      "probeMs": 23636,
+      "firstProbeMs": 23636,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 0,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    }
+  ]
+}
