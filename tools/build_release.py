@@ -12,7 +12,7 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_DOCS = (
     "LICENSE", "README.md", "README.zh-CN.md", "CHANGELOG.md", "SECURITY.md",
-    "docs/videosave-0.9-detection.png", "docs/videosave-0.9-settings.png",
+    "docs/videosave-0.9-detection.png", "docs/videosave-0.9-settings.png", "docs/videosave-mcp-control.png",
     "docs/architecture.md", "docs/compatibility-report.zh-CN.md", "docs/competitive-review.zh-CN.md",
     "docs/detection-research.zh-CN.md", "docs/privacy.md", "docs/mcp.md", "docs/install.md",
     "docs/hls-benchmark.zh-CN.md", "tests/benchmark-hls.mjs",

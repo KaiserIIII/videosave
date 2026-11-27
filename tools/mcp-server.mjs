@@ -4,6 +4,7 @@ import { maxConcurrency } from '../extension/settings.mjs';
 import * as downloads from './media-downloads.mjs';
 import { configureMediaProxy } from './media-proxy.mjs';
 import { localPairingCode, settingsPatchSchema, settingsScope } from './preferences.mjs';
+import { boundClientToken } from './mcp-control.mjs';
 
 configureMediaProxy();
 const latestProtocol = '2025-11-25';
@@ -77,6 +78,8 @@ const listedTools = withSchemas => operations.map(([name, description, inputSche
 const handlers = new Map(operations.map(([name, , , handler]) => [name, handler]));
 
 const companionUrl = process.env.MEDIA_TOOLKIT_URL;
+const managedClientId = process.env.MEDIA_TOOLKIT_MCP_CLIENT;
+const managedMode = managedClientId !== undefined;
 const settingsRoute = scope => {
   if (scope === undefined || scope === 'download') return '/api/settings';
   if (scope === 'browser') return '/api/browser-settings';
@@ -111,9 +114,12 @@ async function callCompanion(name, args) {
     }
     throw new downloads.ApiError('INVALID_COMPANION', 'Set MEDIA_TOOLKIT_TOKEN to the companion pairing code');
   }
-  const [route, body] = companionRoutes[name](args);
+  const credential = managedMode ? boundClientToken(companionToken,managedClientId) : companionToken;
+  if (!credential) throw new downloads.ApiError('MCP_INVALID_CLIENT','Invalid managed client ID');
+  const [route, body] = managedMode ? (name === null ? ['/api/ai/tools'] : ['/api/ai/call',{name,args}])
+    : companionRoutes[name](args);
   const response = await fetch(origin.origin + route, {redirect:'error', signal:AbortSignal.timeout(name === 'probe_page' ? 290_000 : 120_000),
-    headers:{authorization:'Bearer ' + companionToken, ...(body && {'content-type':'application/json'})},
+    headers:{authorization:'Bearer ' + credential, ...(body && {'content-type':'application/json'})},
     ...(body && {method:'POST',body:JSON.stringify(body)})}).catch(() => {
     throw new downloads.ApiError('COMPANION_UNAVAILABLE', 'The loopback service did not respond', 503);
   });
@@ -148,17 +154,23 @@ async function dispatch({ method, params }) {
       capabilities: { tools: {} } };
   }
   if (!protocol) throw new RpcError(-32002, 'Session is not initialized');
-  if (method === 'tools/list') return { tools:listedTools(protocol >= '2025-06-18') };
+  if (method === 'tools/list') {
+    if (!managedMode) return {tools:listedTools(protocol >= '2025-06-18')};
+    try { return await callCompanion(null); }
+    catch { throw new RpcError(-32002,'Managed MCP client unavailable. Check the companion connection and client status.'); }
+  }
   if (method !== 'tools/call') throw new RpcError(-32601, 'Method not found');
   const handler = handlers.get(params?.name);
   const args = params?.arguments === undefined ? {} : params.arguments;
-  if (!handler || !isObject(args)) throw new RpcError(-32602, 'Invalid tool name or arguments');
+  if ((!managedMode && !handler) || typeof params?.name !== 'string' || !isObject(args)) {
+    throw new RpcError(-32602, 'Invalid tool name or arguments');
+  }
 
   try {
     if (params.name === 'start_download' && ('delivery' in args || 'requestId' in args)) {
       throw new downloads.ApiError('INVALID_DELIVERY', 'MCP downloads are saved in the local output directory');
     }
-    const result = await (companionUrl ? callCompanion(params.name, args) : handler(args));
+    const result = await (companionUrl || managedMode ? callCompanion(params.name, args) : handler(args));
     const content = [{ type: 'text', text: JSON.stringify(result) }];
     return protocol >= '2025-06-18' ? { content, structuredContent: result } : { content };
   } catch (error) {

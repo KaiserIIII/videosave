@@ -294,7 +294,7 @@ function historyRecord(batch, status = batch.status) {
     ...(Number.isSafeInteger(detail.retryAfterSec) && {retryAfterSec:detail.retryAfterSec})};
   return {id:batch.id, status, outDir:batch.outDir, delivery:batch.delivery, createdAt:batch.createdAt,
     log:batch.log, items:batch.items.map(item => item.detail ? {...item,detail:redact(item.detail)} : item),
-    lastError:batch.lastError && {...batch.lastError,detail:redact(batch.lastError.detail)}, retry:batch.retry};
+    lastError:batch.lastError && {...batch.lastError,detail:redact(batch.lastError.detail)}, retry:batch.retry, principal:batch.principal};
 }
 
 function savedBatch(id) {
@@ -321,12 +321,15 @@ export function progress(id) {
   return snapshot(lookup(id));
 }
 
-export function listBatches({limit = 20} = {}) {
+export function batchPrincipal(id) { return lookup(id).principal; }
+
+export function listBatches({limit = 20} = {}, principal) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ApiError('INVALID_LIMIT', 'limit must be 1–100');
   const items = [];
   const all = new Map(storedBatches().map(batch => [batch.id,batch]));
   for (const [id,batch] of batches) all.set(id,batch);
   for (const batch of all.values()) {
+    if (principal !== undefined && batch.principal !== principal) continue;
     const interrupted = batch.status === 'interrupted';
     const completed = batch.items.filter(item => item.status === 'done').length;
     const status = interrupted ? (completed ? 'partial' : 'failed') : batch.status;
@@ -501,7 +504,7 @@ export function queueOriginal({ url, title, extension, connections, requestId } 
 }
 
 export function queue({ items, maxSec, prefetch, cookie, headers, concurrency, connections, delivery = 'local', requestId, useBrowserCookies } = {},
-  originalExtension) {
+  originalExtension, principal) {
   if (delivery !== 'local' && delivery !== 'browser') throw new ApiError('INVALID_DELIVERY', '无效的保存方式');
   if (useBrowserCookies !== undefined && useBrowserCookies !== false) {
     throw new ApiError('BROWSER_SESSION_UNAVAILABLE', '下载使用独立会话');
@@ -519,7 +522,7 @@ export function queue({ items, maxSec, prefetch, cookie, headers, concurrency, c
   }
   const limit = durationLimit(maxSec);
   return enqueue({targets, limit, prefetch:prefetch ?? !limit, cookies:parseCookies(cookie), concurrency, connections,
-    delivery, originalExtension, requestId, outDir:defaults.outDir, headers:parseMediaHeaders(headers)});
+    delivery, originalExtension, requestId, principal, outDir:defaults.outDir, headers:parseMediaHeaders(headers)});
 }
 
 export function retryBatch({id} = {}) {
@@ -541,6 +544,7 @@ export function retryBatch({id} = {}) {
 function enqueue(request) {
   const {targets, limit, prefetch, cookies, concurrency, connections, delivery, originalExtension, requestId, outDir} = request;
   const hashInputs = [targets, limit, prefetch, cookies, concurrency, connections, delivery, originalExtension, requestId, outDir];
+  if (request.principal) hashInputs.push({principal:request.principal});
   if (Object.keys(request.headers).length) hashInputs.push(request.headers);
   const key = createHash('sha256').update(JSON.stringify(hashInputs)).digest('hex');
   const existing = batches.get(batchKeys.get(key));
@@ -549,7 +553,7 @@ function enqueue(request) {
   const newRecord = previous => {
     const items = targets.map(({kind,title},idx) => ({idx,kind,title,status:'queued',percent:0,speed:0,bytes:0,
       totalBytes:null,etaSec:null,prefetch:null,file:null,error:null}));
-    return {id:previous?.id ?? randomUUID(),status:'running',outDir,delivery,
+    return {id:previous?.id ?? randomUUID(),status:'running',outDir,delivery,principal:request.principal,
       createdAt:previous?.createdAt ?? new Date().toISOString(),
       log:previous ? ['已恢复中断的下载批次'] : [],
       items:items.map((item,index) => {

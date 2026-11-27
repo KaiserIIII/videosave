@@ -6,6 +6,8 @@ Find the video playing in your browser, preview it, and save it to Downloads. Vi
 
 ![VideoSave 0.9 in Microsoft Edge](docs/videosave-0.9-detection.png)
 
+**AI & MCP** gives registered clients individual permissions, short-lived current-tab approval, website download limits, and a local activity log. [Set up a managed client](docs/mcp.md#managed-browser-clients) · [Control center screenshot](docs/videosave-mcp-control.png)
+
 ## Install
 
 Download and extract the release ZIP. The browser extension is in the `extension` folder.

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0
+
+- Add **AI & MCP** settings with individually scoped local clients and credential-free stdio configuration generation.
+- Share a user-approved current-tab snapshot and use candidate IDs to queue same-origin media. Grants have a short expiry and can be revoked.
+- Apply website settings to managed downloads. Add batch ownership, download limits and an optional activity log with retention and export controls.
+- Exercise the complete Edge approval, MCP download, file verification and tab navigation flow in CI.
+
 ## 0.9.0
 
 - Combine visible player evidence, media request MIME, open Shadow DOM, public source metadata and adaptive manifests.

@@ -2,6 +2,7 @@ import { assessCandidates, detectionDiagnostic, diagnosticReport } from './detec
 import { observeMediaChanges, inspectPublicManifest } from './live-detection.mjs';
 import { browserApi, downloadsPage, downloadSettingsPage, isAndroid, nativeDownloads } from './browser.mjs';
 import { canUseMediaTitle, classify, isPlaylist, pageStreams, platformVideo, scanDocument, selectPageStream, sourceTitle } from './media.mjs';
+import { bindMcpCenter } from './mcp-center.mjs';
 import { queryMp4Metadata } from './media-metadata.mjs';
 import { activeStates, companion, endpointDefault, usesCompanion } from './downloads.mjs';
 import { defaults, downloadFolder, interfaceLanguage, maxConcurrency, readDownloadSettings,
@@ -815,6 +816,12 @@ function saveJson(filename, report) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url),1000);
 }
+bindMcpCenter({root:$('mcp-center'),translate:(zh,en) => language === 'en' ? en : zh,
+  getConnection:() => connection,getTab:() => tab,saveJson,
+  getSnapshot:() => ({url:scannedUrl,title:pageTitle,restricted:Boolean(detection.blockers?.length),
+    playing:streams.some(stream => stream.playing),streams:scanning ? [] : streams})});
+$('mcp-center').hidden = !nativeDownloads;
+
 $('export-diagnostic').addEventListener('click', () => saveJson('videosave-diagnostic.json',
   diagnosticReport({diagnostic:detection,streams})));
 $('check-release').addEventListener('click', () => browserApi.tabs.create({

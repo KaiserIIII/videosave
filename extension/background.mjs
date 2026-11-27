@@ -2,9 +2,13 @@ import { browserApi, nativeDownloads } from './browser.mjs';
 
 import { classify, isMediaFragment, mediaResponseSize } from './media.mjs';
 import { documentBlockers } from './detection.mjs';
+import { startTabGrantCleanup } from './mcp-center.mjs';
 import { registerDownloads } from './downloads.mjs';
 
-if (nativeDownloads) registerDownloads();
+if (nativeDownloads) {
+  registerDownloads();
+  startTabGrantCleanup();
+}
 
 const storage = browserApi.storage.session;
 const writes = new Map();

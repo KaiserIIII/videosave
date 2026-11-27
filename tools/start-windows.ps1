@@ -1,9 +1,10 @@
-param([switch]$SetupOnly, [switch]$SkipPlatform, [switch]$McpConfig, [switch]$SharedQueue)
+param([switch]$SetupOnly, [switch]$SkipPlatform, [switch]$McpConfig, [switch]$SharedQueue, [string]$McpClient)
 
 $ErrorActionPreference = 'Stop'
 $project = Split-Path -Parent $PSScriptRoot
 $projectTools = Join-Path $project '.local-tools'
 $tools = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'VideoSave/tools' } else { $projectTools }
+if ($McpClient -and (!$SharedQueue -or $McpClient -cnotmatch '^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$')) { throw 'Use a registered -McpClient with -SharedQueue.' }
 if ($SharedQueue -and -not $McpConfig) { throw 'Use -SharedQueue with -McpConfig.' }
 if ($SharedQueue) {
     if ($env:MEDIA_TOOLKIT_TOKEN) { throw 'Use the manual MCP configuration when the companion uses a custom pairing code.' }
@@ -154,6 +155,7 @@ if ($McpConfig) {
             $mcpEnvironment['MEDIA_TOOLKIT_SETTINGS'] = [IO.Path]::GetFullPath($env:MEDIA_TOOLKIT_SETTINGS)
         }
     }
+    if ($McpClient) { $mcpEnvironment['MEDIA_TOOLKIT_MCP_CLIENT'] = $McpClient }
     $config = @{mcpServers = @{videosave = [ordered]@{
         command = $node
         args = @((Join-Path $PSScriptRoot 'mcp-server.mjs'))
