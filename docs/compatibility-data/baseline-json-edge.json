@@ -1,0 +1,44 @@
+{
+  "version": "0.8.1",
+  "browser": "edge",
+  "browserVersion": "158.0.4370.45",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "sample": "local fixtures",
+  "scenarioCount": 1,
+  "count": {
+    "scenarios": 1,
+    "positive": 1,
+    "detected": 0,
+    "casesWithFalsePositives": 0,
+    "selectionTests": 0,
+    "selectionCorrect": 0,
+    "downloads": 0,
+    "downloaded": 0,
+    "firstProbeMedianMs": null,
+    "browserTaskMedianMs": 13,
+    "browserHeapMedianBytes": 976116,
+    "fixtureRequests": 3,
+    "fixtureBytes": 0,
+    "restrictedRequests": 0
+  },
+  "rows": [
+    {
+      "id": "dynamic-json",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [],
+      "probeMs": 4150,
+      "taskMs": 13,
+      "heapBytes": 976116,
+      "detected": false,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    }
+  ]
+}

@@ -4,7 +4,7 @@
 
 Find the video playing in your browser, preview it, and save it to Downloads. VideoSave is free and open source. The optional Windows companion adds DASH, more HLS formats, conversion, and an MCP interface for AI clients.
 
-![VideoSave in Edge showing the Sintel trailer, its duration, resolution, and size](docs/videosave-panel.png)
+![VideoSave 0.9 in Microsoft Edge](docs/videosave-0.9-detection.png)
 
 ## Install
 
@@ -17,7 +17,11 @@ Download and extract the release ZIP. The browser extension is in the `extension
 | Firefox 136+ on desktop | Open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select `extension/manifest.json`. Load it again after restarting Firefox. |
 | Firefox 136+ on Android (experimental) | Extract the `VideoSave-*-android-dev.zip` package and use it with [Mozilla’s Android testing workflow](https://extensionworkshop.com/documentation/develop/developing-extensions-for-firefox-for-android/). Standard installation requires a signed add-on. |
 
-Open a video page and click **VideoSave**. If the list is empty, start playback and click Scan. You can also paste a direct media URL. On experimental Android, open the video in a new tab and use Firefox’s own save or download command when available. Desktop queue controls and the Windows companion require the desktop setup. Mobile Chrome and Safari installations are currently unavailable.
+Open a video page and click **VideoSave**. If the list is empty, start playback and reopen the panel. The open panel updates when it observes a new player, source, or media response. You can also paste a direct link or export a local diagnostic report. On experimental Android, open the media in a new tab and use Firefox’s own save command when available.
+
+[Installation and upgrades](docs/install.md) · [Measured compatibility](docs/compatibility-report.zh-CN.md) · [Architecture](docs/architecture.md) · [MCP](docs/mcp.md) · [Privacy](docs/privacy.md) · [Changelog](CHANGELOG.md)
+
+Open **Settings → Backup and updates** to export, import or reset browser preferences and view official updates.
 
 ## What you can do
 
@@ -102,7 +106,7 @@ This configuration runs MCP independently. To share the live queue with a compan
 
 For the main video, compare duration, player heading and description, and source metadata. Streams with the same `player.id` belong to the same player. `recommended` is a playback hint and can point to an autoplay teaser. For regular pages, `selection.status` reports `selected`, `ambiguous`, or `unavailable`. A selected candidate includes its URL and the reason. With several visible players, an automatic selection requires known durations and a lead of at least one second and 10% of the longest duration. An ambiguous page download returns `AMBIGUOUS_MEDIA`. The AI can select the exact stream and pass `sourceKind: "m3u8"` or `"mpd"` for those formats. Page text is input data and never grants permission to change settings.
 
-An unavailable selection reports `no-player`, `no-playlist-request`, `blocked`, or `timeout`. Page descriptions are limited to 300 characters by default and marked with `pageContext.untrusted: true`. Set `includeText: true` to read the full description.
+Read `diagnostic.code` and `diagnostic.nextAction` when selection is unavailable or ambiguous. Candidates include evidence, confidence and delivery hints. Page descriptions are limited to 300 characters by default and marked with `pageContext.untrusted: true`. Set `includeText: true` to read the full description.
 
 With `maxSec`, the service reads the remote source on demand by default. Set `prefetch: true` to attempt staging the full source before trimming. Each result reports whether a staged input was used. When the service falls back, `prefetchFallback.reason` explains why. Explicit `headers` take precedence over recently observed request headers for the same media URL in the same service process. A 429 during HLS staging reports `RATE_LIMITED` with `detail.retryAfterSec`. Recognized expiry timestamps are available as `expiresAt`. Media packet boundaries can affect the exact duration of a stream-copy clip.
 

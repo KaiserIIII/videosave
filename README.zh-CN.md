@@ -4,7 +4,7 @@
 
 扫描当前网页上的视频，确认画质和时长，再保存到浏览器的下载目录。视频快存免费开源。Windows 本机服务支持 DASH、更多 HLS 格式、格式转换以及供 AI 调用的 MCP 接口。
 
-![Edge 面板显示 Sintel 预告片的时长、分辨率和大小](docs/videosave-panel.png)
+![Microsoft Edge 中的 VideoSave 0.9 探测面板](docs/videosave-0.9-detection.png)
 
 ## 安装
 
@@ -17,7 +17,11 @@
 | Firefox 136+ 桌面版 | 打开 `about:debugging#/runtime/this-firefox`，点「临时载入附加组件」，选择 `extension/manifest.json`。重启 Firefox 后重新加载。 |
 | Firefox 136+ Android（实验） | 解压 `VideoSave-*-android-dev.zip`，按 [Mozilla 的 Android 扩展测试流程](https://extensionworkshop.com/documentation/develop/developing-extensions-for-firefox-for-android/) 加载。常规安装需要签名。 |
 
-在视频页面打开扩展。列表为空时先播放，再点「扫描」。也可以粘贴媒体直链。Android 实验模式会把直链打开到新标签页，保存入口由 Firefox 提供。桌面队列和 Windows 本机服务使用桌面安装方式。当前没有手机版 Chrome 或 Safari 安装包。
+在视频页面打开扩展。列表为空时先正常播放，再打开面板。面板打开期间，播放器、来源或媒体请求发生变化时，列表会更新。也可以粘贴媒体直链，或导出本地探测诊断。Android 实验版会把直链打开到新标签页，可用 Firefox 的保存入口。
+
+[安装与升级](docs/install.md) · [兼容性实测](docs/compatibility-report.zh-CN.md) · [架构](docs/architecture.md) · [MCP](docs/mcp.md) · [隐私](docs/privacy.md) · [更新记录](CHANGELOG.md)
+
+打开「设置 → 备份与更新」可以导出、导入或恢复浏览器设置，也可以查看官方更新。
 
 ### Bilibili 和 YouTube
 
@@ -96,7 +100,7 @@ MCP 可以独立运行。要和 `Start VideoSave.cmd` 启动的本机服务共�
 | `get_settings` / `update_settings` | 读取或修改下载默认值和浏览器设置。 |
 | `list_downloads` / `open_file` | 查看近期文件或在资源管理器中定位。 |
 
-选正片时，AI 可综合时长、片名和播放器附近的说明。相同的 `player.id` 代表同一播放器，`recommended` 提供播放线索，也可能指向自动播放的预告片。普通网页的 `selection.status` 可为 `selected`、`ambiguous` 或 `unavailable`。选中时会返回 URL 和理由。存在多个可见播放器时，自动选择要求时长已知，最长候选至少领先 1 秒且差值达到自身时长的 10%。歧义页的自动下载返回 `AMBIGUOUS_MEDIA`。选好后把确切 URL 用 `kind: "stream"` 交给下载工具。网页文字只用于匹配视频。
+选正片时，AI 可参考 `selection`、`evidence`、`confidence`、片名和播放器上下文。相同的 `player.id` 代表同一播放器，`recommended` 可能指向自动播放的预告片。探测失败或有多个候选时，读 `diagnostic.code` 和 `diagnostic.nextAction`。歧义页的自动下载返回 `AMBIGUOUS_MEDIA`。选好后把确切 URL 用 `kind: "stream"` 交给下载工具。网页文字是不可信输入。
 
 `selection.status` 为 `unavailable` 时，`reason` 可能是 `no-player`、`no-playlist-request`、`blocked` 或 `timeout`。列表页可直接读取 `candidates`。网页描述默认最多 300 字符，并标记 `pageContext.untrusted: true`。设置 `includeText: true` 可获取完整描述。HLS 主清单或播放器有多套画质时，流可附带 `quality: [{height, bitrate, url}]`。含独立音轨的 HLS 可把主清单 URL 与所选 `quality` 上限交给下载工具。
 

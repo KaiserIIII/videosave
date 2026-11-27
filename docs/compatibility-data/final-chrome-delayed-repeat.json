@@ -1,0 +1,90 @@
+{
+  "version": "0.9.0",
+  "browser": "chrome",
+  "browserVersion": "158.0.8127.38",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "sample": "local fixtures",
+  "scenarioCount": 3,
+  "count": {
+    "scenarios": 3,
+    "positive": 3,
+    "detected": 3,
+    "casesWithFalsePositives": 0,
+    "selectionTests": 0,
+    "selectionCorrect": 0,
+    "downloads": 0,
+    "downloaded": 0,
+    "firstProbeMedianMs": 3950,
+    "browserTaskMedianMs": 0,
+    "browserHeapMedianBytes": 1892768,
+    "fixtureRequests": 13,
+    "fixtureBytes": 226218,
+    "restrictedRequests": 0
+  },
+  "rows": [
+    {
+      "id": "shadow-delayed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selected": "film.mp4",
+      "probeMs": 3455,
+      "firstProbeMs": 3454,
+      "taskMs": 35,
+      "heapBytes": 1304532,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "delay-late",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selected": "film.mp4",
+      "probeMs": 3979,
+      "firstProbeMs": 3978,
+      "taskMs": 0,
+      "heapBytes": 1892768,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "spa-route",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "selected": "film.mp4",
+      "probeMs": 3951,
+      "firstProbeMs": 3950,
+      "taskMs": 0,
+      "heapBytes": 2477204,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 75406,
+      "restrictedRequests": 0
+    }
+  ]
+}
