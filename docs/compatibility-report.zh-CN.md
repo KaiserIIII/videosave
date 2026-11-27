@@ -24,9 +24,13 @@
 
 [DASH 记录](compatibility-data/v1-dash-public.json) · [DASH 初始化验证后复跑](compatibility-data/v1-dash-public-init-validation.json) · [HLS 竞品对照](competitive-review.zh-CN.md) · [安全审查和回归范围](v1-security.md)
 
-本地早期回归首轮通过 198/199。Chromium 空目标列表用例在 600 ms 的观察预算下报告 `observe` 超时，隔离复测该文件 5/5。调整该测试的观察预算后，完整回归通过 300/300。独立 Edge 的跨 CDN 直链首轮 1/1。 [回归与跨 CDN 试验记录](compatibility-data/v1-regression.json)
+本地早期工作区回归首轮通过 198/199。Chromium 空目标列表用例在 600 ms 的观察预算下报告 `observe` 超时，隔离复测该文件 5/5。调整该测试的观察预算后，工作区扫描通过 300/300，其中包含 `dist` 中解压的历史测试副本。限定 `tests/*.test.mjs` 的仓库回归通过 115/115。独立 Edge 的跨 CDN 直链首轮 1/1。 [回归与跨 CDN 试验记录](compatibility-data/v1-regression.json)
 
-[候选提交 `647dee9` 的 GitHub Actions](https://github.com/KaiserIIII/videosave/actions/runs/45965086247) 提供解压发行格式后的矩阵和构建产物。Edge、Chrome 和 Firefox 的扩展各命中 96/96，验证落盘各 5/5。Firefox ZIP 的清单只含数字版本 `0.99.0.1`。从这次运行下载的四个 ZIP 通过独立 SHA-256、源码字节和 CycloneDX 校验。解压桌面包后，Windows 启动器生成了正确的 MCP 配置，独立 MCP 完成了音视频下载、任务复用和 CLI 帮助验收。
+[候选提交 `647dee9` 的 GitHub Actions](https://github.com/KaiserIIII/videosave/actions/runs/45965086247) 提供解压发行格式后的矩阵和构建产物。Edge、Chrome 和 Firefox 的扩展各命中 96/96，验证落盘各 5/5。独立 MCP 首轮命中 93/95、落盘 11/11。`mkv-open-shadow` 与 `mkv-network-no-suffix` 均超时，测试 HTTP 服务记录为 0 请求。用候选提交在本机单独复跑，两例分别在 3,513 ms 和 5,423 ms 命中。CI 首轮详细 CDP 阶段未采集。MCP 输出架构与后续矩阵现在记录 `browserProbe.stage` 和 `browserProbe.attempts`。 [CI 首轮数据](compatibility-data/v1-ci-mcp-first.json) · [本机定向复测](compatibility-data/v1-ci-mkv-retest.json)
+
+Firefox ZIP 的清单只含数字版本 `0.99.0.1`。从首轮 Actions 下载的四个 ZIP 通过独立 SHA-256、源码字节和 CycloneDX 校验。解压桌面包后，Windows 启动器生成了正确的 MCP 配置，独立 MCP 完成了音视频下载、任务复用和 CLI 帮助验收。
+
+文档提交的 [CI 复测](https://github.com/KaiserIIII/videosave/actions/runs/45966156565/job/140395223100) 报告 108/115。Range 测试在服务端写出 262,144 字节后立即断开时，客户端已写入 196,608 字节，并从该位置续传出完整文件。固定偏移断言失败，遗留的测试文件随后使五个子用例失败。夹具改为收到客户端落盘进度后断开，并在每个子用例结束后清理输出。独立 Range 套件复跑 9/9。
 
 原生 DASH 暂缺动态和直播、复杂 Period、内嵌 TTML/WVTT、分层 SIDX 及跨任务分片续传。托管跨域传输需要可验证的公网直连，第三方 CDN 凭据和依赖代理的 CDN 路径未覆盖。多 CDN 清单对其他来源的每个资源要求有同一播放器的确切观察证据，公网样片尚未验证完整的跨域分片和故障切换。Streamlink 自动调度、通用实时传输和商店签名仍待交付。现有证据无法支持 200 种受控场景、30 个独立公网来源或总体领先竞品的结论。
 

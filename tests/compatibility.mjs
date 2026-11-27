@@ -228,7 +228,8 @@ async function testMcp(tool) {
     }
     record(entry,{names,selection:response.selection?.status,selected:relativeName(response.selection?.url),
       reason:response.selection?.reason,diagnostic:response.diagnostic?.code,blockers:response.blockers ?? [],probeMs,
-      firstProbeMs:names.length ? probeMs : undefined,download,downloadError,verified,probeStrategy:response.probeStrategy},before);
+      firstProbeMs:names.length ? probeMs : undefined,download,downloadError,verified,
+      probeStrategy:response.probeStrategy,browserProbe:response.browserProbe},before);
   }
 }
 

@@ -31,7 +31,9 @@ test('parallel Range transfer', async t => {
   const redirectedRequests = [];
   const retries = [];
   const unexpectedSizeRequests = [];
+  const interruptAt = bytesPerConnection * 2;
   let interrupted = false;
+  let interruptedBytes = 0;
   let peak = 0;
   const serve = (req, res) => {
     const mode = path.basename(req.url, '.mp4');
@@ -67,10 +69,16 @@ test('parallel Range transfer', async t => {
     for (const transfer of transfers) {
       const { res, offset, end } = transfer;
       if (res.writableNeedDrain || res.writableEnded || !budget) continue;
-      if (transfer.mode === 'interrupted' && !interrupted && transfer.first === 0 && offset >= bytesPerConnection * 2) {
-        interrupted = true;
-        res.destroy();
-        continue;
+      if (transfer.mode === 'interrupted' && !interrupted) {
+        // Isolate the first range until its writes are visible to the downloader.
+        if (transfer.first !== 0) continue;
+        if (offset === interruptAt) {
+          if (interruptedBytes === interruptAt) {
+            interrupted = true;
+            res.destroy();
+          }
+          continue;
+        }
       }
       const count = Math.min(end - offset, budget, bytesPerConnection);
       budget -= count;
@@ -92,7 +100,7 @@ test('parallel Range transfer', async t => {
       assert.deepEqual(unexpectedSizeRequests, ['bytes=0-0']);
       assert.deepEqual(await readdir(staging), []);
     });
-    await t.test('uses most of the shared throughput and saves identical bytes', async () => {
+    await t.test('uses most of the shared throughput and saves identical bytes', async caseTest => {
       const singleStart = performance.now();
       const response = await fetch(url('single'));
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), fixture);
@@ -103,37 +111,36 @@ test('parallel Range transfer', async t => {
       const file = await prefetchRanges(url('parallel'), [], staging, AbortSignal.timeout(15000), () => {});
       const elapsed = performance.now() - parallelStart;
       assert.ok(file);
+      caseTest.after(() => removeFixture(file));
       assert.deepEqual(await readFile(file), fixture);
       const ceilingMs = fixture.length / bytesPerTick * tickMs;
       const effectiveCeiling = singleMs / (bytesPerTick / bytesPerConnection);
       console.log(`Range single ${Math.round(singleMs)} ms, parallel ${Math.round(elapsed)} ms, ${peak} connections, ${(effectiveCeiling / elapsed * 100).toFixed(1)}% of the ceiling measured from the single transfer`);
       assert.equal(peak, 8);
       assert.ok(elapsed < singleMs / 4 && elapsed < ceilingMs * 1.6);
-      await removeFixture(file);
     });
-    await t.test('retries an interrupted range from the last written byte without restarting other ranges', async () => {
-      let progress = 0;
+    await t.test('retries an interrupted range from the last written byte without restarting other ranges', async caseTest => {
       const file = await prefetchRanges(url('interrupted'), [], staging, AbortSignal.timeout(15000), (_, bytes) => {
-        assert.ok(bytes >= progress && bytes <= fixture.length);
-        progress = bytes;
+        assert.ok(bytes >= interruptedBytes && bytes <= fixture.length);
+        interruptedBytes = bytes;
       });
       assert.ok(file);
+      caseTest.after(() => removeFixture(file));
       assert.deepEqual(await readFile(file), fixture);
-      assert.equal(progress, fixture.length);
+      assert.equal(interruptedBytes, fixture.length);
       const initial = retries.find(([start]) => start === 0);
-      assert.deepEqual(retries.filter(([, end]) => end === initial[1]), [initial, [bytesPerConnection * 2, initial[1]]]);
+      assert.deepEqual(retries.filter(([, end]) => end === initial[1]), [initial, [interruptAt, initial[1]]]);
       assert.equal(retries.length, 9);
-      console.log('Range recovery resumed at byte', bytesPerConnection * 2, 'with no repeated bytes');
-      await removeFixture(file);
+      console.log('Range recovery resumed at byte', interruptAt, 'with no repeated bytes');
     });
-    await t.test('accelerates a redirect to a media origin without forwarding cookies', async () => {
+    await t.test('accelerates a redirect to a media origin without forwarding cookies', async caseTest => {
       const cookies = [{name:'session',value:'source-only'}];
       const file = await prefetchRanges(url('redirect'), cookies, staging, AbortSignal.timeout(8000), () => {});
       assert.ok(file);
+      caseTest.after(() => removeFixture(file));
       assert.deepEqual(await readFile(file), fixture);
       assert.equal(redirectedRequests.length, 9);
       assert.ok(redirectedRequests.every(headers => headers.cookie === undefined));
-      await removeFixture(file);
     });
     for (const mode of ['ignore', 'wrong', 'changed']) {
       await t.test(`abandons ${mode} responses and removes staging`, async () => {

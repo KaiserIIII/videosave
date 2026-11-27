@@ -71,7 +71,7 @@ jobs:
       - name: Run regression tests
         if: matrix.target == 'delivery'
         # Keep browser and FFmpeg fixtures within the Windows runner's CPU budget.
-        run: node --test --test-concurrency=2
+        run: node --test --test-concurrency=2 'tests/*.test.mjs'
       - name: Check delivery paths in Edge and MCP
         if: matrix.target == 'delivery'
         run: node tests/smoke.mjs --delivery-only

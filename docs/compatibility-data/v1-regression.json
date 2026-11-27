@@ -23,15 +23,35 @@
       "failed": 0
     },
     {
-      "stage": "candidate full run after expanding the startup test observation budget",
+      "stage": "candidate workspace discovery after expanding the startup test observation budget",
+      "note": "Automatic test discovery also included extracted historical test copies under dist. Use the project-only count for release comparison.",
       "observationBudgetMs": 2400,
       "tests": 300,
       "passed": 300,
       "failed": 0,
       "skipped": 0,
       "durationMs": 352852.2769
+    },
+    {
+      "stage": "current project files only, before fixing the Range test race",
+      "command": "node --test --test-concurrency=2 'tests/*.test.mjs'",
+      "tests": 115,
+      "passed": 115,
+      "failed": 0,
+      "skipped": 0,
+      "durationMs": 121279.3513
     }
   ],
+  "ciRangeFailure": {
+    "job": "https://github.com/KaiserIIII/videosave/actions/runs/45966156565/job/140395223100",
+    "tests": 115,
+    "passed": 108,
+    "failed": 7,
+    "bytesWrittenByServerBeforeDisconnect": 262144,
+    "resumeOffset": 196608,
+    "fileContentsVerifiedBeforeOffsetAssertion": true,
+    "targetedRangeRetestPassed": 9
+  },
   "managedPublicCdn": {
     "browser": "Edge 158.0.4370.45",
     "fixture": "Local page with an embedded player loading a Mozilla CC0 file over public HTTPS",

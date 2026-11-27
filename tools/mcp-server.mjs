@@ -88,6 +88,8 @@ const outputSchemas = {
     selection:object({status:{enum:['selected','ambiguous','unavailable']},url:string,reason:string},['status']),
     diagnostic:object({code:string,nextAction:string,candidateCount:{type:'integer'}},['code','nextAction','candidateCount']),
     probeStrategy:object({stage:{enum:['standard','deep']},attempts:{type:'integer',minimum:1,maximum:2}},['stage','attempts']),
+    browserProbe:object({stage:{enum:['launch','target','connect','setup','navigate','observe']},
+      attempts:{type:'integer',minimum:1,maximum:2}},['stage','attempts']),
     codes:array(string),qualities:array(object({height:{type:'integer'},bandwidth:{type:'integer'},url:string},['height','bandwidth','url'])),
   },['streams','selection','diagnostic']),
   start_download:object({id:string,alreadySaved:{type:'boolean'}},['id']),
