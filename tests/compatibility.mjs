@@ -56,6 +56,7 @@ function record(entry, fields, previous) {
     selectionCorrect:entry.ambiguous && isMcp ? fields.selection === 'ambiguous'
       : entry.selected ? fields.selected === entry.selected : undefined,
     ...(entry.reason && isMcp && {expectedReason:entry.reason,reasonCorrect:fields.reason === entry.reason}),
+    ...(entry.diagnostic && isMcp && {expectedDiagnostic:entry.diagnostic,diagnosticCorrect:fields.diagnostic === entry.diagnostic}),
     ...(entry.blocker && isMcp && {expectedBlocker:entry.blocker,blockerCorrect:fields.blockers?.includes(entry.blocker) ?? false}),
     fixtureRequests:stats.requests - previous.requests,
     fixtureBytes:stats.bytes - previous.bytes,
@@ -224,7 +225,7 @@ async function testMcp(tool) {
       }
     }
     record(entry,{names,selection:response.selection?.status,selected:relativeName(response.selection?.url),
-      reason:response.selection?.reason,blockers:response.blockers ?? [],probeMs,
+      reason:response.selection?.reason,diagnostic:response.diagnostic?.code,blockers:response.blockers ?? [],probeMs,
       firstProbeMs:names.length ? probeMs : undefined,download,downloadError,verified},before);
   }
 }
@@ -265,9 +266,9 @@ const count = {
 };
 const core = new Set(['mp4','webm','source-elements','extensionless-network','network-webm','network-hls',
   'network-hls-mime','network-dash','fmp4-hls','same-origin-iframe','play-event','preroll','empty','http-paywall',
-  'challenge-header']);
+  'challenge-header','only-fragments']);
 const regression = rows.filter(row => core.has(row.id) && (row.detected === false || row.falsePositives.length ||
-  ['mp4','webm'].includes(row.id) && row.download !== 'verified'));
+  row.diagnosticCorrect === false || ['mp4','webm'].includes(row.id) && row.download !== 'verified'));
 const report = {version,browser,browserVersion,node:process.version,platform:process.platform,
   sample:live ? 'includes public media' : 'local fixtures',scenarioCount:requested.length,infrastructureError,count,rows};
 if (option('output')) await writeFile(path.resolve(option('output')),JSON.stringify(report,null,2) + '\n');

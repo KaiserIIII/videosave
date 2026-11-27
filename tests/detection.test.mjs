@@ -85,3 +85,21 @@ test('settings backup is versioned, excludes credentials, and rejects invalid im
   assert.throws(() => restoreSettingsBackup({schema:1,settings:{downloadFolder:'../outside'}}));
   assert.throws(() => restoreSettingsBackup({schema:1,settings:{theme:'arbitrary'}},{theme:['system']}));
 });
+
+test('DASH groups only observed fragments declared by the manifest in the same frame', () => {
+  const manifest = new URL('/media/index.mpd',base).href;
+  const evidence = manifestEvidence(`<?xml version="1.0"?>
+    <MPD><BaseURL>./</BaseURL><Period><AdaptationSet>
+      <SegmentTemplate media="$RepresentationID$/$RepresentationID$_$Number%05d$.m4v?x=a&amp;y=b"
+        initialization="$RepresentationID$/$RepresentationID$_0.m4v"/>
+      <Representation id="film_720p" bandwidth="800000"/>
+    </AdaptationSet></Period></MPD>`,manifest,'mpd');
+  const urls = ['film_720p/film_720p_00001.m4v?x=a&y=b','film_720p/film_720p_0.m4v',
+    'other/other_00001.m4v?x=a&y=b','independent_00001.m4v'].map(value => new URL(value,manifest).href);
+  const rows = pageStreams([], [
+    {url:manifest, frameId:0, mime:'application/dash+xml', ...evidence},
+    ...urls.map(url => ({url, frameId:0, mime:'video/mp4'})),
+    {url:urls[0], frameId:2, mime:'video/mp4'},
+  ]);
+  assert.deepEqual(rows.map(row => row.url).sort(),[manifest,urls[0],urls[2],urls[3]].sort());
+});

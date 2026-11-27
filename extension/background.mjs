@@ -1,6 +1,6 @@
 import { browserApi, nativeDownloads } from './browser.mjs';
 
-import { classify, mediaResponseSize } from './media.mjs';
+import { classify, isMediaFragment, mediaResponseSize } from './media.mjs';
 import { documentBlockers } from './detection.mjs';
 import { registerDownloads } from './downloads.mjs';
 
@@ -45,6 +45,12 @@ browserApi.webRequest.onHeadersReceived.addListener(details => {
   if (details.statusCode < 200 || details.statusCode >= 300) return;
   const mime = header('content-type') ?? '';
   const kind = classify(details.url, mime);
+  if (!kind && isMediaFragment(new URL(details.url).pathname.toLowerCase(),mime.split(';')[0].trim().toLowerCase())) {
+    update(details.tabId, rows => rows.some(row => row.fragment && row.frameId === details.frameId)
+      ? rows : [...rows,{fragment:true,frameId:details.frameId,documentId:details.documentId,
+        documentUrl:details.documentUrl,timeStamp:details.timeStamp}].slice(-120));
+    return;
+  }
   if ((!kind && !classify(details.url)) || ['image','stylesheet','font','script','ping'].includes(details.type)) return;
   const disposition = header('content-disposition') ?? '';
   const filename = /(?:^|;)\s*filename\*=UTF-8'[^']*'([^;]+)/i.exec(disposition)?.[1] ||

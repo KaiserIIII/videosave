@@ -15,6 +15,7 @@ RELEASE_DOCS = (
     "docs/videosave-0.9-detection.png", "docs/videosave-0.9-settings.png",
     "docs/architecture.md", "docs/compatibility-report.zh-CN.md", "docs/competitive-review.zh-CN.md",
     "docs/detection-research.zh-CN.md", "docs/privacy.md", "docs/mcp.md", "docs/install.md",
+    "docs/hls-benchmark.zh-CN.md", "tests/benchmark-hls.mjs",
 )
 PROJECT = "https://github.com/KaiserIIII/videosave"
 
@@ -56,6 +57,7 @@ def package_entries(manifest):
     dev_extension = {**extension_files, "manifest.json": (extension / "manifest.json").read_bytes()}
     desktop = {file: (ROOT / file).read_bytes() for file in RELEASE_DOCS}
     desktop.update(read_entries(ROOT, "docs/compatibility-data/*.json"))
+    desktop.update(read_entries(ROOT, "tests/compatibility*.mjs"))
     desktop.update({"extension/" + file: data for file, data in dev_extension.items()})
     desktop.update(read_entries(ROOT, "tools/*.mjs"))
     for file in ("Start VideoSave.cmd", "tools/start-windows.ps1"):
@@ -176,7 +178,7 @@ def main():
     checksums = [f"{sha256(file.read_bytes()).hexdigest()}  {file.name}" for file in subjects]
     (output / "SHA256SUMS.txt").write_text("\n".join(checksums) + "\n", encoding="ascii", newline="\n")
     for file in subjects:
-        print(file)
+        print(file.name)
 
 
 if __name__ == "__main__":

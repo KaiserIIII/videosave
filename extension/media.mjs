@@ -43,6 +43,12 @@ export function isPlaylist(kind) {
   return adaptive.has(kind);
 }
 
+export function isMediaFragment(pathname, mime) {
+  return /^(?:video|audio)\/iso\.segment$/.test(mime) ||
+    /\.(?:m4s|cmfv|cmfa)$/.test(pathname) ||
+    /\/(?:init|seg(?:ment)?|chunk|fragment)(?:[-_\d][^/]*)?\.(?:mp4|m4v|mov|webm|m4a|ts)$/.test(pathname);
+}
+
 export function classify(value, contentType = '', mediaElement = false) {
   const url = URL.parse(value);
   if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
@@ -51,8 +57,7 @@ export function classify(value, contentType = '', mediaElement = false) {
   if (/^(?:application|audio)\/(?:vnd\.apple\.mpegurl|x-mpegurl|mpegurl)$/.test(mime)) return 'm3u8';
   if (mime === 'application/dash+xml') return 'mpd';
   if (/^(?:text\/|image\/|font\/)|(?:json|xml|javascript|iso\.segment)$/.test(mime) ||
-      /\.(?:m4s|cmfv|cmfa|aac|vtt)$/.test(pathname) ||
-      /\/(?:init|seg(?:ment)?|chunk|fragment)(?:[-_\d][^/]*)?\.(?:mp4|m4v|mov|webm|m4a|ts)$/.test(pathname)) return null;
+      /\.(?:aac|vtt)$/.test(pathname) || isMediaFragment(pathname,mime)) return null;
   const extension = pathname.match(/\.([a-z0-9]+)$/)?.[1];
   if (extension === 'ts' || mime === 'video/mp2t') return mediaElement ? 'ts' : null;
   if (mime.startsWith('audio/') || audioFormats.has(extension)) {
@@ -135,6 +140,9 @@ export function pageStreams(frames, requests) {
   const rejected = new Set(requests.filter(row => row.mime && !classify(row.url,row.mime,true)).map(row => row.url));
   const protectedUrls = new Set(requests.filter(row => row.drm).flatMap(row => [row.url,...(row.manifestChildren ?? [])]));
   const mediaParts = new Set(requests.flatMap(row => (row.manifestParts ?? []).map(url => row.frameId + ' ' + url)));
+  const templatedParts = requests.filter(row => row.manifestPartPatterns?.length).map(row => ({
+    frameId:row.frameId, patterns:row.manifestPartPatterns.map(pattern => new RegExp(pattern)),
+  }));
   const documents = new Map(frames.map(frame => [frame.frameId,frame.result.documentUrl]));
   const encryptedFrames = new Set(frames.filter(frame => frame.result.encrypted || frame.result.blocker).map(frame => frame.frameId));
   const excluded = new Set(frames.flatMap(({result}) => result.excludedMedia ?? []));
@@ -173,15 +181,17 @@ export function pageStreams(frames, requests) {
   const eligible = url => !protectedUrls.has(url.href) &&
     !rejected.has(url.href) &&
     (!excluded.has(url.href) || declared.has(url.href));
+  const isPart = (url, frameId) => !declared.has(url.href) && (mediaParts.has(frameId + ' ' + url.href) ||
+    templatedParts.some(row => row.frameId === frameId && row.patterns.some(pattern => pattern.test(url.href))));
   const network = requests.filter(request => {
     const url = URL.parse(request.url);
-    return url && url.href !== documents.get(request.frameId) && !mediaParts.has(request.frameId + ' ' + url.href) &&
+    return url && url.href !== documents.get(request.frameId) && !isPart(url,request.frameId) &&
       !encryptedFrames.has(request.frameId) && eligible(url) && !covered.has(`${request.frameId} ${url.href}`) && (declared.has(url.href) ||
       !noisy.test(url.pathname) && request.type !== 'image');
   });
   const streams = pickStreams([...network.map(request => request.xhrJson || request.manifestOnly ? request : {...request,observed:true}), ...observed.filter(candidate => {
     const url = URL.parse(candidate.url);
-    return url && !mediaParts.has(candidate.frameId + ' ' + url.href) && eligible(url) && !covered.has(`${candidate.frameId} ${url.href}`) &&
+    return url && !isPart(url,candidate.frameId) && eligible(url) && !covered.has(`${candidate.frameId} ${url.href}`) &&
       (candidate.mediaElement || !noisy.test(url.pathname));
   }), ...inferred]);
   const players = new Map();

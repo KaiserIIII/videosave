@@ -91,6 +91,7 @@ let lastJobs;
 let downloadJobs = [];
 let scanning = false;
 let scanTimer;
+let discoveryRetry;
 let pollTimer;
 let polling = false;
 let openedOptions;
@@ -616,7 +617,7 @@ async function refresh(manual = true) {
     const allowedFrames = new Map(frames.map(frame => [frame.frameId,frame]));
     const requests = stored.filter(row => {
       const frame = allowedFrames.get(row.frameId);
-      if (!row.url || !frame) return false;
+      if ((!row.url && !row.fragment) || !frame) return false;
       if (row.documentId && frame.documentId && row.documentId !== frame.documentId) return false;
       if (row.documentUrl && row.documentUrl !== frame.result.documentUrl) return false;
       return !frame.result.routeStartedAt || !row.timeStamp || row.timeStamp >= frame.result.routeStartedAt;
@@ -659,7 +660,7 @@ async function refresh(manual = true) {
       players:observations.reduce((n,row) => n + row.playerCount,0),
       unloaded:observations.reduce((n,row) => n + row.unloaded,0),
       opaque:observations.reduce((n,row) => n + row.opaqueCount,0),
-      unsupported:observations.reduce((n,row) => n + row.unsupported,0),
+      unsupported:observations.reduce((n,row) => n + row.unsupported,0) + requests.filter(row => row.fragment).length,
       excluded:observations.reduce((n,row) => n + (row.excludedMedia?.length ?? 0),0),
       blockedFrames:Math.max(0, (top?.iframeCount ?? 0) - frames.filter(frame => frame.frameId !== 0).length),
     });
@@ -689,6 +690,14 @@ async function refresh(manual = true) {
       await browserApi.scripting.executeScript({target:{tabId:tab.id,allFrames:true},
         func:observeMediaChanges,args:[true]}).catch(() => {});
     } else if (!preferences.autoScan) await stopWatching();
+    if (manual || pageChanged) {
+      clearTimeout(discoveryRetry);
+      if (preferences.autoScan && available && !streams.length) {
+        discoveryRetry = setTimeout(() => {
+          if (!streams.length) scheduleScan();
+        },2600);
+      }
+    }
   } finally {
     scanning = false;
     if (manual) $('refresh').disabled = false;
@@ -817,7 +826,10 @@ browserApi.runtime?.onMessage?.addListener((message,sender) => {
 browserApi.tabs.onUpdated?.addListener((id,change) => {
   if (id === tab?.id && (change.url || change.status === 'complete')) scheduleScan();
 });
-window.addEventListener('pagehide', () => void stopWatching());
+window.addEventListener('pagehide', () => {
+  clearTimeout(discoveryRetry);
+  void stopWatching();
+});
 $('all').addEventListener('change', () => {
   selected.clear();
   for (const input of $('media').querySelectorAll('input[type=checkbox]')) {

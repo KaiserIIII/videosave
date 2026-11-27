@@ -61,7 +61,7 @@ export const compatibilityCases = [
     request('film.mpd') + '}')},
   {id:'mse-sourcebuffer', expected:['fmp4.m3u8'], html:msePlayback},
   {id:'fmp4-hls', expected:['fmp4.m3u8'], download:true, html:script(request('fmp4.m3u8'))},
-  {id:'only-fragments', expected:[], reason:'unsupported-format', html:script(request('init.mp4') + request('chunk-0.m4s'))},
+  {id:'only-fragments', expected:[], diagnostic:'unsupported-format', html:script(request('init.mp4') + request('chunk-0.m4s'))},
   {id:'same-origin-iframe', expected:['film.mp4'], html:'<iframe src="/embed"></iframe>'},
   {id:'cross-origin-iframe', expected:['film.mp4'], html:({port}) => '<iframe src="http://localhost:' + port + '/embed"></iframe>'},
   {id:'nested-iframe', expected:['film.mp4'], html:'<iframe src="/nested"></iframe>'},
@@ -74,6 +74,9 @@ export const compatibilityCases = [
   {id:'shadow-delayed', expected:['film.mp4'], html:'<div id="host"></div>' + script(
     'const sh=document.getElementById("host").attachShadow({mode:"open"}); setTimeout(() => sh.innerHTML=' +
     JSON.stringify(video()) + ',2600);')},
+  {id:'shadow-attach-late', expected:['film.mp4'], html:'<div id="host"></div>' + script(
+    'setTimeout(() => { document.querySelector("#host").attachShadow({mode:"open"}).innerHTML=' +
+    JSON.stringify(video('film.mp4','preload="none"')) + '; },1400);')},
   {id:'structured-video', expected:['film.mp4'],
     html:jsonLd({'@context':'https://schema.org','@type':'VideoObject',name:'The test film',contentUrl:'film.mp4'})},
   {id:'structured-graph', expected:['film.webm'],

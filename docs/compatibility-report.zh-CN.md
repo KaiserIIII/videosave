@@ -25,7 +25,7 @@ MCP 基线整轮为 33/44。原 `dynamic-json` 模拟页仅调用 `fetch()`，�
 | 登录、支付、403、Cloudflare 挑战、DRM 模拟页 | 无受限资源请求 | 无受限资源请求，返回相应的诊断或状态 |
 | Windows、Linux、Android | Windows 实测。其余平台不在本矩阵覆盖范围内 | Windows 实测。其余平台不在本矩阵覆盖范围内 |
 
-候选轮的七个公网样本均命中，涵盖 MDN、W3C、HLS.js、dash.js、Apple 和 Mux。公网样本分别承担探测和落盘验证，具体覆盖见逐场景记录。下载校验使用 `ffprobe` 确认轨道类型与时长。本地测试预期 3 秒。登录、付费墙、Cloudflare 挑战和 DRM 使用本地模拟响应，未验证真实第三方账号会话。YouTube、Bilibili、Android 和商店安装不在此矩阵中。
+四个渠道在候选轮均命中七个公网样本，Edge、Chrome、Firefox 和 MCP 的基线分别为 7/7、7/7、6/7、3/7。样本涵盖 MDN、W3C、HLS.js、dash.js、Apple 和 Mux。公网样本分别承担探测和落盘验证，具体覆盖见逐场景记录。下载校验使用 `ffprobe` 确认轨道类型与时长。本地测试预期 3 秒。登录、付费墙、Cloudflare 挑战和 DRM 使用本地模拟响应，未验证真实第三方账号会话。YouTube、Bilibili、Android 和商店安装不在此矩阵中。
 
 ## 失败与限制
 
@@ -56,3 +56,5 @@ node tests/compatibility.mjs --browser=edge --public --strict --output=edge-0.9.
 node tests/compatibility.mjs --browser=edge --public --source=C:/work/videosave-v0.8.1 --output=edge-0.8.1.json
 node tests/compatibility.mjs --browser=chrome '--only=shadow-delayed|delay-late|spa-route' --output=chrome-delayed.json
 ```
+
+另见 [HLS 下载性能与竞品对照](hls-benchmark.zh-CN.md)，包含受控慢尾、两个公网样片和 Video DownloadHelper 的探测核对。

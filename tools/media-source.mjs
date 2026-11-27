@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { connectCdp, withChromium } from './edge-session.mjs';
-import { classify, isPlaylist, mediaResponseSize, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
+import { classify, isMediaFragment, isPlaylist, mediaResponseSize, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
 import { assessCandidates, detectionDiagnostic, documentBlockers } from '../extension/detection.mjs';
 import { publicMediaSources } from '../extension/media-adapters.mjs';
 import { manifestEvidence } from '../extension/manifest-evidence.mjs';
@@ -211,6 +211,7 @@ export async function discover(url, cookies, signal, {
     const page = await connectCdp(target.webSocketDebuggerUrl, signal);
     try {
       const responses = new Map();
+      const fragmentFrames = new Set();
       const blockedFrames = new Set();
       const frameBlockers = new Map();
       const frameUrls = new Map();
@@ -258,6 +259,10 @@ export async function discover(url, cookies, signal, {
             }
           }
           const kind = classify(response.url, response.mimeType);
+          if (!kind && response.status >= 200 && response.status < 300 && fragmentFrames.size < 24 &&
+              isMediaFragment(URL.parse(response.url)?.pathname.toLowerCase() ?? '',response.mimeType.toLowerCase())) {
+            fragmentFrames.add(frameId);
+          }
           if (response.status < 200 || response.status >= 300 || (!kind && !classify(response.url))) return;
           const key = frameId + ' ' + response.url;
           if (responses.size < 120 || responses.has(key)) {
@@ -393,7 +398,8 @@ export async function discover(url, cookies, signal, {
       const results = frames.map(frame => frame.result);
       const diagnostic = detectionDiagnostic({streams,blockers:[...blockers],players:results.reduce((n,row) => n + row.playerCount,0),
         unloaded:results.reduce((n,row) => n + row.unloaded,0),opaque:results.reduce((n,row) => n + row.opaqueCount,0),
-        unsupported:results.reduce((n,row) => n + row.unsupported,0),excluded:results.reduce((n,row) => n + row.excludedMedia.length,0),
+        unsupported:results.reduce((n,row) => n + row.unsupported,0) + [...fragmentFrames].filter(allowedFrame).length,
+        excluded:results.reduce((n,row) => n + row.excludedMedia.length,0),
         blockedFrames:childFrames?.inaccessibleFrames ?? 0,
         reason:blocked ? 'blocked' : !found?.ready ? 'timeout' : undefined});
       return {
