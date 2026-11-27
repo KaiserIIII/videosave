@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as downloads from './media-downloads.mjs';
@@ -11,6 +12,7 @@ import { activity, approveGrant, auditSettings, authenticateClient, clientAccess
   saveClient, sitePreferences, updateClientAccess, updateGrantSnapshot } from './mcp-control.mjs';
 import { invokeManaged, managedTools } from './managed-mcp.mjs';
 import { compatibilityRules } from './compatibility-policy.mjs';
+import { SUPPORTED_MCP_CLIENTS, detectMcpClients, generateMcpClientConfig } from './mcp-config-generator.mjs';
 
 configureMediaProxy();
 const { ApiError, VERSION } = downloads;
@@ -18,10 +20,65 @@ const port = Number(process.env.PORT ?? 8765);
 const pairingCode = process.env.MEDIA_TOOLKIT_TOKEN || (process.env.MEDIA_TOOLKIT_LOCAL_PAIRING === '1'
   ? localPairingCode({create:true}) : randomBytes(24).toString('base64url'));
 const expected = Buffer.from('Bearer ' + pairingCode);
+const expectedRaw = Buffer.from(pairingCode);
 const maxBody = 1024 * 1024;
+const consoleDir = fileURLToPath(new URL('./console', import.meta.url));
+const logoFile = fileURLToPath(new URL('../docs/logo.svg', import.meta.url));
+const consoleCsp = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+
+function safeCompare(actualText, targetBuf) {
+  const actual = Buffer.from(String(actualText ?? ''));
+  return actual.length === targetBuf.length && timingSafeEqual(actual, targetBuf);
+}
+
+function cookieValue(request, name) {
+  const raw = request.headers.cookie || '';
+  for (const part of raw.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx < 1) continue;
+    if (part.slice(0, idx).trim() === name) return part.slice(idx + 1).trim();
+  }
+  return '';
+}
+
 function authorized(request) {
-  const actual = Buffer.from(request.headers.authorization ?? '');
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
+  if (safeCompare(request.headers.authorization ?? '', expected)) return true;
+  const sessionCookie = cookieValue(request, 'videosave_console');
+  if (!sessionCookie || !safeCompare(sessionCookie, expectedRaw)) return false;
+  // Require strict same-origin context when authenticating via console cookie.
+  const fetchSite = request.headers['sec-fetch-site'];
+  if (fetchSite && !['same-origin', 'none'].includes(fetchSite)) return false;
+  const origin = request.headers.origin;
+  if (origin && origin !== `http://${request.headers.host}`) return false;
+  return true;
+}
+
+const consoleAssets = new Map([
+  ['/console', { file: path.join(consoleDir, 'index.html'), type: 'text/html; charset=utf-8' }],
+  ['/console/', { file: path.join(consoleDir, 'index.html'), type: 'text/html; charset=utf-8' }],
+  ['/console/styles.css', { file: path.join(consoleDir, 'styles.css'), type: 'text/css; charset=utf-8' }],
+  ['/console/app.js', { file: path.join(consoleDir, 'app.js'), type: 'application/javascript; charset=utf-8' }],
+  ['/console/logo.svg', { file: logoFile, type: 'image/svg+xml; charset=utf-8' }],
+]);
+
+function serveConsoleAsset(res, pathname) {
+  const asset = consoleAssets.get(pathname);
+  if (!asset) return false;
+  try {
+    const data = readFileSync(asset.file);
+    res.writeHead(200, {
+      'content-type': asset.type,
+      'content-length': data.byteLength,
+      'cache-control': 'no-store',
+      'content-security-policy': consoleCsp,
+      'x-frame-options': 'DENY',
+      'referrer-policy': 'no-referrer',
+    });
+    res.end(data);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function reply(res, status, payload) {
@@ -87,17 +144,19 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
     if (localPort === 80) hosts.push('127.0.0.1', 'localhost');
     if (!hosts.includes(req.headers.host)) throw new ApiError('FORBIDDEN_HOST', '仅接受本机地址', 403);
     const origin = req.headers.origin || '';
-    if (origin && !/^(?:chrome-extension:\/\/[a-p]{32}|moz-extension:\/\/[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})$/i.test(origin)) {
+    const isExtensionOrigin = /^(?:chrome-extension:\/\/[a-p]{32}|moz-extension:\/\/[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})$/i.test(origin);
+    const isSameLoopbackOrigin = Boolean(origin && origin === `http://${req.headers.host}`);
+    if (origin && !isExtensionOrigin && !isSameLoopbackOrigin) {
       throw new ApiError('FORBIDDEN_ORIGIN', '仅接受浏览器扩展或本机工具', 403);
     }
-    if (origin) {
+    if (isExtensionOrigin) {
       res.setHeader('access-control-allow-origin', origin);
       res.setHeader('vary', 'Origin');
       if (req.headers['access-control-request-private-network'] === 'true') {
         res.setHeader('access-control-allow-private-network', 'true');
       }
     }
-    if (origin && req.method === 'OPTIONS') {
+    if (isExtensionOrigin && req.method === 'OPTIONS') {
       res.writeHead(204, {'access-control-allow-methods':'GET, POST', 'access-control-allow-headers':'authorization, content-type'});
       return res.end();
     }
@@ -105,7 +164,26 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
       throw new ApiError('INVALID_REQUEST_TARGET', '仅接受本机接口路径');
     }
     const { pathname, searchParams } = new URL(req.url, 'http://127.0.0.1');
+    if (req.method === 'GET' && pathname === '/') {
+      res.writeHead(302, { location: '/console', 'cache-control': 'no-store' });
+      return res.end();
+    }
+    if (req.method === 'GET' && consoleAssets.has(pathname)) {
+      if (serveConsoleAsset(res, pathname)) return;
+    }
     const route = req.method + ' ' + pathname;
+    if (route === 'POST /api/console/auth') {
+      const payload = await body(req);
+      if (!safeCompare(payload.pairingCode ?? '', expectedRaw)) {
+        throw new ApiError('UNAUTHORIZED', '配对码无效', 401);
+      }
+      res.setHeader('set-cookie', `videosave_console=${pairingCode}; HttpOnly; SameSite=Strict; Path=/`);
+      return reply(res, 200, { ok: true, version: VERSION });
+    }
+    if (route === 'POST /api/console/logout') {
+      res.setHeader('set-cookie', 'videosave_console=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+      return reply(res, 200, { ok: true });
+    }
     if (route === 'POST /api/ai/call' || route === 'GET /api/ai/tools') {
       const managed = () => authenticateClient(req.headers.authorization,pairingCode);
       const client = origin ? null : managed();
@@ -170,6 +248,21 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
         return reply(res, 200, await downloads.getVersionInfo());
       case 'GET /api/engines':
         return reply(res, 200, downloads.getEngineCapabilities());
+      case 'GET /api/runtime/health':
+        return reply(res, 200, await downloads.getRuntimeHealth());
+      case 'GET /api/telemetry':
+        return reply(res, 200, downloads.getRateTelemetry());
+      case 'GET /api/mcp/configs': {
+        const mode = searchParams.get('mode') || 'standalone';
+        const clientId = searchParams.get('clientId') || null;
+        return reply(res, 200, {
+          clients: detectMcpClients(),
+          configs: Object.fromEntries(SUPPORTED_MCP_CLIENTS.map(client => [
+            client,
+            generateMcpClientConfig(client, { mode, companionPort: localPort, managedClientId: clientId }),
+          ])),
+        });
+      }
       case 'GET /api/effective-settings':
         return reply(res, 200, downloads.getEffectiveSettings());
       case 'POST /api/diagnose/probe': {
@@ -185,9 +278,15 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
         if (!res.destroyed) reply(res, 200, result);
         return;
       }
+      case 'POST /api/download-batch': {
+        const signal = responseSignal(res);
+        const result = await downloads.downloadMediaBatch(await body(req), signal);
+        if (!res.destroyed) reply(res, 200, result);
+        return;
+      }
       case 'POST /api/browser-sessions': {
         const args = await body(req);
-        return reply(res, 200, args.action === 'reset'
+        return reply(res, 200, (args.action === 'reset' || args.action === 'revoke' || args.reset === true)
           ? await downloads.resetBrowserSession(args.browserSessionId)
           : await downloads.getBrowserSessionStatus(args.browserSessionId));
       }
@@ -243,11 +342,12 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
         return reply(res, 200, await downloads.releaseFiles(id, Number(item)));
       }
     }
-    const batch = /^\/api\/batch\/([\w-]+)(?:\/(events|wait|verify|pause|resume|diagnose))?$/.exec(pathname);
+    const batch = /^\/api\/batch\/([\w-]+)(?:\/(events|wait|verify|pause|resume|diagnose|report|recover))?$/.exec(pathname);
     if (batch) {
       const [, id, action] = batch;
       if (req.method === 'POST' && action === 'verify') {
-        return reply(res, 200, await downloads.verifyBatchFiles(id, responseSignal(res)));
+        const opts = req.headers['content-type'] ? await body(req).catch(() => ({})) : {};
+        return reply(res, 200, await downloads.verifyBatchFiles(id, responseSignal(res), { durationToleranceSec: opts.durationToleranceSec }));
       }
       if (req.method === 'POST' && action === 'pause') {
         return reply(res, 200, downloads.setBatchPaused(id, true));
@@ -257,6 +357,12 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
       }
       if (req.method === 'GET' && action === 'diagnose') {
         return reply(res, 200, downloads.diagnoseDownload(id));
+      }
+      if (req.method === 'GET' && action === 'report') {
+        return reply(res, 200, downloads.getTaskReport(id));
+      }
+      if (req.method === 'GET' && action === 'recover') {
+        return reply(res, 200, await downloads.recoverDownload({ id }));
       }
       if (req.method === 'GET') {
         if (!action) return reply(res, 200, downloads.progress(id));
@@ -298,7 +404,9 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 server.listen(port, '127.0.0.1', () => {
-  console.log('本机服务 http://127.0.0.1:' + server.address().port);
+  const actualPort = server.address().port;
+  console.log('本机服务 http://127.0.0.1:' + actualPort);
   if (!process.env.MEDIA_TOOLKIT_TOKEN) console.log('本次配对码 ' + pairingCode);
+  console.log('本机管理中心 http://127.0.0.1:' + actualPort + '/console');
   console.log('下载目录 ' + downloads.getSettings().settings.outDir);
 });

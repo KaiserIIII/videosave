@@ -133,8 +133,20 @@ export const compatibilityCases = [
   {id:'http-login', expected:[], reason:'blocked', blocker:'login-required', status:401, html:'<h1>Login required</h1>'},
   {id:'http-paywall', expected:[], reason:'blocked', blocker:'paywall', status:402, html:'<h1>Payment Required</h1>'},
   {id:'http-restricted', expected:[], reason:'blocked', status:403, html:'<h1>Restricted</h1>'},
+  {id:'http-legal-451', expected:[], reason:'blocked', status:451, html:'<h1>Unavailable For Legal Reasons</h1>'},
   {id:'challenge-header', expected:[], reason:'blocked', blocker:'cloudflare-challenge', status:403, html:'<p>Challenge</p>'},
   {id:'protected-hls', expected:[], blocker:'drm', html:script(request('protected.m3u8'))},
+  {id:'protected-dash', expected:[], blocker:'drm', html:script(request('protected.mpd'))},
+  {id:'json-fake-mp4', expected:[], html:script(request('json-error.mp4'))},
+  {id:'disguised-jpeg-hls', expected:['jpeg-hls.m3u8'], download:true, browserDownload:false, html:script(request('jpeg-hls.m3u8'))},
+  {id:'disguised-png-hls', expected:['png-hls.m3u8'], html:script(request('png-hls.m3u8'))},
+  {id:'extensionless-hls-segs', expected:['extless-hls.m3u8'], html:script(request('extless-hls.m3u8'))},
+  {id:'subtitled-hls', expected:['sub-master.m3u8'], html:script(request('sub-master.m3u8'))},
+  {id:'variant-404-fallback-hls', expected:['fallback-master.m3u8'], download:true, browserDownload:false, html:script(request('fallback-master.m3u8'))},
+  {id:'webm-dash', expected:['film-webm.mpd'], download:true, browserDownload:false, html:script(request('film-webm.mpd'))},
+  {id:'audio-mp3', expected:['sound.mp3'], html:'<audio controls src="sound.mp3"></audio>'},
+  {id:'audio-flac', expected:['sound.flac'], html:'<audio controls src="sound.flac"></audio>'},
+  {id:'custom-jwplayer-json', expected:['film.m3u8'], html:config({file:'film.m3u8',type:'hls'})},
   {id:'complete-transport-stream',expected:['film.ts'],download:true,browserDownload:false,
     html:'<video controls><source src="film.ts" type="video/mp2t"></video>'},
   ...formatScenarios,
@@ -172,6 +184,8 @@ function buildMedia(directory) {
   encode(directory, [...picture,...sound,'-t','3','-c:v','libvpx-vp9','-c:a','libopus','film.webm']);
   encode(directory, [...picture,'-t','6',...h264,'-movflags','+faststart','trailer.mp4']);
   encode(directory, [...sound,'-t','3','-c:a','aac','sound.m4a']);
+  encode(directory, [...sound,'-t','2','-c:a','libmp3lame','sound.mp3']);
+  encode(directory, [...sound,'-t','2','-c:a','flac','sound.flac']);
   const hls = ['-hls_time','1','-hls_list_size','0'];
   encode(directory, ['-i','film.mp4','-c','copy',...hls,'film.m3u8']);
   encode(directory, ['-i','film.mp4','-c','copy',...hls,'-hls_segment_type','fmp4',
@@ -179,14 +193,18 @@ function buildMedia(directory) {
   encode(directory, ['-i','film.mp4','-map','0:v','-c','copy',...hls,'video.m3u8']);
   encode(directory, ['-i','film.mp4','-map','0:a','-c','copy',...hls,'audio.m3u8']);
   encode(directory, ['-i','film.mp4','-c','copy','-f','dash','-seg_duration','1','film.mpd']);
+  encode(directory, ['-i','film.webm','-c','copy','-f','dash','-seg_duration','1','film-webm.mpd']);
   for (const extension of ['mov','mkv','flv','ts']) encode(directory,['-i','film.mp4','-c','copy','film.' + extension]);
 }
 
 const types = {m3u8:'application/vnd.apple.mpegurl',mpd:'application/dash+xml',
-  m4s:'video/iso.segment',ts:'video/mp2t',mp4:'video/mp4',m4a:'audio/mp4',webm:'video/webm',
-  mov:'video/quicktime',mkv:'video/x-matroska',flv:'video/x-flv'};
+  m4s:'video/iso.segment',ts:'video/mp2t',mp4:'video/mp4',m4a:'audio/mp4',mp3:'audio/mpeg',flac:'audio/flac',webm:'video/webm',
+  mov:'video/quicktime',mkv:'video/x-matroska',flv:'video/x-flv',vtt:'text/vtt'};
 const aliases = {'raw':'film.mp4','raw-webm':'film.webm','manifest':'film.m3u8','dashmanifest':'film.mpd',
   'ad.mp4':'film.mp4','other.mp4':'film.mp4','init.mp4':'film.mp4','chunk-0.m4s':'film.mp4',
+  'seg0.jpeg':'film0.ts','seg1.jpeg':'film1.ts','seg2.jpeg':'film2.ts',
+  'seg0.png':'film0.ts','seg1.png':'film1.ts','seg2.png':'film2.ts',
+  'seg0':'film0.ts','seg1':'film1.ts','seg2':'film2.ts',
   ...Object.fromEntries(formats.map(([kind,src]) => ['body-' + kind,src]))};
 
 export async function serveFixtures(directory, cases) {
@@ -194,6 +212,20 @@ export async function serveFixtures(directory, cases) {
   await writeFile(path.join(directory,'separate.m3u8'), '#EXTM3U\n#EXT-X-VERSION:3\n' +
     '#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="main",NAME="English",DEFAULT=YES,AUTOSELECT=YES,URI="audio.m3u8"\n' +
     '#EXT-X-STREAM-INF:BANDWIDTH=450000,RESOLUTION=192x108,AUDIO="main"\nvideo.m3u8\n');
+  await writeFile(path.join(directory,'jpeg-hls.m3u8'), '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n' +
+    '#EXTINF:1.0,\nseg0.jpeg\n#EXTINF:1.0,\nseg1.jpeg\n#EXTINF:1.0,\nseg2.jpeg\n#EXT-X-ENDLIST\n');
+  await writeFile(path.join(directory,'png-hls.m3u8'), '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n' +
+    '#EXTINF:1.0,\nseg0.png\n#EXTINF:1.0,\nseg1.png\n#EXTINF:1.0,\nseg2.png\n#EXT-X-ENDLIST\n');
+  await writeFile(path.join(directory,'extless-hls.m3u8'), '#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n' +
+    '#EXTINF:1.0,\nseg0\n#EXTINF:1.0,\nseg1\n#EXTINF:1.0,\nseg2\n#EXT-X-ENDLIST\n');
+  await writeFile(path.join(directory,'sub-track.vtt'), 'WEBVTT\n\n00:00.100 --> 00:02.000\nFixture subtitle\n');
+  await writeFile(path.join(directory,'sub-pl.m3u8'), '#EXTM3U\n#EXT-X-TARGETDURATION:3\n#EXTINF:3.0,\nsub-track.vtt\n#EXT-X-ENDLIST\n');
+  await writeFile(path.join(directory,'sub-master.m3u8'), '#EXTM3U\n' +
+    '#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="English",LANGUAGE="en",DEFAULT=YES,URI="sub-pl.m3u8"\n' +
+    '#EXT-X-STREAM-INF:BANDWIDTH=450000,RESOLUTION=192x108,SUBTITLES="subs"\nfilm.m3u8\n');
+  await writeFile(path.join(directory,'fallback-master.m3u8'), '#EXTM3U\n' +
+    '#EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080\nmissing-1080.m3u8\n' +
+    '#EXT-X-STREAM-INF:BANDWIDTH=450000,RESOLUTION=192x108\nfilm.m3u8\n');
   const casesByPath = new Map(cases.filter(test => !test.url).map(test => ['/case/' + test.id, test]));
   let requests = 0;
   let bytes = 0;
@@ -221,9 +253,12 @@ export async function serveFixtures(directory, cases) {
     if (name === 'sources.json') return res.writeHead(200,{...common,'content-type':'application/json'})
       .end('{"playlist":[{"sources":[{"file":"film.m3u8"}]}]}');
     if (name === 'fake.mp4') return res.writeHead(200,{...common,'content-type':'text/html'}).end('<p>Text</p>');
+    if (name === 'json-error.mp4') return res.writeHead(200,{...common,'content-type':'application/json'}).end('{"error":"not-found"}');
     if (name === 'protected.m3u8') return res.writeHead(200,{...common,'content-type':types.m3u8}).end(
       '#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-KEY:METHOD=SAMPLE-AES,KEYFORMAT="com.apple.streamingkeydelivery",URI="reserved-key"\n' +
       '#EXTINF:1.0,\nreserved-segment.ts\n#EXT-X-ENDLIST\n');
+    if (name === 'protected.mpd') return res.writeHead(200,{...common,'content-type':types.mpd}).end(
+      '<MPD type="static"><Period><AdaptationSet mimeType="video/mp4"><ContentProtection schemeIdUri="urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"/><Representation id="1"/></AdaptationSet></Period></MPD>');
     if (name === 'reserved-key' || name === 'reserved-segment.ts') {
       reservedRequests++;
       return res.writeHead(403).end();

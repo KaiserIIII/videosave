@@ -50,14 +50,23 @@ async function copyCompletedPart(source, target, temporary) {
 export function localDashRequest(source, cookies, headers, requestContext) {
   const ctx = requestContext ?? createRequestContext({ origin: source.origin, headers, cookies });
   return async (url, { signal, range, kind = 'segment' }) => {
+    const phase = kind === 'manifest' ? 'mpd' : kind === 'init' ? 'init' : 'segment';
     for (let hop = 0; hop <= 3; hop++) {
       if (url.origin !== source.origin || url.username || url.password || url.hash) {
         throw new ApiError('DASH_RESOURCE_SCOPE', 'A DASH resource is outside the selected manifest origin', 403);
       }
+      const started = performance.now();
+      const sentHeaders = ctx.headersFor(url, { phase, range });
       const response = await fetch(url, {
         signal,
         redirect: 'manual',
-        headers: ctx.headersFor(url, { phase: kind, range }),
+        headers: sentHeaders,
+      });
+      ctx.recordStage(phase, {
+        status: response.status,
+        elapsedMs: performance.now() - started,
+        engine: 'dash-static',
+        sentHeaderNames: Object.keys(sentHeaders).map(k => k.toLowerCase()).sort(),
       });
       if (!redirects.has(response.status)) return { url, response };
       await response.body?.cancel();
@@ -257,7 +266,7 @@ async function muxPeriod(tracks, files, output, signal) {
   for (const [index, track] of tracks.entries()) if (track.extension === 'mp4') await verifyClearMp4(files[index], signal);
   const inputs = tracks.flatMap(({ extension, offset }, index) => [
     ...(offset ? ['-itsoffset', String(-offset)] : []),
-    '-protocol_whitelist', 'file', '-f', extension === 'mp4' ? 'mov' : extension === 'vtt' ? 'webvtt' : 'srt',
+    '-protocol_whitelist', 'file', '-f', extension === 'mp4' ? 'mov' : extension === 'webm' ? 'matroska' : extension === 'vtt' ? 'webvtt' : 'srt',
     ...(extension === 'mp4' ? ['-enable_drefs', '0', '-use_absolute_path', '0'] : []), '-i', files[index],
   ]);
   const outputs = tracks.flatMap(({ type, language }, index) => [
@@ -302,8 +311,29 @@ export async function prefetchDash(source, staging, signal, onProgress, {
   let totalParts = 0;
   let completed = 0;
   let restored = 0;
+  let corrupted = 0;
+  let savedBytes = 0;
+  const failedSegments = [];
   const periodFiles = [];
   let complete = false;
+
+  async function saveDashCheckpointManifest() {
+    if (!checkpoint) return;
+    const data = {
+      version: 1,
+      total: totalParts,
+      completed,
+      missing: Math.max(0, totalParts - completed),
+      corrupted,
+      restored,
+      savedBytes,
+      failedSegments,
+      updatedAt: new Date().toISOString(),
+    };
+    const tmp = path.join(checkpoint, 'checkpoint.json.tmp');
+    await writeFile(tmp, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 }).catch(() => {});
+    await rename(tmp, path.join(checkpoint, 'checkpoint.json')).catch(() => {});
+  }
 
   async function transferJobs(jobs) {
     let next = 0;
@@ -326,16 +356,18 @@ export async function prefetchDash(source, staging, signal, onProgress, {
                   const actual = await fileSha256(checkpointFile);
                   if (actual.size !== expectedMeta.size || actual.sha256 !== expectedMeta.sha256) intact = false;
                 }
-                if (intact && part.kind === 'init') await verifyClearMp4(checkpointFile, transferSignal);
+                if (intact && part.kind === 'init' && expectedKind === 'fmp4-init') await verifyClearMp4(checkpointFile, transferSignal);
               } catch {
                 intact = false;
               }
               if (intact) {
                 await copyCompletedPart(checkpointFile, file, file + '.restore');
                 bytes += saved.size;
+                savedBytes += saved.size;
                 reused = true;
                 restored++;
               } else {
+                corrupted++;
                 await Promise.allSettled([rm(checkpointFile, { force: true }), rm(checksumFile, { force: true })]);
               }
             }
@@ -345,7 +377,7 @@ export async function prefetchDash(source, staging, signal, onProgress, {
               bytes += count;
               if (bytes > maxBytes) throw transferFailure('The DASH presentation exceeded the staging size limit');
             }, expectedKind);
-            if (part.kind === 'init') await verifyClearMp4(file, transferSignal);
+            if (part.kind === 'init' && expectedKind === 'fmp4-init') await verifyClearMp4(file, transferSignal);
             if (checkpointFile) {
               transferSignal.throwIfAborted();
               const meta = await fileSha256(file);
@@ -354,13 +386,24 @@ export async function prefetchDash(source, staging, signal, onProgress, {
             }
           }
           completed++;
-          onProgress(completed / totalParts, bytes, null, { completed, total: totalParts, restored });
+          onProgress(completed / totalParts, bytes, null, {
+            completed,
+            total: totalParts,
+            missing: Math.max(0, totalParts - completed),
+            corrupted,
+            restored,
+            duplicateBytes: 0,
+            savedBytes,
+            failedSegments,
+          });
         }
       } catch (error) {
+        await saveDashCheckpointManifest();
         controller.abort(error);
         throw error;
       }
     }));
+    await saveDashCheckpointManifest();
     if (results.some(result => result.status === 'rejected')) throw transferSignal.reason;
   }
 

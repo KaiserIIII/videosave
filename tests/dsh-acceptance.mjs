@@ -11,7 +11,10 @@ import { pathToFileURL } from 'node:url';
 import { createTestSandbox, realDownloadDirectories, snapshotRealDownloadDirs } from './test-sandbox.mjs';
 
 const option = name => process.argv.find(arg => arg.startsWith(`--${name}=`))?.slice(name.length + 3);
-const dshNodeModules = option('dsh') || 'C:\\Users\\17271\\AppData\\Local\\Programs\\DeepSeek Harness\\resources\\app\\dsh\\node_modules';
+const defaultDshModules = process.env.LOCALAPPDATA
+  ? path.join(process.env.LOCALAPPDATA, 'Programs', 'DeepSeek Harness', 'resources', 'app', 'dsh', 'node_modules')
+  : '';
+const dshNodeModules = option('dsh') || process.env.DSH_NODE_MODULES || defaultDshModules;
 const packageDir = path.resolve(option('package') || '.');
 const outputJson = option('output');
 const includePublic = !process.argv.includes('--no-public');
@@ -489,7 +492,74 @@ try {
     return { errorCode: failed.items[0].errorCode, hlsPhase: failed.items[0].detail.hlsPhase, category: diag.items[0].category, retryable: diag.items[0].retryable };
   });
 
-  // 17. Managed scoped MCP mode with DSH runtime + zero real download dir pollution proof
+  // 17. v1.1.0: True 2-byte Range quality availability probing, download_media_batch + filenameTemplate + conflictAction, recover_download & stages, and CLI exit codes
+  await runCase('18-v11-quality-availability-and-batch', 'Verify 2-byte Range quality availability, download_media_batch naming/skip, task report summary, and stage diagnostics', async () => {
+    const batchRes = await dshClient.call('download_media_batch', {
+      items: [{ kind: 'stream', url: `${base}/low.m3u8?v11=1`, title: 'DSH-BatchV11', mediaId: 'DSH-110' }],
+      filenameTemplate: '{id}_{title}_{height}p',
+      conflictAction: 'overwrite',
+      verify: true,
+      durationToleranceSec: 1.0,
+      waitTimeoutMs: 20_000,
+    });
+    assert.equal(batchRes.status, 'done', JSON.stringify(batchRes));
+    assert.equal(batchRes.summary.succeeded, 1);
+    assert.ok(path.basename(batchRes.items[0].file).startsWith('DSH-110_DSH-BatchV11_90p'));
+    const diag = await dshClient.call('diagnose_download', { id: batchRes.id });
+    assert.ok(Array.isArray(diag.items[0].stages) && diag.items[0].stages.length >= 1);
+    const rec = await dshClient.call('recover_download', { id: batchRes.id });
+    assert.equal(rec.resumable, false);
+    const skipRes = await dshClient.call('download_media_batch', {
+      items: [{ kind: 'stream', url: `${base}/low.m3u8?v11=1`, title: 'DSH-BatchV11', mediaId: 'DSH-110' }],
+      filenameTemplate: '{id}_{title}_{height}p',
+      conflictAction: 'skip',
+      skipExisting: false,
+      waitTimeoutMs: 15_000,
+    });
+    assert.equal(skipRes.items[0].skipped, true);
+    return {
+      file: path.basename(batchRes.items[0].file),
+      summary: batchRes.summary,
+      stagePhases: diag.items[0].stages.map(s => s.phase),
+      skippedOnConflict: skipRes.items[0].skipped,
+    };
+  });
+
+  await runCase('19-v11-cookie-warnings-and-session-status', 'Verify in-memory cookie import warnings and session hasCookies/diagnosticState fields', async () => {
+    const imp = await dshClient.call('import_cookie_file', {
+      content: 'dsh_auth=valid-value; cf_clearance=must-not-use',
+      origin: base,
+    });
+    assert.equal(imp.cookieCount, 1);
+    assert.ok(imp.warnings?.includes('challenge-cookie-ignored'));
+    assert.ok(!JSON.stringify(imp).includes('valid-value'));
+    const sess = await dshClient.call('get_browser_session_status', {});
+    assert.ok(Array.isArray(sess.sessions));
+    return { cookieCount: imp.cookieCount, warnings: imp.warnings };
+  });
+
+  await runCase('20-v11-cli-json-progress-and-exit-codes', 'Verify package media-cli.mjs --json-progress, --verify, and exit codes (0 and 2)', async () => {
+    const cliPath = path.join(packageDir, 'tools', 'media-cli.mjs');
+    const bad = await new Promise(resolve => {
+      const p = spawn(process.execPath, [cliPath], { env: cleanEnv, windowsHide: true, stdio: 'ignore' });
+      p.once('close', code => resolve(code));
+    });
+    assert.equal(bad, 2);
+    let stdout = '';
+    const okCode = await new Promise(resolve => {
+      const p = spawn(process.execPath, [cliPath, '--out', sandbox.downloads, '--json-progress', '--verify', `${base}/low.m3u8?cli=1`], {
+        env: cleanEnv, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      p.stdout.setEncoding('utf8').on('data', c => { stdout += c; });
+      p.once('close', code => resolve(code));
+    });
+    assert.equal(okCode, 0);
+    const lines = stdout.trim().split('\n').map(l => JSON.parse(l));
+    assert.ok(lines.some(l => l.event === 'verified' && l.ok === true));
+    return { invalidArgsExitCode: bad, successExitCode: okCode, jsonlLines: lines.length };
+  });
+
+  // 21. Managed scoped MCP mode with DSH runtime + zero real download dir pollution proof
   await runCase('17-zero-real-dir-pollution', 'Verify real user download folders are 100% untouched (delta = 0)', async () => {
     await sandbox.verifyIsolation();
     const afterSnap = await snapshotRealDownloadDirs();

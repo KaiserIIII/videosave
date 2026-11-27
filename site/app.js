@@ -105,7 +105,7 @@ themeToggle.addEventListener('click', () => {
 function renderConfig() {
   const client = document.getElementById('cfg-client').value;
   const mode = document.getElementById('cfg-mode').value;
-  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.0.0';
+  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.1.0';
   const entry = rawPath.replace(/\\/g, '/') + '/tools/mcp-server.mjs';
   const clientId = document.getElementById('cfg-client-id').value.trim() || 'dsh-main';
   document.getElementById('cfg-client-id-wrap').hidden = mode !== 'managed';
@@ -143,7 +143,27 @@ ${envLines}        toolCallTimeoutMs: 300000
     return;
   }
 
-  filenameEl.textContent = client === 'codex' ? '~/.codex/config.toml (or mcpServers JSON)' : `${client}-mcp.json`;
+  if (client === 'codex') {
+    filenameEl.textContent = '~/.codex/config.toml (Codex CLI)';
+    const envBlock = Object.keys(env).length
+      ? '\n[mcp_servers.videosave.env]\n' + Object.entries(env).map(([k, v]) => `${k} = ${JSON.stringify(v)}`).join('\n') + '\n'
+      : '';
+    codeEl.textContent =
+`[mcp_servers.videosave]
+command = "node"
+args = [${JSON.stringify(entry)}]
+startup_timeout_sec = 60
+tool_timeout_sec = 300${envBlock}`;
+    return;
+  }
+
+  const labels = {
+    'claude-code': '.mcp.json / claude mcp add videosave -- node ' + JSON.stringify(entry),
+    'claude-desktop': 'claude_desktop_config.json',
+    cursor: '.cursor/mcp.json',
+    antigravity: '~/.gemini/antigravity/mcp_config.json',
+  };
+  filenameEl.textContent = labels[client] || `${client}-mcp.json`;
   const server = { command: 'node', args: [entry], ...(Object.keys(env).length && { env }) };
   codeEl.textContent = JSON.stringify({ mcpServers: { videosave: server } }, null, 2);
 }
@@ -167,20 +187,22 @@ async function loadReports() {
   const metricsEl = document.getElementById('summary-metrics');
 
   const preferredOrder = [
+    'v1.1.0-edge.json',
+    'v1.1.0-chrome.json',
+    'v1.1.0-firefox.json',
+    'v1.1.0-mcp-edge.json',
+    'v1.1.0-mcp-public.json',
+    'v1.1.0-dash-public.json',
+    'v1.1.0-dsh-acceptance.json',
+    'v1.1.0-benchmark.json',
     'v1.0.0-edge.json',
     'v1.0.0-chrome.json',
     'v1.0.0-firefox.json',
     'v1.0.0-mcp-edge.json',
-    'v1.0.0-mcp-public.json',
     'v1.0.0-dsh-acceptance.json',
     'v1-candidate-edge.json',
-    'v1-candidate-chrome.json',
-    'v1-candidate-firefox.json',
-    'v1-candidate-mcp.json',
     'v1-baseline-edge.json',
-    'v1-baseline-mcp.json',
     'final-edge.json',
-    'baseline-full-edge.json',
   ];
 
   let index;
@@ -188,13 +210,26 @@ async function loadReports() {
     const res = await fetch('./data/index.json');
     if (!res.ok) throw new Error('index unavailable');
     index = await res.json();
-    if (index.version) document.getElementById('live-version').textContent = 'v' + index.version;
+    if (index.version) {
+      document.getElementById('live-version').textContent = 'v' + index.version;
+      const winLink = document.getElementById('dl-win-link');
+      const unixLink = document.getElementById('dl-unix-link');
+      if (winLink) winLink.textContent = `VideoSave-${index.version}.zip ↗`;
+      if (unixLink) unixLink.textContent = `VideoSave-${index.version}-unix.tar.gz ↗`;
+    }
   } catch {
-    body.innerHTML = '<tr><td colspan="8" class="muted-cell">Open via GitHub Pages or a local static server after building _site/data/index.json.</td></tr>';
+    body.replaceChildren();
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = 8;
+    td.className = 'muted-cell';
+    td.textContent = 'Open via GitHub Pages or a local static server after building _site/data/index.json.';
+    tr.appendChild(td);
+    body.appendChild(tr);
     return;
   }
 
-  const allFiles = index.files || [];
+  const allFiles = Array.isArray(index.files) ? index.files.filter(f => typeof f === 'string' && /^[\w.-]+\.json$/.test(f)) : [];
   picker.replaceChildren(...allFiles.map(name => {
     const opt = document.createElement('option');
     opt.value = name;
@@ -218,11 +253,14 @@ async function loadReports() {
 
   const featured = preferredOrder.filter(name => allFiles.includes(name));
   const loaded = (await Promise.all(featured.map(async name => ({ name, data: await getReport(name) }))))
-    .filter(item => item.data && (item.data.count || item.data.summary));
+    .filter(item => item.data && (item.data.count || item.data.summary || item.data.stress2000Segments || Array.isArray(item.data.results)));
 
-  const latestMcp = loaded.find(r => r.name.includes('v1.0.0-mcp-edge')) || loaded.find(r => r.name.includes('mcp'));
-  const latestEdge = loaded.find(r => r.name.includes('v1.0.0-edge')) || loaded.find(r => r.name.includes('edge'));
-  const dshReport = loaded.find(r => r.name.includes('dsh-acceptance'));
+  const latestMcp = loaded.find(r => r.name.includes('v1.1.0-mcp-public'))
+    || loaded.find(r => r.name.includes('v1.1.0-mcp-edge'))
+    || loaded.find(r => r.name.includes('mcp-edge'));
+  const latestEdge = loaded.find(r => r.name.includes('v1.1.0-edge')) || loaded.find(r => r.name.includes('edge'));
+  const dshReport = loaded.find(r => r.name.includes('v1.1.0-dsh-acceptance')) || loaded.find(r => r.name.includes('dsh-acceptance'));
+  const benchReport = loaded.find(r => r.name.includes('benchmark'));
 
   const cards = [];
   if (latestEdge?.data?.count) {
@@ -249,45 +287,100 @@ async function loadReports() {
       sub: `Release ZIP · real dir delta: ${s.realDownloadDirDelta ?? 0}`,
     });
   }
-  cards.push({
-    label: 'Published JSON Reports',
-    value: String(allFiles.length),
-    sub: 'Unmodified historical & v1.0.0 records',
-  });
+  if (benchReport?.data?.stress2000Segments) {
+    const st = benchReport.data.stress2000Segments;
+    const cmp = benchReport.data.hls120x15msComparison;
+    cards.push({
+      label: '2,000-Seg Resume & Speed',
+      value: `${st.restoredSegments}/${st.totalSegments / 2} reused`,
+      sub: cmp ? `${cmp.speedupFactor}x vs serial FFmpeg · 0 dupes` : `${st.finalDurationSec}s verified`,
+    });
+  } else {
+    cards.push({
+      label: 'Published JSON Reports',
+      value: String(allFiles.length),
+      sub: 'Unmodified historical & release records',
+    });
+  }
 
   metricsEl.replaceChildren(...cards.map(({ label, value, sub }) => {
     const card = document.createElement('div');
     card.className = 'metric-card';
-    card.innerHTML = `<div class="metric-label">${label}</div><div class="metric-value">${value}</div><div class="metric-sub">${sub}</div>`;
+    const l = document.createElement('div'); l.className = 'metric-label'; l.textContent = label;
+    const v = document.createElement('div'); v.className = 'metric-value'; v.textContent = value;
+    const s = document.createElement('div'); s.className = 'metric-sub'; s.textContent = sub;
+    card.append(l, v, s);
     return card;
   }));
 
+  function cell(text, className, isCode = false) {
+    const td = document.createElement('td');
+    if (className) td.className = className;
+    if (isCode) {
+      const code = document.createElement('code');
+      code.textContent = String(text ?? '—');
+      td.appendChild(code);
+    } else {
+      td.textContent = String(text ?? '—');
+    }
+    return td;
+  }
+
   body.replaceChildren(...loaded.map(({ name, data }) => {
     const tr = document.createElement('tr');
+    if (data.stress2000Segments) {
+      const st = data.stress2000Segments;
+      const cmp = data.hls120x15msComparison;
+      tr.append(
+        cell(name, '', true),
+        cell(index.version || '1.1.0'),
+        cell('Stress + Bench'),
+        cell('2,000-seg + 120×15ms'),
+        cell(`${st.restoredSegments} restored`, 'badge-good'),
+        cell('0 dupes', 'badge-good'),
+        cell(cmp ? `${cmp.speedupFactor}x vs FFmpeg` : 'done', 'badge-good'),
+        cell(cmp ? `${cmp.videosaveNativeHls12ConnMs} ms` : '—'),
+      );
+      return tr;
+    }
     if (data.summary) {
-      tr.innerHTML = `
-        <td><code>${name}</code></td>
-        <td>${data.version ?? '—'}</td>
-        <td>DSH Runtime (ZIP)</td>
-        <td>Real DSH Acceptance</td>
-        <td class="badge-good">${data.summary.passed}/${data.summary.total}</td>
-        <td>0</td>
-        <td class="badge-good">Zero dir pollution</td>
-        <td>${data.summary.totalMs ? Math.round(data.summary.totalMs / 1000) + 's' : '—'}</td>
-      `;
+      tr.append(
+        cell(name, '', true),
+        cell(data.version ?? '—'),
+        cell('DSH Runtime (ZIP)'),
+        cell('Real DSH Acceptance'),
+        cell(`${data.summary.passed}/${data.summary.total}`, 'badge-good'),
+        cell('0'),
+        cell('Zero dir pollution', 'badge-good'),
+        cell(data.summary.totalMs ? Math.round(data.summary.totalMs / 1000) + 's' : '—'),
+      );
+      return tr;
+    }
+    if (Array.isArray(data.results)) {
+      const passed = data.results.filter(r => r.complete).length;
+      tr.append(
+        cell(name, '', true),
+        cell(index.version || '1.1.0'),
+        cell('DASH Standalone'),
+        cell('Public DASH Streams'),
+        cell(`${passed}/${data.results.length}`, passed === data.results.length ? 'badge-good' : ''),
+        cell('0'),
+        cell(`${passed}/${data.results.length} verified`, passed === data.results.length ? 'badge-good' : ''),
+        cell(data.results.length ? Math.round(data.results.reduce((s, r) => s + (r.ms || 0), 0) / data.results.length / 1000) + 's' : '—'),
+      );
       return tr;
     }
     const c = data.count;
-    tr.innerHTML = `
-      <td><code>${name}</code></td>
-      <td>${data.version ?? '—'}</td>
-      <td>${data.browser ?? '—'}</td>
-      <td>${data.sample ?? '—'}</td>
-      <td class="${c.detected === c.positive ? 'badge-good' : ''}">${c.detected}/${c.positive}</td>
-      <td class="${c.casesWithFalsePositives === 0 ? 'badge-good' : ''}">${c.casesWithFalsePositives}</td>
-      <td>${c.downloaded}/${c.downloads}</td>
-      <td>${c.firstProbeMedianMs != null ? c.firstProbeMedianMs + ' ms' : '—'}</td>
-    `;
+    tr.append(
+      cell(name, '', true),
+      cell(data.version ?? '—'),
+      cell(data.browser ?? '—'),
+      cell(data.sample ?? '—'),
+      cell(`${c.detected}/${c.positive}`, c.detected === c.positive ? 'badge-good' : ''),
+      cell(c.casesWithFalsePositives, c.casesWithFalsePositives === 0 ? 'badge-good' : ''),
+      cell(`${c.downloaded}/${c.downloads}`),
+      cell(c.firstProbeMedianMs != null ? c.firstProbeMedianMs + ' ms' : '—'),
+    );
     return tr;
   }));
 

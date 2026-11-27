@@ -1,0 +1,40 @@
+{
+  "generatedAt": "2026-11-27T11:39:17.815Z",
+  "nodeVersion": "v24.19.0",
+  "platform": "win32-x64",
+  "stress2000Segments": {
+    "totalSegments": 2000,
+    "interruptedStatus": "failed",
+    "resumableAfterInterrupt": true,
+    "interruptElapsedMs": 3033,
+    "requestsBeforeResume": 1010,
+    "resumeStatus": "done",
+    "resumeElapsedMs": 14770,
+    "requestsOnResume": 1000,
+    "restoredSegments": 1000,
+    "savedBytes": 35908000,
+    "finalDurationSec": 2000.024
+  },
+  "hls120x15msComparison": {
+    "segments": 120,
+    "simulatedRttMs": 15,
+    "videosaveNativeHls12ConnMs": 1414,
+    "videosaveStatus": "done",
+    "ffmpegDirectSerialMs": 2764,
+    "ffmpegStatus": "done",
+    "speedupFactor": 1.95
+  },
+  "rangeLargeMp4": {
+    "bytes": 4505015,
+    "elapsedMs": 297,
+    "status": "done",
+    "throughputMiBPerSec": 14.47
+  },
+  "competitorBaselineHonesty": {
+    "ffmpegDirectMeasured": true,
+    "ytDlpInstalledOnHost": false,
+    "streamlinkInstalledOnHost": false,
+    "idmVdhJdownloaderDownieCobalt": "unverified-in-automated-harness-not-installed"
+  },
+  "memoryRssBytes": 119631872
+}

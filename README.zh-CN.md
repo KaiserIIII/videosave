@@ -2,9 +2,9 @@
 
 [English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载最新版](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT 许可证](LICENSE)
 
-[自动化验证 CI](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [v1.0.0 更新日志](CHANGELOG.md#100) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
+[自动化验证 CI](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [v1.1.0 更新日志](CHANGELOG.md#110) · [AI 与 CLI 实战手册](docs/ai-recipes.zh-CN.md) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [常见问题](docs/faq.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
 
-扫描当前网页上的视频，确认画质和时长，再保存到浏览器的下载目录。视频快存免费开源、零 npm 第三方依赖。可选的 Windows 本机服务提供统一请求头上下文、二进制媒体内容校验、HLS/静态 DASH 并行暂存、SHA-256 断点续传、智能画质协商以及面向 DeepSeek Harness (DSH)、Codex、Claude 与 Cursor 的完整 MCP 工具集。
+扫描网页视频、实测验证可用画质并高速可靠保存。视频快存免费开源、本地优先、**零 npm 第三方依赖**。桌面伴侣内置仅本机认证访问的 **独立管理中心**（`http://127.0.0.1:8765/console`）、多引擎智能调度（HTTP Range / HLS / MP4 & WebM 静态 DASH / FFmpeg / 托管 yt-dlp）、2 字节画质可用性探测、SHA-256 `checkpoint.json` 跨进程续传、全链路统一请求头与 27 个 MCP 工具，支持一键生成 DeepSeek Harness (DSH)、Codex、Claude Code、Claude Desktop、Cursor 与 Antigravity 原生配置。
 
 ![Microsoft Edge 中的 VideoSave 0.9 探测面板](docs/videosave-0.9-detection.png)
 

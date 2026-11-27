@@ -2,9 +2,9 @@
 
 [简体中文](README.zh-CN.md) · [Official Website](https://kaiseriiii.github.io/videosave/) · [Download](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT License](LICENSE)
 
-[Verification CI](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [v1.0.0 Changelog](CHANGELOG.md#100) · [DSH Guide](docs/dsh-guide.md) · [DSH Feedback Tracker](docs/dsh-feedback-tracker.md) · [Compatibility Results](docs/compatibility-report.zh-CN.md)
+[Verification CI](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [v1.1.0 Changelog](CHANGELOG.md#110) · [AI & CLI Cookbook](docs/ai-recipes.md) · [DSH Guide](docs/dsh-guide.md) · [DSH Feedback Tracker](docs/dsh-feedback-tracker.md) · [FAQ](docs/faq.md) · [Compatibility Results](docs/compatibility-report.zh-CN.md)
 
-Find the video playing in your browser, preview it, and save it to Downloads. VideoSave is free, MIT-licensed, and built with zero npm dependencies. The optional Windows companion adds content-verified HLS & static DASH staging, SHA-256 resumable checkpoints, unified cross-origin-safe request headers, format conversion, and a comprehensive MCP interface for DeepSeek Harness (DSH), Codex, Claude, and Cursor.
+Find the video playing in your browser, verify real quality availability, and save it reliably. VideoSave is free, MIT-licensed, local-first, and built with **zero third-party npm dependencies**. The companion adds an authenticated **Local Management Center** (`http://127.0.0.1:8765/console`), multi-engine smart scheduling (HTTP Range, HLS, static MP4/WebM DASH, FFmpeg, managed `yt-dlp`, optional Streamlink), 2-byte Range quality probing, SHA-256 `checkpoint.json` resume, unified `Referrer-Policy`-aware request headers, and a 27-tool MCP interface with native config generators for DeepSeek Harness (DSH), Codex, Claude Code, Claude Desktop, Cursor, and Antigravity.
 
 ![VideoSave 0.9 in Microsoft Edge](docs/videosave-0.9-detection.png)
 

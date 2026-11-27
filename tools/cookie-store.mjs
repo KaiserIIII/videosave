@@ -29,8 +29,31 @@ function pathMatches(cookiePath, pathname) {
 }
 
 /**
+ * Filter a raw HTTP Cookie header string using the same challenge-cookie policy as import_cookie_file.
+ * Challenge cookies (e.g. cf_clearance) are never forwarded; returns warnings instead of silently dropping.
+ */
+export function filterAndParseCookieHeader(header = '') {
+  if (!header) return { cookies: [], warnings: [] };
+  const pairs = parseCookies(header);
+  const kept = [];
+  let sawChallenge = false;
+  for (const pair of pairs) {
+    if (isChallengeCookie(pair.name)) {
+      sawChallenge = true;
+      continue;
+    }
+    kept.push(pair);
+    if (kept.length >= MAX_COOKIES) break;
+  }
+  return {
+    cookies: kept,
+    warnings: sawChallenge ? ['challenge-cookie-ignored'] : [],
+  };
+}
+
+/**
  * Parse either a Netscape cookies.txt file OR a single-line HTTP Cookie header.
- * Rejects challenge/anti-bot cookies and enforces size and format safety limits.
+ * Rejects challenge-only payloads and reports warnings when mixed sets include ignored challenge cookies.
  */
 export function parseCookieText(text, targetUrl) {
   const url = targetUrl instanceof URL ? targetUrl : mediaUrl(targetUrl);
@@ -48,12 +71,15 @@ export function parseCookieText(text, targetUrl) {
     const headerLine = nonEmpty.filter(line => !line.startsWith('#')).join('; ').replace(/^cookie\s*:\s*/i, '');
     const pairs = parseCookies(headerLine);
     if (!pairs.length) throw new ApiError('INVALID_COOKIE', '未解析到有效的 Cookie');
-    if (pairs.some(({ name }) => isChallengeCookie(name))) {
+    const kept = pairs.filter(({ name }) => !isChallengeCookie(name));
+    const sawChallenge = kept.length < pairs.length;
+    if (!kept.length) {
       throw new ApiError('INVALID_COOKIE', '不接受反机器人挑战类 Cookie（如 cf_clearance）');
     }
     return {
       format: 'header',
-      cookies: pairs.slice(0, MAX_COOKIES).map(({ name, value }) => ({
+      warnings: sawChallenge ? ['challenge-cookie-ignored'] : [],
+      cookies: kept.slice(0, MAX_COOKIES).map(({ name, value }) => ({
         name,
         value,
         domain: url.hostname.toLowerCase(),
@@ -110,7 +136,7 @@ export function parseCookieText(text, targetUrl) {
     );
   }
   parsed.sort((a, b) => b.path.length - a.path.length);
-  return { format: 'netscape', cookies: parsed };
+  return { format: 'netscape', warnings: sawChallenge ? ['challenge-cookie-ignored'] : [], cookies: parsed };
 }
 
 export async function readCookieFileForOrigin(filePath, targetUrl) {
@@ -146,7 +172,7 @@ export function matchStoredCookies(cookies, targetUrl) {
     .map(({ name, value }) => ({ name, value }));
 }
 
-export async function importCookieSession({ filePath, origin, ttlMinutes = 30 } = {}) {
+export async function importCookieSession({ filePath, path: aliasPath, content, origin, ttlMinutes = 30 } = {}) {
   sweepSessions();
   const url = mediaUrl(origin);
   if (!Number.isInteger(ttlMinutes) || ttlMinutes < 1 || ttlMinutes > 120) {
@@ -155,10 +181,16 @@ export async function importCookieSession({ filePath, origin, ttlMinutes = 30 } 
   if (sessions.size >= MAX_SESSIONS) {
     throw new ApiError('COOKIE_SESSION_LIMIT', '临时 Cookie 会话数量已达上限', 429);
   }
-  const { format, cookies } = await readCookieFileForOrigin(filePath, url);
+  const sourceFile = filePath ?? aliasPath;
+  if (!sourceFile && typeof content !== 'string') {
+    throw new ApiError('INVALID_COOKIE', '请提供 filePath（路径）或 content（Cookie 文本内容）');
+  }
+  const { format, cookies, warnings } = sourceFile
+    ? await readCookieFileForOrigin(sourceFile, url)
+    : parseCookieText(content, url);
   const id = randomUUID();
   const expiresAt = Date.now() + ttlMinutes * 60_000;
-  sessions.set(id, { id, origin: url.origin, format, cookies, createdAt: Date.now(), expiresAt });
+  sessions.set(id, { id, origin: url.origin, format, cookies, warnings, createdAt: Date.now(), expiresAt });
   // Never return raw cookie values to the AI model or caller.
   return {
     sessionId: id,
@@ -166,6 +198,7 @@ export async function importCookieSession({ filePath, origin, ttlMinutes = 30 } 
     origin: url.origin,
     format,
     cookieCount: cookies.length,
+    ...(warnings.length && { warnings }),
     expiresAt: new Date(expiresAt).toISOString(),
   };
 }
@@ -183,11 +216,12 @@ export function resolveCookieSession(sessionId, targetUrl) {
 export function listCookieSessions() {
   sweepSessions();
   return {
-    items: [...sessions.values()].map(({ id, origin, format, cookies, createdAt, expiresAt }) => ({
+    items: [...sessions.values()].map(({ id, origin, format, cookies, warnings, createdAt, expiresAt }) => ({
       sessionId: id,
       origin,
       format,
       cookieCount: cookies.length,
+      ...(warnings?.length && { warnings }),
       createdAt: new Date(createdAt).toISOString(),
       expiresAt: new Date(expiresAt).toISOString(),
     })),

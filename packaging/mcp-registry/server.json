@@ -1,0 +1,28 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.kaiseriiii/videosave",
+  "description": "Local-first browser media detection, verified HLS/DASH/HTTP downloads with checkpoint resume, and multi-engine media orchestration over MCP.",
+  "version": "1.1.0",
+  "repository": {
+    "url": "https://github.com/KaiserIIII/videosave",
+    "source": "github"
+  },
+  "websiteUrl": "https://kaiseriiii.github.io/videosave/",
+  "license": "MIT",
+  "transport": {
+    "type": "stdio",
+    "command": "node",
+    "args": ["tools/mcp-server.mjs"]
+  },
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false
+  },
+  "security": {
+    "localOnly": true,
+    "noTelemetry": true,
+    "noDrmBypass": true,
+    "noSystemBrowserProfileAccess": true
+  }
+}

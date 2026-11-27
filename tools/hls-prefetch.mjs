@@ -9,6 +9,10 @@ import { ApiError } from './media-source.mjs';
 import { createRequestContext } from './request-context.mjs';
 import { assertValidSegment, inspectEncryptedHlsSegment, inspectMediaFile, normalizeStagedSegment } from './media-inspector.mjs';
 import { negotiateQuality } from './quality-negotiator.mjs';
+import {
+  checkHostBackoff, isTransientNetworkError, paceBandwidth,
+  recordHostFailure, recordHostSuccess, recordHostThrottle, recommendedConcurrencyForHost,
+} from './rate-controller.mjs';
 
 const segmentWorkers = 8;
 const segmentConnectMs = 12_000;
@@ -104,7 +108,12 @@ async function request(url, ctx, signal, range, restrictedOrigin = false, approv
     const until = rateLimits.get(host);
     if (until > Date.now()) throw rateLimited(Math.ceil((until - Date.now()) / 1000));
     if (until !== undefined) rateLimits.delete(host);
+    const backoffSec = checkHostBackoff(host);
+    if (backoffSec > 0) throw rateLimited(backoffSec);
     const ranged = range && (!range.url || range.url === url.href);
+    const reqStarted = performance.now();
+    const sentHeaders = ctx.transport ? null : ctx.headersFor(url, { phase: hlsPhase, range: ranged ? range : undefined });
+    const sentHeaderNames = sentHeaders ? Object.keys(sentHeaders).map(k => k.toLowerCase()).sort() : undefined;
     const response = await (ctx.transport
       ? ctx.transport.fetchResource(url, { signal, range: ranged ? range : undefined }).then(result => {
           url = result.url;
@@ -112,19 +121,28 @@ async function request(url, ctx, signal, range, restrictedOrigin = false, approv
         })
       : fetch(url, {
           redirect: 'manual',
-          headers: ctx.headersFor(url, { phase: hlsPhase, range: ranged ? range : undefined }),
+          headers: sentHeaders,
           signal,
         })
     ).catch(error => {
       if (error instanceof ApiError) throw error;
-      throw Object.assign(new Error('HLS connection interrupted', { cause: error }), { retryable: true });
+      recordHostFailure(host);
+      throw Object.assign(new Error('HLS connection interrupted', { cause: error }), {
+        retryable: true,
+        transientNetwork: isTransientNetworkError(error),
+      });
     });
-    const accessErr = ctx.accessError(response.status, response.headers, hlsPhase);
+    const elapsedMs = performance.now() - reqStarted;
+    ctx.recordStage(hlsPhase, { status: response.status, elapsedMs, engine: 'hls', sentHeaderNames });
+    const accessErr = ctx.accessError(response.status, response.headers, hlsPhase, { engine: 'hls', sentHeaderNames });
     if (accessErr && (response.headers.get('cf-mitigated') === 'challenge' || [401, 402, 403, 410, 451].includes(response.status))) {
       await response.body?.cancel();
       throw accessErr;
     }
-    if (response.body && (response.status === 200 || ranged && response.status === 206)) return { url, response };
+    if (response.body && (response.status === 200 || ranged && response.status === 206)) {
+      recordHostSuccess(host, { latencyMs: elapsedMs });
+      return { url, response };
+    }
     await response.body?.cancel();
     const location = response.headers.get('location');
     if (restrictedOrigin && [301, 302, 303, 307, 308].includes(response.status)) {
@@ -138,11 +156,15 @@ async function request(url, ctx, signal, range, restrictedOrigin = false, approv
         const retryAt = Math.max(rateLimits.get(host) ?? 0, Date.now() + retryAfterSec * 1000);
         if (!rateLimits.has(host) && rateLimits.size >= 256) rateLimits.delete(rateLimits.keys().next().value);
         rateLimits.set(host, retryAt);
+        recordHostThrottle(host, retryAfterSec);
         throw rateLimited(Math.ceil((retryAt - Date.now()) / 1000));
       }
+      recordHostFailure(host);
       const restart = ranged && response.status === 416;
       throw Object.assign(new Error('HLS response unavailable for parallel download'), {
         status: response.status,
+        phase: hlsPhase,
+        sentHeaderNames,
         retryable: restart || transientStatuses.has(response.status),
         restart,
       });
@@ -165,30 +187,115 @@ async function readKey(body) {
   return key;
 }
 
-export async function hlsQualities(source, cookies, signal, headers, requestContext) {
+async function probeVariantAvailability(variant, ctx, signal) {
+  const checkedAt = new Date().toISOString();
+  try {
+    const res = await fetch(variant.url, {
+      redirect: 'manual',
+      headers: ctx.headersFor(variant.url, { phase: 'variant' }),
+      signal,
+    });
+    const status = res.status;
+    if (res.headers.get('cf-mitigated') === 'challenge' || [401, 402, 403, 451].includes(status)) {
+      await res.body?.cancel();
+      return { availability: 'restricted', available: false, probeStatus: status, verificationMethod: 'variant-playlist', checkedAt };
+    }
+    if (status === 404 || status === 410) {
+      await res.body?.cancel();
+      return { availability: 'unavailable', available: false, probeStatus: status, verificationMethod: 'variant-playlist', checkedAt };
+    }
+    if (status !== 200 || !res.body) {
+      await res.body?.cancel();
+      return { availability: 'unknown', available: false, probeStatus: status, verificationMethod: 'variant-playlist', checkedAt };
+    }
+    const playlistText = await readManifest(res.body);
+    try { checkHlsProtection(playlistText); } catch {
+      return { availability: 'restricted', available: false, probeStatus: 422, verificationMethod: 'variant-playlist', checkedAt };
+    }
+    const parsed = parseManifest(playlistText, variant.url, 'video', { byteRanges: true, aes128: true, sniffTransport: true });
+    const firstSeg = parsed?.segments?.[0];
+    if (!firstSeg?.url) {
+      return { availability: 'unknown', available: false, probeStatus: status, verificationMethod: 'variant-playlist', checkedAt };
+    }
+    const rangeStart = firstSeg.range?.start ?? 0;
+    const rangeEnd = firstSeg.range ? Math.min(firstSeg.range.end, rangeStart + 1) : 1;
+    const segRes = await fetch(firstSeg.url, {
+      redirect: 'manual',
+      headers: ctx.headersFor(firstSeg.url, { phase: 'segment', range: { start: rangeStart, end: rangeEnd } }),
+      signal,
+    });
+    const segStatus = segRes.status;
+    const ct = (segRes.headers.get('content-type') || '').toLowerCase();
+    await segRes.body?.cancel();
+    if (segRes.headers.get('cf-mitigated') === 'challenge' || [401, 402, 403, 451].includes(segStatus)) {
+      return { availability: 'restricted', available: false, probeStatus: segStatus, verificationMethod: 'playlist+range-2b', checkedAt };
+    }
+    if (segStatus === 404 || segStatus === 410) {
+      return { availability: 'unavailable', available: false, probeStatus: segStatus, verificationMethod: 'playlist+range-2b', checkedAt };
+    }
+    if ((segStatus === 206 || segStatus === 200) && !/^text\/html|^application\/json/i.test(ct)) {
+      return { availability: 'available', available: true, probeStatus: segStatus, verificationMethod: 'playlist+range-2b', checkedAt };
+    }
+    return { availability: 'unavailable', available: false, probeStatus: segStatus, verificationMethod: 'playlist+range-2b', checkedAt };
+  } catch {
+    return { availability: 'unknown', available: false, probeStatus: null, verificationMethod: 'manifest-only', checkedAt };
+  }
+}
+
+export async function hlsQualities(source, cookies, signal, headers, requestContext, { verifyAvailability = true } = {}) {
   const ctx = requestContext ?? createRequestContext({ origin: source.origin, headers, cookies });
   try {
-    const { url, response } = await request(source, ctx, AbortSignal.any([signal, AbortSignal.timeout(5000)]), undefined, false, false, 'master-playlist');
+    const budget = AbortSignal.any([signal, AbortSignal.timeout(8000)]);
+    const { url, response } = await request(source, ctx, budget, undefined, false, false, 'master-playlist');
     const content = await readManifest(response.body);
-    const { variants, audioTracks, subtitleTracks } = parseMasterVariants(content, url);
+    const { variants } = parseMasterVariants(content, url);
     if (!variants.length) return [];
-    return variants
+    const sorted = variants
       .filter(v => v.height || v.bandwidth)
-      .sort((a, b) => (b.height || 0) - (a.height || 0) || b.bandwidth - a.bandwidth)
-      .map(v => ({
+      .sort((a, b) => (b.height || 0) - (a.height || 0) || b.bandwidth - a.bandwidth);
+    const probeBudget = AbortSignal.any([signal, AbortSignal.timeout(4500)]);
+    const probeResults = new Map();
+    if (verifyAvailability) {
+      const toProbe = sorted.slice(0, 8);
+      let cursor = 0;
+      await Promise.all(Array.from({ length: Math.min(4, toProbe.length) }, async () => {
+        while (cursor < toProbe.length && !probeBudget.aborted) {
+          const idx = cursor++;
+          const v = toProbe[idx];
+          probeResults.set(v.url.href, await probeVariantAvailability(v, ctx, probeBudget));
+        }
+      }));
+    }
+    const checkedAt = new Date().toISOString();
+    return sorted.map((v, idx) => {
+      const probed = probeResults.get(v.url.href) ?? {
+        availability: 'unknown',
+        available: true,
+        probeStatus: null,
+        verificationMethod: 'manifest-only',
+        checkedAt,
+      };
+      return {
+        candidateId: `hls-v${idx}-${v.height || 0}p`,
         ...(v.width && { width: v.width }),
         height: v.height ?? 0,
         bitrate: v.bandwidth,
         bandwidth: v.bandwidth,
         ...(v.averageBandwidth && { averageBandwidth: v.averageBandwidth }),
-        ...(v.codecs && { codecs: v.codecs }),
+        ...(v.codecs && { codec: v.codecs, codecs: v.codecs }),
         ...(v.frameRate && { frameRate: v.frameRate }),
         ...(v.videoRange && { videoRange: v.videoRange }),
         ...(v.hdr && { hdr: true }),
         ...(v.audioTracks?.length && { audioTracks: v.audioTracks.map(({ name, language, channels, preferred }) => ({ name, language, channels, preferred })) }),
         ...(v.subtitleTracks?.length && { subtitleTracks: v.subtitleTracks.map(({ name, language, preferred }) => ({ name, language, preferred })) }),
         url: v.url.href,
-      }));
+        available: probed.available,
+        availability: probed.availability,
+        probeStatus: probed.probeStatus,
+        verificationMethod: probed.verificationMethod,
+        checkedAt: probed.checkedAt,
+      };
+    });
   } catch {
     signal.throwIfAborted();
     return [];
@@ -292,6 +399,7 @@ async function downloadSegment(url, destination, ctx, signal, onBytes, slice, re
         if (bytesWritten !== value.byteLength) throw new Error('Could not write the complete HLS segment chunk');
         offset += bytesWritten;
         onBytes(offset, totalBytes);
+        await paceBandwidth(bytesWritten, signal);
       }
       if (!offset || expected !== undefined && offset !== expected) {
         throw Object.assign(new Error('Incomplete HLS segment'), { retryable: true });
@@ -374,11 +482,20 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
     for (const [index, candidate] of renditions.entries()) {
       if (!candidate) break;
       try {
-        selected = await read(candidate.video, readManifest, false, 'playlist');
+        selected = await read(candidate.video, readManifest, false, 'variant');
         rendition = candidate;
         break;
       } catch (error) {
-        if (error.status !== 404 || index === renditions.length - 1) throw error;
+        if ((error.status === 404 || error.status === 410) && index < renditions.length - 1) {
+          continue;
+        }
+        if ((error.status === 404 || error.status === 410) && index === renditions.length - 1 && renditions.length > 1) {
+          throw new ApiError('QUALITY_UNAVAILABLE', '所有候选画质清单均不可用（404/410）', 422, {
+            phase: 'variant',
+            status: error.status,
+          });
+        }
+        throw error;
       }
     }
     if (rendition?.audio) sound = await read(rendition.audio, readManifest, false, 'audio-playlist');
@@ -455,22 +572,30 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
     // Build a canonical checkpoint identity that survives signed query-token refresh when playlist structure
     // and key material match, while invalidating immediately if sequence, durations, paths, or keys change.
     let checkpoint;
+    let mediaIdentity = null;
     if (recovery) {
-      const identity = [
+      mediaIdentity = [
         canonicalPlaylistSignature(selected.url, selected.content, video),
         sound ? canonicalPlaylistSignature(sound.url, sound.content, audio) : null,
         subs ? canonicalPlaylistSignature(subtitlePlaylist.url, subtitlePlaylist.content, subs) : null,
         keys.map(({ filename }) => keyHashes.get(filename)),
       ];
-      const digest = createHash('sha256').update(JSON.stringify(identity)).digest('hex');
+      const digest = createHash('sha256').update(JSON.stringify(mediaIdentity)).digest('hex');
       checkpoint = path.join(recovery, 'segments-' + digest);
       await mkdir(checkpoint, { recursive: true, mode: 0o700 });
       if (!(await lstat(checkpoint)).isDirectory()) throw new Error('Invalid HLS checkpoint directory');
     }
+    const adaptiveWorkers = recommendedConcurrencyForHost(selected.url.host, connections);
     let next = 0;
     let finished = 0;
     let received = 0;
-    const workers = Math.min(connections, taggedSegments.length);
+    let restored = 0;
+    let corruptedCount = 0;
+    let savedBytes = 0;
+    let duplicateBytes = 0;
+    const completedIndices = new Set();
+    const failedSegments = [];
+    const workers = Math.min(Math.max(1, adaptiveWorkers), taggedSegments.length);
     const active = new Set();
     const representations = new Map();
     let backupTimer;
@@ -478,6 +603,31 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
     let backupInFlight = false;
     let nextBackupCheck = 0;
     let lastQueuedBackup = -Infinity;
+    let lastCheckpointWrite = 0;
+
+    async function writeCheckpointManifest(force = false) {
+      if (!checkpoint) return;
+      const now = performance.now();
+      if (!force && now - lastCheckpointWrite < 1000) return;
+      lastCheckpointWrite = now;
+      const data = {
+        version: 1,
+        mediaIdentity,
+        total: taggedSegments.length,
+        completed: completedIndices.size,
+        missing: taggedSegments.length - completedIndices.size,
+        corrupted: corruptedCount,
+        restored,
+        duplicateBytes,
+        savedBytes,
+        completedIndices: [...completedIndices].sort((a, b) => a - b),
+        failedSegments,
+        updatedAt: new Date().toISOString(),
+      };
+      const tmp = path.join(checkpoint, 'checkpoint.json.tmp');
+      await writeFile(tmp, JSON.stringify(data, null, 2) + '\n', { mode: 0o600 }).catch(() => {});
+      await rename(tmp, path.join(checkpoint, 'checkpoint.json')).catch(() => {});
+    }
 
     function scheduleBackup(checkNow = false) {
       if (transferSignal.aborted || backupInFlight || !active.size) return;
@@ -535,7 +685,7 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
       });
     }
 
-    async function transferSegment(entry) {
+    async function transferSegment(entry, segIndex) {
       const { url, filename, range: segmentRange, verifyTransport, verifyContent, hlsPhase } = entry;
       const destination = path.join(directory, filename);
       const checkpointFile = checkpoint && path.join(checkpoint, filename);
@@ -561,8 +711,11 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
           if (intact) {
             await copyCompletedPart(checkpointFile, destination, destination + '.restore');
             received += saved.size;
+            savedBytes += saved.size;
+            completedIndices.add(segIndex);
             return true;
           }
+          corruptedCount++;
           // Corrupted checkpoint segment detected: remove only this part and re-download it.
           await Promise.allSettled([
             rm(checkpointFile, { force: true }),
@@ -570,76 +723,105 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
           ]);
         }
       }
-      const primary = new AbortController();
-      const backup = new AbortController();
-      const range = segmentRange && { ...segmentRange, validate(total, etag) {
-        const previous = representations.get(url.href);
-        if (previous && (previous.total !== total || previous.etag !== etag)) {
-          throw new Error('HLS byte ranges disagree on the source file');
+      for (let contentAttempt = 0; ; contentAttempt++) {
+        const primary = new AbortController();
+        const backup = new AbortController();
+        const range = segmentRange && { ...segmentRange, validate(total, etag) {
+          const previous = representations.get(url.href);
+          if (previous && (previous.total !== total || previous.etag !== etag)) {
+            throw new Error('HLS byte ranges disagree on the source file');
+          }
+          if (!previous) representations.set(url.href, { total, etag });
+        } };
+        let highWater = 0;
+        const report = offset => {
+          if (offset <= highWater) {
+            duplicateBytes += offset;
+            return;
+          }
+          received += offset - highWater;
+          highWater = offset;
+          onProgress(null, received);
+        };
+        const startedAt = performance.now();
+        const segment = {
+          url, destination, range, primary, backupSignal: AbortSignal.any([transferSignal, backup.signal]),
+          report, startedAt, lastProgress: startedAt, bytes: 0, total: 0, hlsPhase,
+        };
+        active.add(segment);
+        scheduleBackup();
+        try {
+          await downloadSegment(url, destination, ctx,
+            AbortSignal.any([transferSignal, primary.signal]), (offset, total) => {
+              segment.lastProgress = performance.now();
+              segment.bytes = offset;
+              segment.total = total;
+              report(offset);
+            }, range, restrictedOrigin, hlsPhase);
+        } catch (error) {
+          if (!await segment.backup) {
+            failedSegments.push({ index: segIndex, status: error.status ?? null, reason: error.code ?? error.message });
+            throw error;
+          }
+          transferSignal.throwIfAborted();
+          await rename(destination + '.backup', destination);
+        } finally {
+          active.delete(segment);
+          if (segment.backup) {
+            backup.abort();
+            await segment.backup;
+            await rm(destination + '.backup', { force: true, maxRetries: 5 });
+          }
         }
-        if (!previous) representations.set(url.href, { total, etag });
-      } };
-      let highWater = 0;
-      const report = offset => {
-        if (offset <= highWater) return;
-        received += offset - highWater;
-        highWater = offset;
-        onProgress(null, received);
-      };
-      const startedAt = performance.now();
-      const segment = {
-        url, destination, range, primary, backupSignal: AbortSignal.any([transferSignal, backup.signal]),
-        report, startedAt, lastProgress: startedAt, bytes: 0, total: 0, hlsPhase,
-      };
-      active.add(segment);
-      scheduleBackup();
-      try {
-        await downloadSegment(url, destination, ctx,
-          AbortSignal.any([transferSignal, primary.signal]), (offset, total) => {
-            segment.lastProgress = performance.now();
-            segment.bytes = offset;
-            segment.total = total;
-            report(offset);
-          }, range, restrictedOrigin, hlsPhase);
-      } catch (error) {
-        if (!await segment.backup) throw error;
-        transferSignal.throwIfAborted();
-        await rename(destination + '.backup', destination);
-      } finally {
-        active.delete(segment);
-        if (segment.backup) {
-          backup.abort();
-          await segment.backup;
-          await rm(destination + '.backup', { force: true, maxRetries: 5 });
+        if (verifyTransport || verifyContent) {
+          try {
+            await validateStagedSegment(destination, entry, keyBuffers, strictSegmentCheck);
+          } catch (valErr) {
+            if (valErr.detail?.reason === 'html-error-page' && contentAttempt < 2) {
+              duplicateBytes += highWater;
+              await rm(destination, { force: true }).catch(() => {});
+              await sleep(200 * (contentAttempt + 1), undefined, { signal: transferSignal });
+              continue;
+            }
+            failedSegments.push({ index: segIndex, status: 200, reason: valErr.detail?.reason ?? valErr.code ?? 'invalid-segment' });
+            throw valErr;
+          }
         }
+        break;
       }
-      if (verifyTransport || verifyContent) {
-        await validateStagedSegment(destination, entry, keyBuffers, strictSegmentCheck);
-      }
+      completedIndices.add(segIndex);
       if (checkpointFile) {
         signal.throwIfAborted();
         const meta = await fileSha256(destination);
         // Only publish a fully verified and closed file into the checkpoint with its SHA-256 sidecar.
         await copyCompletedPart(destination, checkpointFile, destination + '.checkpoint');
         await writeFile(checksumFile, JSON.stringify(meta), { mode: 0o600 });
+        await writeCheckpointManifest(false);
       }
       return false;
     }
 
     try {
-      let restored = 0;
       await runWorkers(workers, async () => {
         while (next < taggedSegments.length) {
-          if (await transferSegment(taggedSegments[next++])) restored++;
+          const segIndex = next++;
+          if (await transferSegment(taggedSegments[segIndex], segIndex)) restored++;
           onProgress(++finished / taggedSegments.length, received, null, {
             completed: finished,
             total: taggedSegments.length,
+            missing: taggedSegments.length - finished,
+            corrupted: corruptedCount,
             restored,
+            duplicateBytes,
+            savedBytes,
+            failedSegments,
           });
           scheduleBackup();
         }
       });
+      await writeCheckpointManifest(true);
     } catch (error) {
+      await writeCheckpointManifest(true);
       if (checkpoint && error.retryable && !signal.aborted) {
         const missing = [];
         for (const [index, { filename }] of taggedSegments.entries()) {
@@ -647,8 +829,11 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
           if (!complete?.isFile() || !complete.size) missing.push(index);
         }
         await writeFile(path.join(checkpoint, 'failed.json'), JSON.stringify({ total: taggedSegments.length, missing }), { mode: 0o600 });
-        throw new ApiError('HLS_TRANSFER_INTERRUPTED', 'HLS transfer interrupted. Resubmit the original batch to resume.', 503,
-          Number.isInteger(error.status) ? { status: error.status } : undefined);
+        throw new ApiError('HLS_TRANSFER_INTERRUPTED', 'HLS transfer interrupted. Resubmit the original batch to resume.', 503, {
+          ...(Number.isInteger(error.status) && { status: error.status }),
+          missingCount: missing.length,
+          failedSegments: missing.slice(0, 64),
+        });
       }
       throw error;
     } finally {

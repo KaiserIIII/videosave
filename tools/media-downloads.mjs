@@ -1,6 +1,6 @@
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { copyFile, link, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat } from 'node:fs/promises';
+import { copyFile, link, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat } from 'node:fs/promises';
 import { constants, lstatSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,20 +13,26 @@ import { audioFormats, canUseMediaTitle, classify, isPlaylist, longestFirst, pla
 import { checkManifestProtection, hlsQualities, prefetchHls } from './hls-prefetch.mjs';
 import { prefetchRanges } from './range-prefetch.mjs';
 import { dashQualities, localDashRequest, prefetchDash } from './dash-prefetch.mjs';
-import { ApiError, FFMPEG, discover, inspectOutput, mediaInput, mediaUrl, parseCookies, parseMediaHeaders, probeStream, runMedia, streamExpiry } from './media-source.mjs';
+import { ApiError, FFMPEG, discover, inspectOutput, mediaInput, mediaUrl, mergeMediaHeaders, parseCookies, parseMediaHeaders, probeStream, runMedia, streamExpiry } from './media-source.mjs';
 import { assertSandboxPath, getSettingsFile, readPreferences, writePreferences } from './preferences.mjs';
 import { claimBatch, claimInterruptedCancellation, completedStatus, pendingItem, storeBatch, storedBatch, storedBatches } from './download-history.mjs';
 import { platformDownloadsEnabled, probePlatform, stagePlatform } from './platform-downloads.mjs';
-import { preferredProbeStrategy, probeModes, probePlan, recordCompatibility } from './compatibility-policy.mjs';
+import { getOriginCompatibilityRule, preferredProbeStrategy, probeModes, probePlan, recordCompatibility } from './compatibility-policy.mjs';
 import { createRequestContext } from './request-context.mjs';
 import { legacyQualityCap, normalizeQualitySpec } from './quality-negotiator.mjs';
 import { detectAvailableBrowsers } from './edge-session.mjs';
 import { getBrowserSessionStatus, recordDedicatedOrigin, resetBrowserSession } from './browser-sessions.mjs';
-import { importCookieSession, listCookieSessions, resolveCookieSession, revokeCookieSession } from './cookie-store.mjs';
+import { filterAndParseCookieHeader, importCookieSession, listCookieSessions, resolveCookieSession, revokeCookieSession } from './cookie-store.mjs';
 import { streamlinkAvailable } from './streamlink-adapter.mjs';
 import { networkPreferences } from './media-proxy.mjs';
+import { getRuntimeHealth } from './runtime-manager.mjs';
+import { listRegisteredEngines, planDownloadEngines, shouldAbortFallback } from './engine-scheduler.mjs';
+import { getRateTelemetry } from './rate-controller.mjs';
 
-export { ApiError, platformDownloadsEnabled, getBrowserSessionStatus, resetBrowserSession, importCookieSession, listCookieSessions, revokeCookieSession };
+export {
+  ApiError, platformDownloadsEnabled, getBrowserSessionStatus, resetBrowserSession,
+  importCookieSession, listCookieSessions, revokeCookieSession, getRuntimeHealth, getRateTelemetry,
+};
 export const VERSION = manifest.version_name ?? manifest.version;
 
 function defaultDownloads() {
@@ -79,6 +85,8 @@ export async function getVersionInfo() {
     version: VERSION,
     browserVersion: manifest.version,
     installedVersion,
+    schemaVersion: '1.1.0',
+    channel: /-rc\./.test(VERSION) ? 'rc' : 'stable',
     versionMismatch,
     mismatch: versionMismatch,
     entry: fileURLToPath(new URL('./mcp-server.mjs', import.meta.url)),
@@ -87,6 +95,7 @@ export async function getVersionInfo() {
     }),
     nodeVersion: process.version,
     platform: process.platform,
+    arch: process.arch,
     pid: process.pid,
     settingsFile: getSettingsFile(),
   };
@@ -100,21 +109,29 @@ export function getEngineCapabilities() {
     ffmpeg: { available: true, bin: FFMPEG },
     transfer: ['http', 'hls', 'dash-static', ...(platformDownloadsEnabled() ? ['yt-dlp'] : []), ...(streamlinkAvailable() ? ['streamlink'] : [])],
     processing: ['ffmpeg', 'ffprobe'],
+    engines: listRegisteredEngines(),
     features: {
       unifiedRequestContext: true,
       hlsHeadersConsistent: true,
+      referrerPolicyAware: true,
       nonstandardSegmentSniffing: true,
+      qualityAvailabilityProbing: true,
       aes128Hls: true,
       hlsSubtitles: true,
       hlsResume: true,
       rangeResume: true,
       dashStatic: true,
+      dashWebm: true,
       dashResume: true,
       boundedRefresh: true,
       dedicatedBrowserSessions: true,
+      sessionSerialLock: true,
       cookieFileImport: true,
       netscapeCookieFile: true,
       smartQualityNegotiation: true,
+      multiEngineScheduler: true,
+      adaptiveRateControl: true,
+      localManagementConsole: true,
       platformDownloads: platformDownloadsEnabled(),
       streamlinkFallback: streamlinkAvailable(),
     },
@@ -283,7 +300,10 @@ async function inspectPage(url, cookies, signal, {
     if (result.streams.length || result.reason === 'blocked' || !stagedProbe && result.candidates.length && result.reason === 'no-player') break;
   }
   if (profileMode === 'dedicated' && browserSessionId) {
-    await recordDedicatedOrigin(browserSessionId, url.origin).catch(() => {});
+    await recordDedicatedOrigin(browserSessionId, url.origin, {
+      blockers: result.blockers ?? [],
+      streamCount: result.streams?.length ?? 0,
+    }).catch(() => {});
   }
   const protectedUrls = new Set();
   const pending = selectionOnly ? [...new Set([...primaryCandidates(result.streams),
@@ -327,12 +347,30 @@ async function inspectPage(url, cookies, signal, {
           throw error;
         });
         if (quality?.length) {
-          stream.qualities = quality.map(({height,bandwidth,url,codecs,frameRate,hdr,audioTracks,subtitleTracks}) => ({
-            height,bandwidth,url,
-            ...(codecs && {codecs}),...(frameRate && {frameRate}),...(hdr && {hdr}),
-            ...(audioTracks?.length && {audioTracks}),...(subtitleTracks?.length && {subtitleTracks}),
+          stream.qualities = quality.map(q => ({
+            ...(q.candidateId && { candidateId: q.candidateId }),
+            ...(q.width && { width: q.width }),
+            height: q.height,
+            bandwidth: q.bandwidth,
+            url: q.url,
+            ...(q.codec && { codec: q.codec }),
+            ...(q.codecs && { codecs: q.codecs }),
+            ...(q.frameRate && { frameRate: q.frameRate }),
+            ...(q.hdr && { hdr: q.hdr }),
+            ...(q.audioTracks?.length && { audioTracks: q.audioTracks }),
+            ...(q.subtitleTracks?.length && { subtitleTracks: q.subtitleTracks }),
+            ...(q.available !== undefined && { available: q.available }),
+            ...(q.availability && { availability: q.availability }),
+            ...(q.probeStatus !== undefined && { probeStatus: q.probeStatus }),
+            ...(q.verificationMethod && { verificationMethod: q.verificationMethod }),
+            ...(q.checkedAt && { checkedAt: q.checkedAt }),
           }));
-          stream.quality = quality.map(({height,bitrate,url}) => ({height,bitrate,url}));
+          stream.quality = quality.map(({ height, bitrate, url, available, availability, probeStatus }) => ({
+            height, bitrate, url,
+            ...(available !== undefined && { available }),
+            ...(availability && { availability }),
+            ...(probeStatus !== undefined && { probeStatus }),
+          }));
         }
         const hasObservedSize = stream.size != null;
         for (const [key, value] of Object.entries(info)) {
@@ -399,7 +437,15 @@ export async function probe({
   if (!probeModes.includes(compatibility) || typeof learnCompatibility !== 'boolean') {
     throw new ApiError('INVALID_COMPATIBILITY','Choose a supported probe mode');
   }
-  const cookies = cookieSessionId ? resolveCookieSession(cookieSessionId, url) : parseCookies(cookie);
+  let cookies = [];
+  let cookieWarnings = [];
+  if (cookieSessionId) {
+    cookies = resolveCookieSession(cookieSessionId, url);
+  } else if (cookie) {
+    const filtered = filterAndParseCookieHeader(cookie);
+    cookies = filtered.cookies;
+    cookieWarnings = filtered.warnings;
+  }
   if (!Number.isInteger(waitMs) || waitMs < 100 || waitMs > 30_000) {
     throw new ApiError('INVALID_WAIT', 'waitMs 必须为 100–30000 毫秒');
   }
@@ -443,14 +489,17 @@ export async function probe({
     if (platform && platformDownloadsEnabled()) {
       const target = await probePlatform(platform, signal);
       return {pageTitle:target.title, pageContext:{url:target.url,untrusted:true}, streams:[], pages:[], candidates:[],
-        downloadTargets:[target], qualities:[],...(harvestCodes && {codes:[]}),selection:{status:'selected',url:target.url,reason:'platform'},
+        downloadTargets:[target], qualities:target.qualityDetails ?? [],...(harvestCodes && {codes:[],codeItems:[]}),
+        ...(cookieWarnings.length && {warnings:cookieWarnings}),
+        selection:{status:'selected',url:target.url,reason:'platform'},
         diagnostic:detectionDiagnostic({streams:[target]})};
     }
     const maximum = compatibility === 'maximum';
-    return inspectPage(url, cookies, signal, {waitMs:waitForMediaMs ?? (maximum && waitMs === 20_000 ? 30_000 : waitMs),
+    const inspected = await inspectPage(url, cookies, signal, {waitMs:waitForMediaMs ?? (maximum && waitMs === 20_000 ? 30_000 : waitMs),
       retries,includeText,clickPlay,captureXhrBody,includeFrames,mode,harvestCodes,idPattern:safeIdPattern,urlTemplate:parsedTemplate,
       singleWindow:waitForMediaMs !== undefined,compatibility,learn:learnCompatibility,
       userAgent:userAgent?.trim(),browser,browserBinary,browserSessionId,profileMode,networkMode:net.networkMode,proxy:net.proxy,timeoutBudget});
+    return cookieWarnings.length ? { ...inspected, warnings: [...(inspected.warnings ?? []), ...cookieWarnings] } : inspected;
   });
 }
 
@@ -577,34 +626,124 @@ async function checkedBatchOutput(batch,file) {
   return actual;
 }
 
-export async function verifyBatchFiles(id, signal) {
+export async function verifyBatchFiles(id, signal, { durationToleranceSec = 1.0 } = {}) {
   const batch = lookup(id);
   const result = snapshot(batch);
-  const budget = AbortSignal.any([signal,AbortSignal.timeout(25_000)]);
+  const tolerance = Number.isFinite(durationToleranceSec) && durationToleranceSec >= 0 ? durationToleranceSec : 1.0;
+  const budget = AbortSignal.any([signal, AbortSignal.timeout(25_000)]);
   for (const item of result.items) {
     item.verification = [];
     for (const output of item.outputs ?? []) {
-      const {file,info} = output;
+      const { file, info } = output;
       try {
         budget.throwIfAborted();
-        const actual = await checkedBatchOutput(batch,file);
-        const current = await inspectOutput(actual,budget,/\.(mp3|m4a)$/i.test(file) ? 'audio' : 'video',info?.duration);
-        const savedFields = ['size','audioCodec','codec','width','height','container','subtitleTracks'];
+        const actual = await checkedBatchOutput(batch, file);
+        const current = await inspectOutput(actual, budget, /\.(mp3|m4a)$/i.test(file) ? 'audio' : 'video', info?.duration);
+        const savedFields = ['size', 'audioCodec', 'codec', 'width', 'height', 'container', 'subtitleTracks'];
+        const durationDiffSec = info?.duration != null && current?.duration != null
+          ? Number(Math.abs(info.duration - current.duration).toFixed(3))
+          : 0;
         if (!info || savedFields.some(key => info[key] !== undefined && info[key] !== current[key]) ||
-            Math.abs(info.duration-current.duration) > 0.05) {
-          throw new ApiError('OUTPUT_CHANGED','The output differs from its saved media properties',409);
+            durationDiffSec > tolerance) {
+          throw new ApiError('OUTPUT_CHANGED', 'The output differs from its saved media properties', 409, {
+            durationDiffSec,
+            durationToleranceSec: tolerance,
+          });
         }
-        item.verification.push({status:'verified',info:current});
+        item.verification.push({
+          status: 'verified',
+          durationDiffSec,
+          durationToleranceSec: tolerance,
+          info: {
+            ...current,
+            videoCodec: current.codec ?? null,
+          },
+        });
       } catch (error) {
         signal.throwIfAborted();
         const errorCode = budget.aborted ? 'VERIFY_TIMEOUT' : error.code === 'ENOENT' ? 'FILE_NOT_FOUND' : errorDetails(error).code;
-        item.verification.push({status:'error',errorCode});
+        item.verification.push({ status: 'error', errorCode });
       }
     }
   }
   result.ok = result.items.length > 0 && result.items.every(item =>
     item.verification?.length > 0 && item.verification.every(v => v.status === 'verified'));
   return result;
+}
+
+export function getTaskReport(id) {
+  const current = snapshot(lookup(id));
+  let succeeded = 0, failed = 0, skipped = 0, cancelled = 0, totalBytes = 0, totalElapsedMs = 0;
+  for (const item of current.items) {
+    if (item.status === 'done') {
+      succeeded++;
+      if (item.skipped || item.alreadySaved) skipped++;
+    } else if (item.status === 'error') failed++;
+    else if (item.status === 'cancelled') cancelled++;
+    totalBytes += Number(item.bytes || 0);
+    totalElapsedMs += Number(item.elapsedMs || 0);
+  }
+  const averageSpeedBytesPerSec = totalElapsedMs > 0 ? Math.round((totalBytes * 1000) / totalElapsedMs) : 0;
+  return {
+    ...current,
+    summary: {
+      total: current.items.length,
+      succeeded,
+      failed,
+      skipped,
+      cancelled,
+      totalBytes,
+      elapsedMs: totalElapsedMs,
+      averageSpeedBytesPerSec,
+    },
+  };
+}
+
+export async function recoverDownload({ id } = {}) {
+  const batch = lookup(id);
+  const current = snapshot(batch);
+  const checkpoints = [];
+  for (const item of current.items) {
+    const root = stagingRoot(batch.outDir, batch.id, item.idx);
+    const dirs = await readdir(root, { withFileTypes: true }).catch(() => []);
+    let checkpointInfo = null;
+    for (const entry of dirs) {
+      if (!entry.isDirectory() || (!entry.name.startsWith('segments-') && !entry.name.startsWith('dash-') && !entry.name.startsWith('ranges-'))) continue;
+      const cpDir = path.join(root, entry.name);
+      const manifestData = await readFile(path.join(cpDir, 'checkpoint.json'), 'utf8').then(JSON.parse).catch(() => null);
+      const failedData = await readFile(path.join(cpDir, 'failed.json'), 'utf8').then(JSON.parse).catch(() => null);
+      checkpointInfo = {
+        kind: entry.name.startsWith('segments-') ? 'hls' : entry.name.startsWith('dash-') ? 'dash' : 'range',
+        directory: cpDir,
+        ...(manifestData && {
+          total: manifestData.total,
+          completed: manifestData.completed,
+          missing: manifestData.missing,
+          corrupted: manifestData.corrupted ?? 0,
+          savedBytes: manifestData.savedBytes ?? 0,
+          updatedAt: manifestData.updatedAt ?? null,
+        }),
+        failedSegments: manifestData?.failedSegments ?? failedData?.missing ?? [],
+      };
+      break;
+    }
+    checkpoints.push({
+      idx: item.idx,
+      status: item.status,
+      errorCode: item.errorCode ?? null,
+      resumable: Boolean(checkpointInfo || current.resumable),
+      checkpoint: checkpointInfo,
+    });
+  }
+  return {
+    id: current.id,
+    status: current.status,
+    resumable: Boolean(current.resumable || checkpoints.some(c => c.checkpoint)),
+    items: checkpoints,
+    nextAction: checkpoints.some(c => c.checkpoint)
+      ? 'Resubmit the original start_download/start_batch request (with refreshed URL/headers if expired) to resume from verified checkpoints without re-downloading completed parts.'
+      : 'No pending checkpoint files found for this batch.',
+  };
 }
 
 function knownBatches() {
@@ -750,8 +889,13 @@ export function diagnoseDownload(id) {
       status: item.status,
       phase: item.phase ?? item.status,
       engine: item.engine ?? null,
+      enginePlan: item.enginePlan ?? null,
       fallbackReason: item.prefetchFallback?.reason ?? null,
       errorCode: item.errorCode ?? null,
+      elapsedMs: item.elapsedMs ?? null,
+      stages: item.stages ?? [],
+      segments: item.segments ?? null,
+      failedSegments: item.segments?.failedSegments ?? item.detail?.failedSegments ?? [],
       detail: item.detail ?? null,
       resumable: Boolean(current.resumable || INTERRUPTED_CODES.has(item.errorCode)),
       retryable: Boolean(item.status === 'error' && ['interrupted-resumable', 'expired', 'transfer-error'].includes(category)),
@@ -880,6 +1024,14 @@ function getTargets(values, defaults) {
       itemRefresh = { pageUrl: refUrl, maxRefreshes };
     }
     const itemHeaders = value.headers !== undefined ? parseMediaHeaders(value.headers) : undefined;
+    const conflictAction = value.conflictAction ?? defaults.conflictAction ?? 'uniquify';
+    if (!['uniquify', 'skip', 'overwrite'].includes(conflictAction)) {
+      throw new ApiError('INVALID_CONFLICT_ACTION', 'conflictAction 应为 uniquify、skip 或 overwrite');
+    }
+    const filenameTemplate = value.filenameTemplate ?? defaults.filenameTemplate;
+    if (filenameTemplate !== undefined && (typeof filenameTemplate !== 'string' || !filenameTemplate.trim() || filenameTemplate.length > 160 || /[\\/:*?"<>|\x00-\x1f]/.test(filenameTemplate))) {
+      throw new ApiError('INVALID_FILENAME_TEMPLATE', 'filenameTemplate 包含非法路径字符或超出 160 字符限制');
+    }
     let url;
     try { url = mediaUrl(value.url).href; }
     catch (error) {
@@ -894,6 +1046,9 @@ function getTargets(values, defaults) {
       qualitySpec: value.quality !== undefined ? value.quality : (defaults.quality ?? null),
       audioFormat: value.audioFormat ?? defaults.audioFormat, subtitles: value.subtitles ?? defaults.subtitles,
       sourceKind:value.sourceKind, fastStart:value.fastStart ?? defaults.fastStart,
+      conflictAction,
+      ...(filenameTemplate && { filenameTemplate }),
+      ...(value.mediaId && { mediaId: String(value.mediaId).slice(0, 64) }),
       ...(itemRefresh && {refresh:itemRefresh}),
       ...(itemHeaders && Object.keys(itemHeaders).length && {headers:itemHeaders}),
       title: value.title?.trim().slice(0, 160) || '' };
@@ -918,13 +1073,18 @@ export function queueOriginal({ url, title, extension, connections, requestId } 
 }
 
 export function queue({items,maxSec,prefetch,resume = true,keepSegments = false,cookie,cookieSessionId,headers,concurrency,connections,
-  delivery = 'local',requestId,useBrowserCookies,refresh,skipExisting = false,continueOnError = true} = {},
+  delivery = 'local',requestId,useBrowserCookies,refresh,skipExisting = false,continueOnError = true,conflictAction,filenameTemplate} = {},
   originalExtension, principal, authorization) {
   if (delivery !== 'local' && delivery !== 'browser') throw new ApiError('INVALID_DELIVERY', '无效的保存方式');
   if (useBrowserCookies !== undefined && useBrowserCookies !== false) {
     throw new ApiError('BROWSER_SESSION_UNAVAILABLE', '下载使用独立会话');
   }
-  const defaults = delivery === 'local' ? getSettings().settings : defaultOutput();
+  const baseDefaults = delivery === 'local' ? getSettings().settings : defaultOutput();
+  const defaults = {
+    ...baseDefaults,
+    ...(conflictAction !== undefined && { conflictAction }),
+    ...(filenameTemplate !== undefined && { filenameTemplate }),
+  };
   const targets = getTargets(items, defaults);
   let normalizedRefresh;
   if (refresh !== undefined) {
@@ -957,7 +1117,8 @@ export function queue({items,maxSec,prefetch,resume = true,keepSegments = false,
     throw new ApiError('INVALID_REQUEST_ID', '浏览器任务编号无效');
   }
   const limit = durationLimit(maxSec);
-  let resolvedCookies = parseCookies(cookie);
+  const parsedCookie = cookie ? filterAndParseCookieHeader(cookie) : { cookies: [], warnings: [] };
+  let resolvedCookies = parsedCookie.cookies;
   if (cookieSessionId && targets[0]?.url) {
     resolvedCookies = resolveCookieSession(cookieSessionId, targets[0].url);
   }
@@ -969,17 +1130,20 @@ export function queue({items,maxSec,prefetch,resume = true,keepSegments = false,
 export function queueBatch({items,concurrency = 1,skipExisting = true,delivery = 'local',requestId,
   codeUrlTemplate,urlTemplate,perItem = {},deduplicate,previewOnly = false,continueOnError = true,...options} = {}) {
   if (delivery !== 'local' || requestId !== undefined) throw new ApiError('INVALID_DELIVERY','Batches save into the local output directory');
-  const allowedPerItem = new Set(['quality','headers','format','mode','audioFormat','subtitles','fastStart','refresh']);
+  const allowedPerItem = new Set(['quality','headers','format','mode','audioFormat','subtitles','fastStart','refresh','cookie','cookieSessionId','conflictAction','filenameTemplate']);
   if (!perItem || typeof perItem !== 'object' || Array.isArray(perItem) ||
       Object.keys(perItem).some(key => !allowedPerItem.has(key))) {
-    throw new ApiError('INVALID_ITEM_DEFAULTS','perItem supports quality, headers, format, mode, audioFormat, subtitles, fastStart and refresh');
+    throw new ApiError('INVALID_ITEM_DEFAULTS','perItem supports quality, headers, format, mode, audioFormat, subtitles, fastStart, refresh, cookie, cookieSessionId, conflictAction and filenameTemplate');
   }
   const templateRaw = codeUrlTemplate ?? urlTemplate;
   const parsedTemplate = validateUrlTemplate(templateRaw);
-  const { headers: perItemHeaders, ...perItemDefaults } = perItem;
+  const { headers: perItemHeaders, cookie: perItemCookie, cookieSessionId: perItemCookieSessionId, ...perItemDefaults } = perItem;
   let targets = Array.isArray(items) ? items.map(item => {
     if (!item) return item;
-    const target = {...perItemDefaults, ...item};
+    const itemMergedHeaders = (perItemHeaders || item.headers)
+      ? mergeMediaHeaders(perItemHeaders, item.headers)
+      : undefined;
+    const target = { ...perItemDefaults, ...item, ...(itemMergedHeaders && { headers: itemMergedHeaders }) };
     if (item.kind !== 'code' && item.kind !== 'id') return target;
     const rawId = item.kind === 'code' ? item.code : item.id;
     const validId = item.kind === 'code'
@@ -989,7 +1153,7 @@ export function queueBatch({items,concurrency = 1,skipExisting = true,delivery =
       throw new ApiError('INVALID_CODE','Provide a valid media identifier and codeUrlTemplate / urlTemplate');
     }
     const { code: _c, id: _i, ...rest } = target;
-    return {...rest, kind:'page', url:parsedTemplate.template.replace(parsedTemplate.token, encodeURIComponent(rawId))};
+    return {...rest, kind:'page', mediaId: rawId, url:parsedTemplate.template.replace(parsedTemplate.token, encodeURIComponent(rawId))};
   }) : items;
   let deduplicatedCount = 0;
   if (deduplicate !== false && Array.isArray(targets)) {
@@ -1010,8 +1174,9 @@ export function queueBatch({items,concurrency = 1,skipExisting = true,delivery =
     }
     targets = unique;
   }
-  const headers = perItemHeaders === undefined ? options.headers :
-    {...parseMediaHeaders(perItemHeaders),...parseMediaHeaders(options.headers)};
+  const headers = mergeMediaHeaders(options.headers, perItemHeaders);
+  const effectiveCookie = options.cookie ?? perItemCookie;
+  const effectiveCookieSessionId = options.cookieSessionId ?? perItemCookieSessionId;
   if (previewOnly) {
     const defaults = getSettings().settings;
     const resolved = getTargets(targets, defaults);
@@ -1022,10 +1187,19 @@ export function queueBatch({items,concurrency = 1,skipExisting = true,delivery =
       deduplicatedCount,
       concurrency,
       continueOnError,
-      items: resolved.map((t, idx) => ({ idx, kind: t.kind, url: t.url, title: t.title, quality: t.qualitySpec ?? t.quality, format: t.format, mode: t.mode })),
+      items: resolved.map((t, idx) => ({ idx, kind: t.kind, url: t.url, mediaId: t.mediaId ?? null, title: t.title, quality: t.qualitySpec ?? t.quality, format: t.format, mode: t.mode })),
     };
   }
-  return queue({...options, items:targets, headers, concurrency, skipExisting, continueOnError});
+  return queue({
+    ...options,
+    items: targets,
+    headers: Object.keys(headers).length ? headers : undefined,
+    ...(effectiveCookie !== undefined && { cookie: effectiveCookie }),
+    ...(effectiveCookieSessionId !== undefined && { cookieSessionId: effectiveCookieSessionId }),
+    concurrency,
+    skipExisting,
+    continueOnError,
+  });
 }
 
 export function retryBatch({id} = {}) {
@@ -1184,21 +1358,76 @@ function enqueue(request) {
   return { id, total: targets.length };
 }
 
-function filename(title) {
+function filename(title, maxLength = 120) {
   return (title || 'video').replace(/[\\/:*?"<>|\x00-\x1f]+/g, '_').replace(/\s+/g, ' ')
-    .trim().slice(0, 70).replace(/[. ]+$/, '').replace(/^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?=\.|$)/i, '_$1') || 'video';
+    .trim().slice(0, maxLength).replace(/[. ]+$/, '').replace(/^(CON|PRN|AUX|NUL|COM[1-9¹²³]|LPT[1-9¹²³])(?=\.|$)/i, '_$1') || 'video';
 }
 
-async function save(directory, source, name, extension) {
+function renderOutputName(target, title, { width, height, limit }) {
+  if (target.filenameTemplate) {
+    const date = new Date().toISOString().slice(0, 10);
+    const rendered = target.filenameTemplate
+      .replaceAll('{id}', target.mediaId || filename(title, 48))
+      .replaceAll('{title}', filename(title, 80))
+      .replaceAll('{height}', height ? String(height) : '')
+      .replaceAll('{width}', width ? String(width) : '')
+      .replaceAll('{date}', date)
+      .replaceAll('{format}', target.format || 'mp4');
+    return filename(rendered.replace(/_{2,}/g, '_').replace(/^_+|_+$/g, ''), 120);
+  }
+  return [
+    filename(title, 80),
+    target.mode !== 'audio' && width && height ? `${width}x${height}` : null,
+    limit ? `前${limit}秒` : null,
+  ].filter(Boolean).join('_');
+}
+
+async function save(directory, source, name, extension, { conflictAction = 'uniquify' } = {}) {
+  const primaryTarget = path.join(directory, `${name}.${extension}`);
+  if (conflictAction === 'skip') {
+    const existing = await lstat(primaryTarget).catch(() => null);
+    if (existing?.isFile() && existing.size > 0) {
+      return { file: primaryTarget, skipped: true };
+    }
+  }
+  if (conflictAction === 'overwrite') {
+    const partTarget = `${primaryTarget}.${randomUUID().slice(0, 8)}.part`;
+    try {
+      await copyFile(source, partTarget);
+      await rename(partTarget, primaryTarget);
+      return { file: primaryTarget, skipped: false };
+    } catch (error) {
+      await rm(partTarget, { force: true }).catch(() => {});
+      throw error;
+    }
+  }
   for (let index = 1; ; index += 1) {
     const target = path.join(directory, `${name}${index === 1 ? '' : `_${index}`}.${extension}`);
     try {
-      try { await link(source, target); } catch (error) {
-        if (!['ENOTSUP', 'ENOSYS', 'EPERM'].includes(error.code)) throw error;
-        await copyFile(source, target, constants.COPYFILE_EXCL);
+      try {
+        await link(source, target);
+      } catch (error) {
+        if (!['ENOTSUP', 'ENOSYS', 'EPERM', 'EXDEV'].includes(error.code)) throw error;
+        const partTarget = `${target}.${randomUUID().slice(0, 8)}.part`;
+        try {
+          await copyFile(source, partTarget);
+          await link(partTarget, target);
+        } catch (copyErr) {
+          if (['ENOTSUP', 'ENOSYS', 'EPERM'].includes(copyErr.code)) {
+            const exists = await lstat(target).catch(() => null);
+            if (exists) throw Object.assign(new Error('File exists'), { code: 'EEXIST' });
+            await rename(partTarget, target);
+          } else {
+            throw copyErr;
+          }
+        } finally {
+          await rm(partTarget, { force: true }).catch(() => {});
+        }
       }
-      return target;
-    } catch (error) { if (error.code !== 'EEXIST') throw error; }
+      return { file: target, skipped: false };
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
   }
 }
 
@@ -1378,13 +1607,29 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
   sourceKind ||= classify(source);
   onMediaIdentity?.({ origin: source.origin, pathname: source.pathname, kind: sourceKind });
   const scopedCookies = !authorization && source.origin === input.origin ? cookies : [];
-  const mergedHeaders = authorization ? {} : { ...capturedHeaders(source.href), ...batch.request.headers, ...(target.headers ?? {}) };
+  const observedHdrs = authorization ? {} : capturedHeaders(source.href);
+  const explicitMerged = authorization ? {} : mergeMediaHeaders(batch.request.headers, target.headers);
+  const mergedHeaders = authorization ? {} : mergeMediaHeaders(observedHdrs, explicitMerged);
   const requestContext = authorization ? null : createRequestContext({
     origin: source.origin,
     headers: mergedHeaders,
+    explicitHeaders: Object.keys(explicitMerged),
     cookies: scopedCookies,
   });
   const headers = requestContext ? requestContext.headers : {};
+  let historyRule = null;
+  if (!authorization) {
+    try { historyRule = getOriginCompatibilityRule(source.origin); } catch {}
+  }
+  const enginePlan = planDownloadEngines({
+    sourceKind,
+    platform: platform?.platform ?? null,
+    prefetch: batch.request.prefetch,
+    hasAuthorization: Boolean(authorization),
+    maxSec: limit,
+    historyRule,
+  });
+  item.enginePlan = enginePlan;
   const expiresAt = streamExpiry(source);
   if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
     throw new ApiError('STREAM_EXPIRED', '媒体地址已过期，请重新探测原页面', 422, { expiresAt });
@@ -1555,8 +1800,7 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
     const actualWidth = scaled ? Math.round(video.width * actualHeight / video.height / 2) * 2 : video?.width ?? width;
     item.info = { duration, width: actualWidth, height: actualHeight };
     const expected = duration && limit ? Math.min(duration, limit) : duration || limit;
-    const name = [filename(item.title), target.mode !== 'audio' && actualWidth && actualHeight ? `${actualWidth}x${actualHeight}` : null,
-      limit ? `前${limit}秒` : null].filter(Boolean).join('_');
+    const name = renderOutputName(target, item.title, { width: actualWidth, height: actualHeight, limit });
     const outputs = [];
     const addOutput = (suffix, extension, args) => {
       const outputName = name + suffix;
@@ -1582,11 +1826,14 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
       const fraction = Number(seconds) / 1000000 / expected;
       updateProgress(Math.min(99, Math.floor(media === staged ? 90 + fraction * 10 : fraction * 100)));
     }, { strict: true });
+    const muxStarted = performance.now();
     try {
       await encode();
+      requestContext?.recordStage('mux', { status: 200, elapsedMs: performance.now() - muxStarted, engine: 'ffmpeg' });
     } catch (error) {
+      requestContext?.recordStage('mux', { status: error.detail?.status ?? 500, elapsedMs: performance.now() - muxStarted, engine: 'ffmpeg', errorCode: error.code });
       const remoteDash = media instanceof URL && (sourceKind === 'mpd' || /\.mpd$/i.test(media.pathname));
-      if (!remoteDash || !error.transientFirstFragment) throw error;
+      if (!remoteDash || !error.transientFirstFragment || shouldAbortFallback(error)) throw error;
       publish(batch, '首个 DASH 分片暂时不可用，正在重试');
       await sleep(300, undefined, { signal });
       await encode();
@@ -1596,6 +1843,7 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
     item.phase = 'verifying';
     item.speed = 0;
     item.etaSec = null;
+    const verifyStarted = performance.now();
     if (batch.delivery === 'browser') {
       if (staged) {
         const stagedInput = sourceKind === 'm3u8' ? path.join(staging, 'segments') : staged;
@@ -1609,10 +1857,15 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
     } else {
       for (const output of outputs) {
         signal.throwIfAborted();
-        const file = await save(directory, output.file, output.name, output.extension);
-        const record = { file, name: path.basename(file) };
+        const savedResult = await save(directory, output.file, output.name, output.extension, { conflictAction: target.conflictAction });
+        const file = savedResult.file;
+        const record = { file, name: path.basename(file), ...(savedResult.skipped && { skipped: true }) };
         saved.push(record);
         record.info = await inspectOutput(file, signal, ['mp3', 'm4a'].includes(output.extension) ? 'audio' : 'video', expected);
+        if (savedResult.skipped) {
+          item.skipped = true;
+          item.alreadySaved = true;
+        }
       }
       signal.throwIfAborted();
       item.file = saved[0].file;
@@ -1621,6 +1874,19 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
       if (target.subtitles) item.subtitleTracks = saved.reduce((total, output) => total + output.info.subtitleTracks, 0);
       const outputBytes = saved.reduce((total, output) => total + output.info.size, 0);
       item.bytes = Math.max(item.bytes, outputBytes);
+    }
+    requestContext?.recordStage('verification', { status: 200, elapsedMs: performance.now() - verifyStarted, engine: 'ffprobe' });
+    if (requestContext) item.stages = requestContext.getStageSummary();
+    if (batch.delivery === 'local' && !batch.private && !authorization) {
+      try {
+        recordCompatibility(source, {
+          success: true,
+          elapsedMs: item.elapsedMs ?? 0,
+          kind: sourceKind,
+          engine: item.engine,
+          connections: batch.connections,
+        });
+      } catch {}
     }
     item.totalBytes = item.bytes;
     item.status = 'done';
@@ -1636,7 +1902,8 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
     if (recovery) storeBatch(historyRecord(batch));
     publish(batch, `[${item.idx + 1}] 下载完成`);
   } catch (error) {
-    await Promise.all(saved.map(({ file }) => rm(file, { force: true }).catch(() => {})));
+    if (requestContext) item.stages = requestContext.getStageSummary();
+    await Promise.all(saved.filter(entry => !entry.skipped).map(({ file }) => rm(file, { force: true }).catch(() => {})));
     const willRefresh = error.code === 'STREAM_EXPIRED' && preserveRecoveryOnExpiry?.();
     keepRecovery = (INTERRUPTED_CODES.has(error.code) || willRefresh) && !batch.controller.signal.aborted;
     if (error.code === 'ENOSPC') throw new ApiError('NO_SPACE', '输出磁盘空间不足', 507);
@@ -1727,6 +1994,31 @@ export async function downloadBestMedia({
     verification: verifySummary,
     probe: { selection: probed.selection, diagnostic: probed.diagnostic, qualities: probed.qualities },
     batch: verified,
+  };
+}
+
+export async function downloadMediaBatch({
+  items, urlTemplate, codeUrlTemplate, perItem, concurrency = 1, continueOnError = true,
+  skipExisting = true, deduplicate = true, previewOnly = false,
+  headers, cookie, cookieSessionId, connections, conflictAction, filenameTemplate,
+  waitTimeoutMs = 60_000, verify = true, durationToleranceSec = 1.0,
+} = {}, requestSignal) {
+  const signal = requestSignal ? AbortSignal.any([session.signal, requestSignal]) : session.signal;
+  const submitted = queueBatch({
+    items, urlTemplate, codeUrlTemplate, perItem, concurrency, continueOnError,
+    skipExisting, deduplicate, previewOnly, headers, cookie, cookieSessionId, connections,
+    conflictAction, filenameTemplate,
+  });
+  if (submitted.previewOnly) return submitted;
+  const completed = await waitForBatch({ id: submitted.id, timeoutMs: waitTimeoutMs }, signal);
+  const verified = verify && !completed.timedOut && ['done', 'partial'].includes(completed.status)
+    ? await verifyBatchFiles(submitted.id, signal, { durationToleranceSec })
+    : completed;
+  return {
+    ...getTaskReport(submitted.id),
+    timedOut: completed.timedOut,
+    items: verified.items,
+    ...(verified.ok !== undefined && { ok: verified.ok }),
   };
 }
 
