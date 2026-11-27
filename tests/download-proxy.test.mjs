@@ -158,6 +158,8 @@ test('owner proxy settings apply on restart and keep the three engine configurat
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
     !/^(?:https?_proxy|no_proxy|all_proxy|node_use_env_proxy|node_options)$/i.test(key)));
   env.MEDIA_TOOLKIT_SETTINGS = path.join(directory,'settings.sqlite');
+  env.VIDEOSAVE_TEST_SANDBOX = directory;
+  env.VIDEOSAVE_NO_USER_SETTINGS = '1';
   const run = async (code, settings = {}) => {
     const child = spawn(process.execPath,['--input-type=module','-e',code],{
       cwd:fileURLToPath(new URL('../tools/',import.meta.url)),env:{...env,...settings},windowsHide:true,

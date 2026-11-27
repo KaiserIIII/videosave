@@ -53,7 +53,8 @@ test('the Windows launcher configures MCP downloads and keeps shared pairing aft
   await once(server, 'listening');
 
   const env = {...process.env, ...config.env, MEDIA_TOOLKIT_URL:'', OUT_DIR:path.join(folder, 'output'),
-    MEDIA_TOOLKIT_SETTINGS:path.join(folder, 'settings.sqlite')};
+    MEDIA_TOOLKIT_SETTINGS:path.join(folder, 'settings.sqlite'),
+    VIDEOSAVE_TEST_SANDBOX:folder, VIDEOSAVE_NO_USER_SETTINGS:'1'};
   for (const name of Object.keys(env)) if (/^path$/i.test(name)) delete env[name];
   env.Path = path.join(process.env.SystemRoot, 'System32');
   child = spawn(config.command, config.args, {cwd:folder, env, windowsHide:true, stdio:['pipe','pipe','inherit'], signal:t.signal});
@@ -138,7 +139,7 @@ test('the Windows launcher configures MCP downloads and keeps shared pairing aft
   async function runCompanion(expectedCode) {
     const cmp = spawn(process.env.ComSpec,['/d','/s','/c','"call "Start VideoSave.cmd" -SkipPlatform"'],{
       cwd:project,env:{...setupEnv,PORT:'0',MEDIA_TOOLKIT_SETTINGS:env.MEDIA_TOOLKIT_SETTINGS,MEDIA_TOOLKIT_TOKEN:'',
-        OUT_DIR:env.OUT_DIR},windowsHide:true,windowsVerbatimArguments:true,stdio:['ignore','pipe','inherit'],
+        OUT_DIR:env.OUT_DIR,VIDEOSAVE_TEST_SANDBOX:folder,VIDEOSAVE_NO_USER_SETTINGS:'1'},windowsHide:true,windowsVerbatimArguments:true,stdio:['ignore','pipe','inherit'],
     });
     const stopped = once(cmp,'close');
     try {

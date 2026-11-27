@@ -14,7 +14,7 @@ import { checkManifestProtection, hlsQualities, prefetchHls } from './hls-prefet
 import { prefetchRanges } from './range-prefetch.mjs';
 import { dashQualities, localDashRequest, prefetchDash } from './dash-prefetch.mjs';
 import { ApiError, FFMPEG, discover, inspectOutput, mediaInput, mediaUrl, mergeMediaHeaders, parseCookies, parseMediaHeaders, probeStream, runMedia, streamExpiry } from './media-source.mjs';
-import { assertSandboxPath, getSettingsFile, readPreferences, writePreferences } from './preferences.mjs';
+import { assertSandboxPath, getSettingsFile, isSandboxActive, readPreferences, writePreferences } from './preferences.mjs';
 import { claimBatch, claimInterruptedCancellation, completedStatus, pendingItem, storeBatch, storedBatch, storedBatches } from './download-history.mjs';
 import { platformDownloadsEnabled, probePlatform, stagePlatform } from './platform-downloads.mjs';
 import { getOriginCompatibilityRule, preferredProbeStrategy, probeModes, probePlan, recordCompatibility } from './compatibility-policy.mjs';
@@ -46,7 +46,10 @@ function defaultDownloads() {
 }
 
 export function getDefaultOutDir() {
-  const dir = path.resolve(process.env.OUT_DIR || defaultDownloads());
+  const fallback = process.env.VIDEOSAVE_TEST_SANDBOX
+    ? path.join(path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX), 'downloads')
+    : defaultDownloads();
+  const dir = path.resolve(process.env.VIDEOSAVE_FORCE_OUT_DIR || process.env.OUT_DIR || fallback);
   return assertSandboxPath(dir, 'download output directory');
 }
 
@@ -58,6 +61,9 @@ export function getSettings({scope = 'download'} = {}) {
   const saved = readPreferences(scope);
   if (scope === 'download') {
     const merged = {...defaultOutput(), ...saved};
+    if (process.env.VIDEOSAVE_FORCE_OUT_DIR) {
+      merged.outDir = path.resolve(process.env.VIDEOSAVE_FORCE_OUT_DIR);
+    }
     merged.outDir = assertSandboxPath(merged.outDir, 'download output directory');
     return {scope, settings:merged};
   }
@@ -98,6 +104,8 @@ export async function getVersionInfo() {
     arch: process.arch,
     pid: process.pid,
     settingsFile: getSettingsFile(),
+    sandboxActive: isSandboxActive(),
+    sandboxRoot: process.env.VIDEOSAVE_TEST_SANDBOX ? path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX) : null,
   };
 }
 
@@ -143,6 +151,9 @@ export function getEffectiveSettings() {
   const network = networkPreferences();
   return {
     version: VERSION,
+    sandboxActive: isSandboxActive(),
+    sandboxRoot: process.env.VIDEOSAVE_TEST_SANDBOX ? path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX) : null,
+    settingsFile: getSettingsFile(),
     download,
     network: {
       configured: network.configured.mode,

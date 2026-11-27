@@ -10,7 +10,7 @@
 | GitHub 正式版 | `v0.10.0` (`60dc366`) | 已基于最新开发分支继续推进至 `v1.0.0` |
 | Codex 开发分支 | `product/videosave-1.0` (`8fa2b6c`, `v1.0.0-rc.2`) | 完整保留 Codex 已完成成果，在此之上逐项补齐全部剩余缺口 |
 | DSH 实际加载的 MCP 路径 | `<DSH_WORKSPACE>\mcp-bundles\videosave-mcp\cordis.patch.yml` → `...\open-media\tools\mcp-server.mjs` | **严重版本漂移**：历史运行中的 DSH 进程实际连接的是旧版 **`v0.9.0`** 目录，完全未加载 `v0.10.0` 或新版工具 Schema。现已新增 `get_version` 实时版本与旧进程漂移检测，并提供 [DSH 升级指南](dsh-guide.zh-CN.md) 与多客户端配置生成器。 |
-| 真实下载目录污染 | `%LOCALAPPDATA%\VideoSave\settings.sqlite` 中配置的真实下载目录 | 历史旧版测试曾向用户真实下载目录落盘大量测试视频文件。根因是 `tools/preferences.mjs` 顶层固化 `settingsFile` 导致测试读取了用户真实 SQLite。现已彻底根治（动态路径解析 + `VIDEOSAVE_TEST_SANDBOX` 强制护栏 + 路径/大小/mtime/删除四维快照断言），**未删除用户目录中任何现有文件**，全量测试与验收期间真实目录变动严格为 `delta = 0`。 |
+| 真实下载目录污染 | `%LOCALAPPDATA%\VideoSave\settings.sqlite` 中配置的真实下载目录 | **部分修复（待独立复测）**：此前测试仍写入用户真实 `outDir`（共落盘 118 个历史测试视频文件），先前报告中的 `Delta = 0` 属拿已经被污染的基线进行比对，不能作为隔离证明。现已新增运行时强制 `--sandbox` 模式与 `VIDEOSAVE_NO_USER_SETTINGS=1`（强制将 `outDir` 与 `settings.sqlite` 覆写到临时沙箱目录、禁止读取用户 `settings.sqlite`），并要求测试/冒烟/验收报告直接打印 `ACTUAL_WRITE_PATHS`（实际写入路径），待用户独立复测通过后方可关闭。 |
 
 ## 12 项 DSH 真实反馈逐项追踪与最终验收
 
@@ -27,7 +27,17 @@
 | DSH-09 | 缺少方便的批量媒体标识提取及处理能力 | 无 | 部分修复：仅硬编码 `[A-Z]{2,6}-\d{2,5}`，不支持自定义正则与预览确认 | `tools/media-source.mjs`, `tools/media-downloads.mjs`, `tools/mcp-server.mjs` | 通用化 ID 提取：支持安全自定义 `idPattern`（防 ReDoS）、通用 `urlTemplate` (`{id}`/`{code}`)、去重与 `previewOnly: true` 列表预览确认 | `tests/batch-queue-and-quality.test.mjs`, `tests/test-isolation-and-security.test.mjs` | **通过** (`11-serial-batch-queue` + 回归测试) |
 | DSH-10 | 无法方便地自动选择最高可用画质 | 仅数字高度上限 | 部分修复：仅支持 `"max"`，缺智能策略、DASH qualities 与一键下载工具 | `tools/quality-negotiator.mjs`, `extension/hls.mjs`, `tools/dash-manifest.mjs`, `tools/media-downloads.mjs` | 新增 `quality-negotiator.mjs`（支持 `best`/`max`/`auto`/`lowest`/上限/`exact:HEIGHT`/预算/HDR 偏好/回退策略）与 `download_best_media`，自动 FFprobe 核验成品分辨率 | `tests/batch-queue-and-quality.test.mjs` | **通过** (`05-probe-hls`, `10-auto-best-quality`: 自动选中 320x180 并通过校验) |
 | DSH-11 | Cookie 文件导入和 JSON 结构化进度不够完善 | 无 CLI / 无 Netscape 导入 | 部分修复：CLI 不支持 Netscape `cookies.txt`，MCP 无独立 Cookie 导入，缺丰富进度字段 | `tools/cookie-store.mjs`, `tools/media-cli.mjs`, `tools/media-downloads.mjs`, `tools/mcp-server.mjs` | 统一支持 Netscape 7 列与 Header 双格式导入（内存 TTL 会话、拒绝挑战 Cookie、绝不向 AI 回显明文）；丰富 CLI JSONL 与 MCP 结构化进度（`phase`/`engine`/`fallbackReason`/`etaSec`/`verification`） | `tests/batch-queue-and-quality.test.mjs`, `tests/test-isolation-and-security.test.mjs` | **通过** (`07-signed-netscape-cookie`, `14-progress-and-report`, `15-verify-download`) |
-| DSH-12 | 自动化测试向用户真实下载目录写入 157 个测试视频文件 | 严重污染真实目录 | **未彻底修复**：`preferences.mjs` 顶层固化 `settingsFile`，导致测试继续向用户真实下载目录落盘 | `tools/preferences.mjs`, `tools/media-downloads.mjs`, `tests/test-sandbox.mjs`, 全量 `tests/*.mjs`, `.github/workflows/verify.yml` | 改为动态 `getSettingsFile()`/`getDefaultOutDir()` + `VIDEOSAVE_TEST_SANDBOX` 护栏；全部测试迁移至 `.ots/tmp/videosave-tests/` 独立沙箱并执行真实目录零污染断言（含增/改/删校验）；接入 CI 强制门禁 | `tests/test-isolation-and-security.test.mjs` + 全量回归 | **通过** (`17-zero-real-dir-pollution`: 真实下载目录变动 = 0) |
+| DSH-12 | 自动化测试向用户真实下载目录写入 157 个测试视频文件 | 严重污染真实目录 | **未彻底修复**：`preferences.mjs` 顶层固化 `settingsFile`，导致测试继续向用户真实下载目录落盘 | `tools/preferences.mjs`, `tools/media-downloads.mjs`, `tools/server.mjs`, `tools/mcp-server.mjs`, `tools/media-cli.mjs`, `tools/verify_release.py`, `tests/test-sandbox.mjs`, 全量 `tests/*.mjs` | 新增强制 `--sandbox[=DIR]` 模式与 `VIDEOSAVE_NO_USER_SETTINGS=1` 禁止读取用户 `settings.sqlite`，强制将测试与冒烟的 `outDir` 覆写至临时目录；修复 CLI `--out` 被 `settings.sqlite` 覆盖的问题；冒烟/兼容/验收报告改为直接打印 `ACTUAL_WRITE_PATHS` 实际写入路径，不再用前后基线比对证明干净 | `tests/test-isolation-and-security.test.mjs` + 全量测试与冒烟 | **部分修复**：测试仍写入用户 `outDir`，`Delta=0` 属基线污染；已补齐强制 `--sandbox` 覆写与实际写入路径打印，待用户独立复测验收 |
+
+## 真实用户 `v1.1.0` Release 复测记录（2026-11-27）
+- **已由用户独立复测通过**：
+  - `VideoSave-1.1.0.zip` SHA-256 与官方发布清单一致，`get_version = 1.1.0`，27 个 MCP 工具就绪。
+  - **P0-1 请求头全链路**：用户自建夹具服务器抓包确认 `master -> variant -> segment` 三跳的 `User-Agent`、`Referer`（含完整查询串）、`Origin` 原样透传。
+  - **P0-4 非标准分片**：真实 TS 命名为 `seg0.jpeg` 且返回 `content-type: image/jpeg`，`start_download` 成功（`prefetch: true`、`segments 1/1`、`stages` 全 200、输出 320×240 / 4.04s / h264+aac、`qualityNegotiation` 完整）。
+- **需修复（已改回「部分修复」）**：
+  - **DSH-12 测试隔离**：用户实测指出真实下载目录中留存 118 个测试产物，`Delta = 0` 属拿已污染基线比对。已将本项改回「部分修复」，并新增 `--sandbox` 强制隔离（禁止读取用户 `settings.sqlite`、强制覆写 `outDir` 至临时目录）与实际写入路径报告打印。
+- **待外部网络冷却后补验（非工具故障）**：
+  - 外部测试站当前按 IP 限流（`curl` 亦返回 403），待冷却后由用户补验 P0-2（1080p→403 / 720p→200 自动降级）、P0-3（真站中断续传）、P0-5（会话复用 `blockers:[]`）。
 
 ## 真实 DSH 发行包验收证据
 - 原始脱敏报告：[docs/compatibility-data/v1.0.0-dsh-acceptance.json](compatibility-data/v1.0.0-dsh-acceptance.json)

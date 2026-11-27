@@ -11,7 +11,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 const settingsTemp = await mkdtemp(path.join(os.tmpdir(),'videosave-control-settings-'));
+process.env.VIDEOSAVE_TEST_SANDBOX = settingsTemp;
+process.env.VIDEOSAVE_NO_USER_SETTINGS = '1';
 process.env.MEDIA_TOOLKIT_SETTINGS = path.join(settingsTemp,'settings.sqlite');
+process.env.OUT_DIR = path.join(settingsTemp,'out');
 after(() => rm(settingsTemp,{recursive:true,force:true,maxRetries:4,retryDelay:100}));
 const {activeTab,approveGrant,boundClientToken,grantStatus,renewGrant,requestGrant,saveClient,updateGrantSnapshot,
   sitePreferences,updateClientAccess} = await import('../tools/mcp-control.mjs');
@@ -181,8 +184,9 @@ test('paired management and managed sessions use separate permissions', {timeout
   const temp = await mkdtemp(path.join(os.tmpdir(),'videosave-control-'));
   const owner = 'isolated-test-pairing';
   const env = {...process.env,PORT:'0',MEDIA_TOOLKIT_TOKEN:owner,
-    MEDIA_TOOLKIT_SETTINGS:path.join(temp,'settings.sqlite'),OUT_DIR:path.join(temp,'out')};
-  const child = spawn(process.execPath,['tools/server.mjs'],{env,windowsHide:true,stdio:['ignore','pipe','pipe']});
+    MEDIA_TOOLKIT_SETTINGS:path.join(temp,'settings.sqlite'),OUT_DIR:path.join(temp,'out'),
+    VIDEOSAVE_TEST_SANDBOX:temp,VIDEOSAVE_NO_USER_SETTINGS:'1'};
+  const child = spawn(process.execPath,['tools/server.mjs',`--sandbox=${temp}`],{env,windowsHide:true,stdio:['ignore','pipe','pipe']});
   const closed = once(child,'close');
   t.after(async () => {
     child.kill();

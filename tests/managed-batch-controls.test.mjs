@@ -8,6 +8,8 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 
 const directory = await mkdtemp(path.join(os.tmpdir(),'videosave-batch-controls-'));
+process.env.VIDEOSAVE_TEST_SANDBOX = directory;
+process.env.VIDEOSAVE_NO_USER_SETTINGS = '1';
 process.env.MEDIA_TOOLKIT_SETTINGS = path.join(directory,'settings.sqlite');
 process.env.OUT_DIR = path.join(directory,'out');
 const {approveGrant, revokeGrant, saveClient, sitePreferences, updateClientAccess} = await import('../tools/mcp-control.mjs');

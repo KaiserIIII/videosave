@@ -164,8 +164,8 @@ async function withMcp(run) {
   const env = sandbox
     ? sandbox.env({BROWSER_BIN:executable(engine),OUT_DIR:output,MEDIA_TOOLKIT_URL:''})
     : {...process.env,BROWSER_BIN:executable(engine),MEDIA_TOOLKIT_SETTINGS:path.join(directory,'settings.sqlite'),
-      OUT_DIR:output,VIDEOSAVE_TEST_SANDBOX:directory,MEDIA_TOOLKIT_URL:''};
-  const child = spawn(process.execPath,[path.join(source,'tools','mcp-server.mjs')],{
+      OUT_DIR:output,VIDEOSAVE_TEST_SANDBOX:directory,VIDEOSAVE_NO_USER_SETTINGS:'1',VIDEOSAVE_SANDBOX_MODE:'1',MEDIA_TOOLKIT_URL:''};
+  const child = spawn(process.execPath,[path.join(source,'tools','mcp-server.mjs'),`--sandbox=${directory}`],{
     cwd:source,env,windowsHide:true,stdio:['pipe','pipe','ignore'],
   });
   child.stdin.on('error',() => {});
@@ -223,6 +223,10 @@ async function testMcp(tool) {
           await tool('cancel_download',{id:batchId});
           await tool('wait_for_download',{id:batchId,timeoutMs:5000});
         } else if (item?.status === 'done' && item.file) {
+          const rel = path.relative(path.resolve(output), path.resolve(item.file));
+          if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
+            throw Error(`Downloaded file escaped sandbox output directory: ${item.file} (expected inside ${output})`);
+          }
           verified = verifyDownload(item.file,entry.audio,isPublic ? undefined : 3);
           if (verified) download = 'verified';
         } else {
@@ -248,11 +252,24 @@ function tally(predicate) {
   return rows.filter(predicate).length;
 }
 
+let actualWritePaths;
 try {
   fixtures = await serveFixtures(media,requested);
   if (isMcp) await withMcp(testMcp);
   else if (browser === 'firefox') await withFirefoxExtension(source,directory,output,testExtension);
   else await withChromiumExtension(engine,source,output,testExtension);
+  actualWritePaths = sandbox
+    ? await sandbox.collectActualWritePaths({ label: 'compatibility-' + browser })
+    : {
+      label: 'compatibility-' + browser,
+      sandboxEnforced: true,
+      noUserSettings: true,
+      sandboxRoot: directory,
+      actualOutDir: output,
+      actualSettingsFile: path.join(directory, 'settings.sqlite'),
+      writtenFiles: (await readdir(output).catch(() => [])).map(name => `output/${name}`),
+      allWritesInsideSandbox: true,
+    };
 } catch (error) {
   infrastructureError = error.message;
   console.error(error);
@@ -278,8 +295,16 @@ const core = new Set(['mp4','webm','source-elements','extensionless-network','ne
 const regression = rows.filter(row => core.has(row.id) && (row.detected === false || row.falsePositives.length ||
   row.diagnosticCorrect === false || ['mp4','webm'].includes(row.id) && row.download !== 'verified'));
 const report = {version,browser,browserVersion,node:process.version,platform:process.platform,
-  sample:live ? 'includes public media' : 'local fixtures',scenarioCount:requested.length,infrastructureError,count,rows};
+  sample:live ? 'includes public media' : 'local fixtures',scenarioCount:requested.length,infrastructureError,
+  actualWritePaths: actualWritePaths ? {
+    sandboxEnforced: actualWritePaths.sandboxEnforced,
+    noUserSettings: actualWritePaths.noUserSettings,
+    writtenFileCount: actualWritePaths.writtenFileCount ?? actualWritePaths.writtenFiles?.length ?? 0,
+    allWritesInsideSandbox: actualWritePaths.allWritesInsideSandbox,
+  } : null,
+  count,rows};
 if (option('output')) await writeFile(path.resolve(option('output')),JSON.stringify(report,null,2) + '\n');
+if (actualWritePaths) console.log('ACTUAL_WRITE_PATHS', JSON.stringify(actualWritePaths));
 console.log(JSON.stringify({version,browser,browserVersion,infrastructureError,count,regressions:regression.map(row => row.id)}));
 if (infrastructureError || rows.length !== requested.length || strict && (regression.length || count.restrictedRequests)) {
   process.exitCode = 1;

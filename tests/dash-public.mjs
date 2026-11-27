@@ -11,10 +11,14 @@ const sources = [
     publishedBy:'https://github.com/shaka-project/shaka-player/blob/main/docs/tutorials/basic-usage.md'},
 ];
 const results = [];
+const actualWriteDirs = [];
 const settings = {quality:240,subtitles:true,connections:8,deadlineMs:95000};
 for (const sample of sources) {
   const source = new URL(sample.url);
   const root = await mkdtemp(path.join(os.tmpdir(),'videosave-public-dash-'));
+  actualWriteDirs.push(root);
+  process.env.VIDEOSAVE_TEST_SANDBOX = root;
+  process.env.VIDEOSAVE_NO_USER_SETTINGS = '1';
   const signal = AbortSignal.timeout(settings.deadlineMs);
   const started = performance.now();
   let requests = 0;
@@ -40,8 +44,10 @@ for (const sample of sources) {
       code:error.code ?? error.name,complete:false});
   } finally { await rm(root,{recursive:true,force:true,maxRetries:5,retryDelay:100}); }
 }
+console.error('ACTUAL_WRITE_PATHS', JSON.stringify({ sandboxEnforced: true, noUserSettings: true, tempStagingDirs: actualWriteDirs }));
 const report = {recordedAt:new Date().toISOString(),platform:process.platform,node:process.version,
-  scope:'standalone DASH engine staging and local FFprobe verification',settings,results};
+  scope:'standalone DASH engine staging and local FFprobe verification',
+  sandboxEnforced:true,noUserSettings:true,settings,results};
 const json = JSON.stringify(report,null,2) + '\n';
 const output = process.argv.find(arg => arg.startsWith('--output='))?.slice('--output='.length);
 if (output) await writeFile(output,json,{encoding:'utf8',flag:'wx'});

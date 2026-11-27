@@ -27,8 +27,9 @@ const token = process.env.VIDEOSAVE_HLS_BENCH_TOKEN;
 test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
   : 'Chromium saves complete HLS video through the panel without a companion', async t => {
   const sandbox = await createTestSandbox('browser-hls');
+  const restoreEnv = sandbox.applyProcessEnv();
   const directory = sandbox.downloads;
-  t.after(() => sandbox.cleanup());
+  t.after(async () => { restoreEnv(); await sandbox.cleanup(); });
   const requests = new Map();
   let holdSegments = false;
   let holdLastSegment = false;

@@ -7,13 +7,14 @@ import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as downloads from './media-downloads.mjs';
 import { configureMediaProxy, diagnoseNetwork, networkPreferences } from './media-proxy.mjs';
-import { localPairingCode } from './preferences.mjs';
+import { configureSandboxFromArgv, localPairingCode } from './preferences.mjs';
 import { activity, approveGrant, auditSettings, authenticateClient, clientAccess, listClients, listGrants, renewGrant, revokeGrant,
   saveClient, sitePreferences, updateClientAccess, updateGrantSnapshot } from './mcp-control.mjs';
 import { invokeManaged, managedTools } from './managed-mcp.mjs';
 import { compatibilityRules } from './compatibility-policy.mjs';
 import { SUPPORTED_MCP_CLIENTS, detectMcpClients, generateMcpClientConfig } from './mcp-config-generator.mjs';
 
+configureSandboxFromArgv(process.argv);
 configureMediaProxy();
 const { ApiError, VERSION } = downloads;
 const port = Number(process.env.PORT ?? 8765);

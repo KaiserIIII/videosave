@@ -18,7 +18,8 @@ const ffmpeg = process.env.FFMPEG_BIN || 'ffmpeg';
 test('MCP sends all explicit HLS headers and validates the payload behind nonstandard segment URLs', {timeout:30_000}, async t => {
   const root = await mkdtemp(path.join(tmpdir(),'videosave-hls-headers-'));
   const out = path.join(root,'output');
-  const env = {...process.env,OUT_DIR:out,MEDIA_TOOLKIT_SETTINGS:path.join(root,'state.sqlite'),MEDIA_TOOLKIT_URL:''};
+  const env = {...process.env,OUT_DIR:out,MEDIA_TOOLKIT_SETTINGS:path.join(root,'state.sqlite'),MEDIA_TOOLKIT_URL:'',
+    VIDEOSAVE_TEST_SANDBOX:root,VIDEOSAVE_NO_USER_SETTINGS:'1'};
   const headers = {Referer:'https://example.test/player',Origin:'https://example.test','User-Agent':'VideoSave HLS fixture'};
   const files = ['/first.jpeg','/second.png','/third'];
   const requests = [];
@@ -98,7 +99,8 @@ test('MCP sends all explicit HLS headers and validates the payload behind nonsta
 
 test('MCP validates nonstandard HLS parts and resumes a transient failure without repeating committed parts', {timeout:40_000}, async t => {
   const root = await mkdtemp(path.join(tmpdir(),'videosave-hls-parts-'));
-  const env = {...process.env,OUT_DIR:path.join(root,'saved'),MEDIA_TOOLKIT_SETTINGS:path.join(root,'state.sqlite'),MEDIA_TOOLKIT_URL:''};
+  const env = {...process.env,OUT_DIR:path.join(root,'saved'),MEDIA_TOOLKIT_SETTINGS:path.join(root,'state.sqlite'),MEDIA_TOOLKIT_URL:'',
+    VIDEOSAVE_TEST_SANDBOX:root,VIDEOSAVE_NO_USER_SETTINGS:'1'};
   execFileSync(ffmpeg,['-v','error','-f','lavfi','-i','testsrc2=s=160x90:r=10','-c:v','libx264','-g','10','-sc_threshold','0',
     '-t','8','-hls_time','1','-hls_list_size','0','film.m3u8'],{cwd:root,windowsHide:true});
   const manifest = await readFile(path.join(root,'film.m3u8'),'utf8');
@@ -234,7 +236,8 @@ test('MCP validates nonstandard HLS parts and resumes a transient failure withou
 });
 
 async function startMcp(env) {
-  const child = spawn(process.execPath, [entry], {env,windowsHide:true,stdio:['pipe','pipe','inherit']});
+  const args = env.VIDEOSAVE_TEST_SANDBOX ? [entry, `--sandbox=${env.VIDEOSAVE_TEST_SANDBOX}`] : [entry, '--sandbox'];
+  const child = spawn(process.execPath, args, {env,windowsHide:true,stdio:['pipe','pipe','inherit']});
   const closed = once(child, 'close');
   const replies = createInterface({input:child.stdout})[Symbol.asyncIterator]();
   let nextId = 0;
@@ -261,7 +264,8 @@ test('MCP recovers a killed local batch, validates its HLS checkpoint and preser
   const root = await mkdtemp(path.join(tmpdir(), 'videosave-resume-'));
   const out = path.join(root, 'saved');
   const settings = path.join(root,'settings.sqlite');
-  const env = {...process.env, OUT_DIR:out, MEDIA_TOOLKIT_SETTINGS:settings, MEDIA_TOOLKIT_URL:''};
+  const env = {...process.env, OUT_DIR:out, MEDIA_TOOLKIT_SETTINGS:settings, MEDIA_TOOLKIT_URL:'',
+    VIDEOSAVE_TEST_SANDBOX:root, VIDEOSAVE_NO_USER_SETTINGS:'1'};
   const cookie = 'session=fixture-cookie-must-not-persist';
   const signedQuery = 'sig=fixture-query-must-not-persist';
   const connections = 4;
@@ -395,7 +399,7 @@ test('MCP recovers a killed local batch, validates its HLS checkpoint and preser
 test('MCP resumes only complete byte ranges while the strong ETag stays the same', {timeout:30_000}, async t => {
   const root = await mkdtemp(path.join(tmpdir(),'videosave-range-resume-'));
   const env = {...process.env, OUT_DIR:path.join(root,'saved'), MEDIA_TOOLKIT_SETTINGS:path.join(root,'settings.sqlite'),
-    MEDIA_TOOLKIT_URL:''};
+    MEDIA_TOOLKIT_URL:'', VIDEOSAVE_TEST_SANDBOX:root, VIDEOSAVE_NO_USER_SETTINGS:'1'};
   let mcp;
   let server;
   t.after(async () => {

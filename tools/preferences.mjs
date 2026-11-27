@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,16 +32,102 @@ export const settingsPatchSchema = {anyOf:Object.values(profiles).map(fields => 
     .map(([key, schema]) => [key, {anyOf:[schema, {type:'null'}]}]))}))};
 
 const stateDirectory = () => process.env.LOCALAPPDATA || path.join(os.homedir(), '.config');
+const realUserSettingsFile = () => path.resolve(path.join(stateDirectory(), 'VideoSave', 'settings.sqlite'));
 
 function isPathInside(parent, child) {
   const rel = path.relative(path.resolve(parent), path.resolve(child));
   return Boolean(rel && !rel.startsWith('..') && !path.isAbsolute(rel)) || path.resolve(parent) === path.resolve(child);
 }
 
+export function isSandboxActive() {
+  return Boolean(
+    process.env.VIDEOSAVE_TEST_SANDBOX ||
+    process.env.VIDEOSAVE_NO_USER_SETTINGS === '1' ||
+    process.env.VIDEOSAVE_SANDBOX_MODE === '1',
+  );
+}
+
+/**
+ * Enable forced sandbox mode when --sandbox[=DIR] or VIDEOSAVE_SANDBOX_MODE=1 is set.
+ * Overrides OUT_DIR, MEDIA_TOOLKIT_SETTINGS, VIDEOSAVE_PROFILES_DIR, and VIDEOSAVE_TOOLS_DIR
+ * into a temporary isolated directory and forbids reading user settings.sqlite.
+ */
+export function configureSandboxFromArgv(argv = process.argv) {
+  let enabled = process.env.VIDEOSAVE_SANDBOX_MODE === '1';
+  let explicitDir = null;
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--sandbox') {
+      enabled = true;
+    } else if (arg.startsWith('--sandbox=')) {
+      enabled = true;
+      explicitDir = arg.slice('--sandbox='.length).trim() || null;
+    } else if (arg === '--sandbox-dir' && argv[i + 1]) {
+      enabled = true;
+      explicitDir = argv[++i].trim() || null;
+    } else if (arg.startsWith('--sandbox-dir=')) {
+      enabled = true;
+      explicitDir = arg.slice('--sandbox-dir='.length).trim() || null;
+    }
+  }
+  if (!enabled) {
+    if (process.env.VIDEOSAVE_TEST_SANDBOX) {
+      process.env.VIDEOSAVE_NO_USER_SETTINGS = '1';
+      return {
+        active: true,
+        sandboxRoot: path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX),
+        outDir: process.env.OUT_DIR ? path.resolve(process.env.OUT_DIR) : path.join(path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX), 'downloads'),
+        settingsFile: process.env.MEDIA_TOOLKIT_SETTINGS ? path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS) : path.join(path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX), 'settings.sqlite'),
+      };
+    }
+    return { active: false };
+  }
+  const sandboxRoot = explicitDir
+    ? path.resolve(explicitDir)
+    : process.env.VIDEOSAVE_TEST_SANDBOX
+      ? path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX)
+      : mkdtempSync(path.join(os.tmpdir(), 'videosave-sandbox-'));
+  const downloadsDir = path.join(sandboxRoot, 'downloads');
+  const profilesDir = path.join(sandboxRoot, 'profiles');
+  const toolsDir = path.join(sandboxRoot, 'tools');
+  const dbFile = path.join(sandboxRoot, 'settings.sqlite');
+  mkdirSync(downloadsDir, { recursive: true });
+  mkdirSync(profilesDir, { recursive: true });
+  mkdirSync(toolsDir, { recursive: true });
+  process.env.VIDEOSAVE_TEST_SANDBOX = sandboxRoot;
+  process.env.VIDEOSAVE_NO_USER_SETTINGS = '1';
+  process.env.VIDEOSAVE_SANDBOX_MODE = '1';
+  if (!process.env.OUT_DIR || !isPathInside(sandboxRoot, process.env.OUT_DIR)) {
+    process.env.OUT_DIR = downloadsDir;
+  }
+  if (!process.env.MEDIA_TOOLKIT_SETTINGS || !isPathInside(sandboxRoot, process.env.MEDIA_TOOLKIT_SETTINGS)) {
+    process.env.MEDIA_TOOLKIT_SETTINGS = dbFile;
+  }
+  if (!process.env.VIDEOSAVE_PROFILES_DIR || !isPathInside(sandboxRoot, process.env.VIDEOSAVE_PROFILES_DIR)) {
+    process.env.VIDEOSAVE_PROFILES_DIR = profilesDir;
+  }
+  if (!process.env.VIDEOSAVE_TOOLS_DIR || !isPathInside(sandboxRoot, process.env.VIDEOSAVE_TOOLS_DIR)) {
+    process.env.VIDEOSAVE_TOOLS_DIR = toolsDir;
+  }
+  return {
+    active: true,
+    sandboxRoot,
+    outDir: path.resolve(process.env.OUT_DIR),
+    settingsFile: path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS),
+  };
+}
+
 export function assertSandboxPath(targetPath, label = 'path') {
   const sandbox = process.env.VIDEOSAVE_TEST_SANDBOX;
-  if (!sandbox) return path.resolve(targetPath);
   const resolved = path.resolve(targetPath);
+  if (process.env.VIDEOSAVE_NO_USER_SETTINGS === '1' && resolved.toLowerCase() === realUserSettingsFile().toLowerCase()) {
+    throw new ApiError(
+      'TEST_SANDBOX_VIOLATION',
+      `Refusing to access user settings database while sandbox/no-user-settings mode is active`,
+      403,
+    );
+  }
+  if (!sandbox) return resolved;
   const allowedRoots = [sandbox, os.tmpdir()];
   if (!allowedRoots.some(root => isPathInside(root, resolved))) {
     throw new ApiError(
@@ -54,11 +140,17 @@ export function assertSandboxPath(targetPath, label = 'path') {
 }
 
 export function getSettingsFile() {
-  const target = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || path.join(stateDirectory(), 'VideoSave', 'settings.sqlite'));
+  if (isSandboxActive() && !process.env.MEDIA_TOOLKIT_SETTINGS) {
+    if (process.env.VIDEOSAVE_TEST_SANDBOX) {
+      return assertSandboxPath(path.join(path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX), 'settings.sqlite'), 'settings database');
+    }
+    throw new ApiError('TEST_SANDBOX_VIOLATION', 'Refusing to fall back to user settings.sqlite while sandbox mode is active', 403);
+  }
+  const target = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || realUserSettingsFile());
   return assertSandboxPath(target, 'settings database');
 }
 
-export const settingsFile = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || path.join(stateDirectory(), 'VideoSave', 'settings.sqlite'));
+export const settingsFile = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || realUserSettingsFile());
 
 function withDatabase(run) {
   const file = getSettingsFile();
@@ -111,7 +203,7 @@ function validate(name, value, rule) {
     : typeof value === 'string' && value.length >= (rule.minLength ?? 0) &&
       value.length <= (rule.maxLength ?? 4096) && (!rule.pattern || new RegExp(rule.pattern).test(value));
   if (!valid) throw new ApiError('INVALID_SETTINGS', `Invalid value for ${name}`);
-  if (name === 'outDir') return localDirectory(value);
+  if (name === 'outDir') return assertSandboxPath(localDirectory(value), 'download output directory');
   if (name === 'downloadFolder') {
     try { return downloadFolder(value); }
     catch { throw new ApiError('INVALID_SETTINGS', 'downloadFolder must be relative to the browser download directory'); }

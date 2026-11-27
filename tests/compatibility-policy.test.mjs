@@ -5,6 +5,8 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 
 const directory = await mkdtemp(path.join(os.tmpdir(),'videosave-policy-'));
+process.env.VIDEOSAVE_TEST_SANDBOX = directory;
+process.env.VIDEOSAVE_NO_USER_SETTINGS = '1';
 process.env.MEDIA_TOOLKIT_SETTINGS = path.join(directory,'settings.sqlite');
 after(() => rm(directory,{recursive:true,force:true}));
 

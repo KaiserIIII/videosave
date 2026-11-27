@@ -32,10 +32,10 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
   const token = 'test-only-video-save-pairing';
   const login = 'fixture=local-test-login';
   const env = {...process.env,PORT:'0',MEDIA_TOOLKIT_TOKEN:token,MEDIA_TOOLKIT_SETTINGS:path.join(dir,'settings.sqlite'),
-    OUT_DIR:path.join(dir,'downloads')};
+    OUT_DIR:path.join(dir,'downloads'),VIDEOSAVE_TEST_SANDBOX:dir,VIDEOSAVE_NO_USER_SETTINGS:'1'};
   const children = [];
   const launch = (file,extra = {}) => {
-    const child = spawn(process.execPath,[file],{env:{...env,...extra},stdio:['pipe','pipe','inherit'],windowsHide:true});
+    const child = spawn(process.execPath,[file,`--sandbox=${dir}`],{env:{...env,...extra},stdio:['pipe','pipe','inherit'],windowsHide:true});
     children.push({child,closed:once(child,'close')});
     return createInterface({input:child.stdout})[Symbol.asyncIterator]();
   };

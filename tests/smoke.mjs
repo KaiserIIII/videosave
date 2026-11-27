@@ -20,7 +20,7 @@ const env = sandbox.env({
   PORT:'0', MEDIA_TOOLKIT_TOKEN:'local-smoke-test', OUT_DIR:out,
   MEDIA_TOOLKIT_SETTINGS:path.join(browserOut, 'settings.sqlite'), MEDIA_TOOLKIT_URL:'',
 });
-const start = (file, environment = {}) => spawn(process.execPath, [path.join(project, 'tools', file)], {
+const start = (file, environment = {}) => spawn(process.execPath, [path.join(project, 'tools', file), ...sandbox.sandboxArgs()], {
   env:{...env, ...environment}, windowsHide:true, stdio:['pipe','pipe','inherit'],
 });
 const token = env.MEDIA_TOOLKIT_TOKEN;
@@ -643,5 +643,7 @@ try {
 } finally {
   if (server.exitCode === null) server.kill();
   await exited;
+  const writeReport = await sandbox.collectActualWritePaths({ label: 'smoke', extraDirs: [browserOut] });
+  console.log('ACTUAL_WRITE_PATHS', JSON.stringify(writeReport));
   await sandbox.cleanup();
 }

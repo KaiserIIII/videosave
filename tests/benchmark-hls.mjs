@@ -106,6 +106,7 @@ try {
         await mkdir(output);
         const file = path.join(output,'fixture.mp4');
         const env = {...process.env,OUT_DIR:output,MEDIA_TOOLKIT_SETTINGS:path.join(output,'settings.sqlite'),
+          VIDEOSAVE_TEST_SANDBOX:output,VIDEOSAVE_NO_USER_SETTINGS:'1',
           NO_PROXY:'127.0.0.1,localhost',no_proxy:'127.0.0.1,localhost'};
         const child = product.source ? process.execPath : ytDlp;
         const args = product.source

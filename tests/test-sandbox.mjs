@@ -119,7 +119,7 @@ export async function createTestSandbox(label = 'run') {
   function env(extra = {}) {
     const clean = Object.fromEntries(
       Object.entries(process.env).filter(
-        ([name]) => !/^(?:OUT_DIR|MEDIA_TOOLKIT_(?:URL|TOKEN|MCP_CLIENT|LOCAL_PAIRING|SETTINGS)|VIDEOSAVE_(?:PROFILES_DIR|TEST_SANDBOX|TOOLS_DIR))$/i.test(name),
+        ([name]) => !/^(?:OUT_DIR|MEDIA_TOOLKIT_(?:URL|TOKEN|MCP_CLIENT|LOCAL_PAIRING|SETTINGS)|VIDEOSAVE_(?:PROFILES_DIR|TEST_SANDBOX|TOOLS_DIR|NO_USER_SETTINGS|SANDBOX_MODE|FORCE_OUT_DIR))$/i.test(name),
       ),
     );
     return {
@@ -129,6 +129,8 @@ export async function createTestSandbox(label = 'run') {
       VIDEOSAVE_PROFILES_DIR: dirs.profiles,
       VIDEOSAVE_TEST_SANDBOX: root,
       VIDEOSAVE_TOOLS_DIR: dirs.tools,
+      VIDEOSAVE_NO_USER_SETTINGS: '1',
+      VIDEOSAVE_SANDBOX_MODE: '1',
       ...extra,
     };
   }
@@ -140,17 +142,68 @@ export async function createTestSandbox(label = 'run') {
       VIDEOSAVE_PROFILES_DIR: process.env.VIDEOSAVE_PROFILES_DIR,
       VIDEOSAVE_TEST_SANDBOX: process.env.VIDEOSAVE_TEST_SANDBOX,
       VIDEOSAVE_TOOLS_DIR: process.env.VIDEOSAVE_TOOLS_DIR,
+      VIDEOSAVE_NO_USER_SETTINGS: process.env.VIDEOSAVE_NO_USER_SETTINGS,
+      VIDEOSAVE_SANDBOX_MODE: process.env.VIDEOSAVE_SANDBOX_MODE,
+      VIDEOSAVE_FORCE_OUT_DIR: process.env.VIDEOSAVE_FORCE_OUT_DIR,
     };
     process.env.OUT_DIR = dirs.downloads;
     process.env.MEDIA_TOOLKIT_SETTINGS = settingsFile;
     process.env.VIDEOSAVE_PROFILES_DIR = dirs.profiles;
     process.env.VIDEOSAVE_TEST_SANDBOX = root;
     process.env.VIDEOSAVE_TOOLS_DIR = dirs.tools;
+    process.env.VIDEOSAVE_NO_USER_SETTINGS = '1';
+    process.env.VIDEOSAVE_SANDBOX_MODE = '1';
+    delete process.env.VIDEOSAVE_FORCE_OUT_DIR;
     return () => {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
+    };
+  }
+
+  function sandboxArgs() {
+    return [`--sandbox=${root}`];
+  }
+
+  async function listFilesRecursive(dir, acc = []) {
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) await listFilesRecursive(full, acc);
+      else if (entry.isFile()) acc.push(full);
+    }
+    return acc;
+  }
+
+  async function collectActualWritePaths({ label: reportLabel = safeLabel, extraDirs = [] } = {}) {
+    const scanDirs = [...new Set([dirs.downloads, ...extraDirs.map(d => path.resolve(d))])];
+    const writtenFiles = [];
+    for (const dir of scanDirs) {
+      await listFilesRecursive(dir, writtenFiles);
+    }
+    const realDirs = realDownloadDirectories();
+    const isInside = (parent, child) => {
+      const rel = path.relative(path.resolve(parent), path.resolve(child));
+      return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+    };
+    for (const target of [dirs.downloads, settingsFile, ...extraDirs, ...writtenFiles]) {
+      assert.ok(isInside(root, target), `Actual write path escaped sandbox: ${target} (sandbox=${root})`);
+      for (const realDir of realDirs) {
+        assert.ok(!isInside(realDir, target), `Actual write path targeted real user download directory: ${target}`);
+      }
+    }
+    return {
+      label: reportLabel,
+      sandboxEnforced: true,
+      noUserSettings: true,
+      sandboxRoot: root,
+      actualOutDir: dirs.downloads,
+      actualSettingsFile: settingsFile,
+      extraDirs: extraDirs.map(d => path.resolve(d)),
+      writtenFileCount: writtenFiles.length,
+      writtenFiles: writtenFiles.map(file => path.relative(root, file).replaceAll('\\', '/')),
+      allWritesInsideSandbox: true,
     };
   }
 
@@ -168,5 +221,5 @@ export async function createTestSandbox(label = 'run') {
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 
-  return { ...dirs, settingsFile, env, applyProcessEnv, verifyIsolation, cleanup };
+  return { ...dirs, settingsFile, env, applyProcessEnv, sandboxArgs, collectActualWritePaths, verifyIsolation, cleanup };
 }

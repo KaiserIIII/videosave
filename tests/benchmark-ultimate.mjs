@@ -178,14 +178,26 @@ try {
       idmVdhJdownloaderDownieCobalt: 'unverified-in-automated-harness-not-installed',
     },
     memoryRssBytes: process.memoryUsage().rss,
+    actualWritePaths: await sandbox.collectActualWritePaths({ label: 'benchmark-ultimate' }),
   };
 
   server.closeAllConnections();
   latServer.closeAllConnections();
   await Promise.all([new Promise(r => server.close(r)), new Promise(r => latServer.close(r))]);
 
+  console.log('ACTUAL_WRITE_PATHS', JSON.stringify(report.actualWritePaths));
   if (outputPath) {
-    await writeFile(path.resolve(outputPath), JSON.stringify(report, null, 2) + '\n', 'utf8');
+    // Strip absolute local paths from committed report while keeping sandbox verification proof
+    const sanitizedReport = {
+      ...report,
+      actualWritePaths: {
+        sandboxEnforced: report.actualWritePaths.sandboxEnforced,
+        noUserSettings: report.actualWritePaths.noUserSettings,
+        writtenFileCount: report.actualWritePaths.writtenFileCount,
+        allWritesInsideSandbox: report.actualWritePaths.allWritesInsideSandbox,
+      },
+    };
+    await writeFile(path.resolve(outputPath), JSON.stringify(sanitizedReport, null, 2) + '\n', 'utf8');
   }
   console.log(JSON.stringify(report, null, 2));
 } finally {

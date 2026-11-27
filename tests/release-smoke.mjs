@@ -44,7 +44,7 @@ async function verifyPackage(sandbox) {
   await once(origin,'listening');
 
   const base = 'http://127.0.0.1:' + origin.address().port;
-  const child = spawn(process.execPath,[path.resolve(entry)],{env,windowsHide:true,stdio:['pipe','pipe','inherit']});
+  const child = spawn(process.execPath,[path.resolve(entry), ...sandbox.sandboxArgs()],{env,windowsHide:true,stdio:['pipe','pipe','inherit']});
   child.stdin.on('error',() => {});
   const finished = once(child,'close');
   const replies = createInterface({input:child.stdout})[Symbol.asyncIterator]();
@@ -73,6 +73,10 @@ async function verifyPackage(sandbox) {
     const verInfo = await tool('get_version',{});
     assert.equal(verInfo.version, version);
     assert.equal(verInfo.mismatch, false);
+    const eff = await tool('get_effective_settings',{});
+    assert.equal(eff.sandboxActive, true);
+    assert.equal(path.resolve(eff.download.outDir), path.resolve(outputDirectory));
+    assert.equal(path.resolve(eff.settingsFile), path.resolve(sandbox.settingsFile));
     const probe = await tool('probe_page',{url:base + '/watch',waitForMediaMs:4000});
     assert.equal(probe.selection?.url,base + '/fixture.mp4');
     const request = {items:[{kind:'stream',url:probe.selection.url,title:'Packaged fixture'}],concurrency:1};
@@ -94,6 +98,8 @@ async function verifyPackage(sandbox) {
     assert.deepEqual(await tool('start_batch',request),{id:batch,total:1,alreadySaved:true});
     const cli = path.join(path.dirname(entry),'media-cli.mjs');
     assert.match(execFileSync(process.execPath,[cli,'--help'],{windowsHide:true,encoding:'utf8',timeout:5000}),/--cookie-file/);
+    const writeReport = await sandbox.collectActualWritePaths({ label: 'release-smoke' });
+    console.log('ACTUAL_WRITE_PATHS', JSON.stringify(writeReport));
     console.log('Verified packaged MCP discovery, complete audio/video output, batch reuse, and CLI help');
   } finally {
     clearTimeout(deadline);

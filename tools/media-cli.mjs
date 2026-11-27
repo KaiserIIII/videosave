@@ -6,6 +6,7 @@ import * as downloads from './media-downloads.mjs';
 import { mediaUrl, mergeMediaHeaders } from './media-source.mjs';
 import { readCookieFileForOrigin } from './cookie-store.mjs';
 import { configureMediaProxy } from './media-proxy.mjs';
+import { configureSandboxFromArgv } from './preferences.mjs';
 
 /**
  * Exit code semantics (Section 08 / P2-1):
@@ -48,6 +49,8 @@ const options = {
   'json-progress': { type: 'boolean' },
   verify: { type: 'boolean' },
   'duration-tolerance': { type: 'string' },
+  sandbox: { type: 'boolean' },
+  'sandbox-dir': { type: 'string' },
 };
 const emit = result => process.stdout.write(JSON.stringify(result) + '\n');
 
@@ -93,10 +96,17 @@ try {
       '  --json-progress              Emit structured JSONL progress every 2s\n' +
       '  --verify                     Run FFprobe post-save verification\n' +
       '  --duration-tolerance SEC     Allowed duration delta for --verify (default 1.0)\n' +
+      '  --sandbox                    Force isolated temp sandbox (forbids reading user settings)\n' +
+      '  --sandbox-dir DIR            Force isolated sandbox inside a specific temp directory\n' +
       'Exit codes: 0=ok, 1=error, 2=invalid-args, 3=no-space, 4=auth/challenge, 5=media-unavailable\n',
     );
   } else {
-    if (values.out) process.env.OUT_DIR = path.resolve(values.out);
+    configureSandboxFromArgv(process.argv);
+    if (values.out) {
+      const resolvedOut = path.resolve(values.out);
+      process.env.OUT_DIR = resolvedOut;
+      process.env.VIDEOSAVE_FORCE_OUT_DIR = resolvedOut;
+    }
     configureMediaProxy();
     if (!positionals.length) throw new downloads.ApiError('INVALID_ITEMS', 'Provide at least one HTTP(S) media or page URL.');
     const urls = positionals.map(mediaUrl);
@@ -142,6 +152,7 @@ try {
       emit({
         id,
         status: result.status,
+        actualOutDir: result.outDir ?? downloads.getSettings().settings.outDir,
         ...(first?.segments && { done: first.segments.completed, total: first.segments.total }),
         ...(first && { speed: first.speed, phase: first.phase ?? first.status }),
         ...(result.resumable && { resumable: true }),

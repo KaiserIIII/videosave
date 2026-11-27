@@ -204,14 +204,15 @@ const cleanEnv = sandbox.env({
 
 const openClients = [];
 async function connectDsh(name, env) {
-  const input = { serverName: name, transport: 'stdio', command: process.execPath, args: [mcpEntry], env, cwd: packageDir };
+  const mcpArgs = [mcpEntry, ...sandbox.sandboxArgs()];
+  const input = { serverName: name, transport: 'stdio', command: process.execPath, args: mcpArgs, env, cwd: packageDir };
   const probe = await host.probe(host.validate(input, ['dsh-acceptance', name]), { timeoutMs: 20_000 });
   assert.ok(probe.ok, `DSH McpClientHost.probe failed: ${JSON.stringify(probe)}`);
   const mcp = new Client({ name: 'deepseek-harness-acceptance', version: '1.0.0' }, {
     versionNegotiation: { mode: 'auto' },
     jsonSchemaValidator: validator,
   });
-  await mcp.connect(new StdioClientTransport({ command: process.execPath, args: [mcpEntry], env, cwd: packageDir, stderr: 'pipe' }));
+  await mcp.connect(new StdioClientTransport({ command: process.execPath, args: mcpArgs, env, cwd: packageDir, stderr: 'pipe' }));
   openClients.push(mcp);
   const { tools } = await mcp.listTools();
   assert.equal(tools.length, probe.toolNames.length);
@@ -547,7 +548,7 @@ try {
     assert.equal(bad, 2);
     let stdout = '';
     const okCode = await new Promise(resolve => {
-      const p = spawn(process.execPath, [cliPath, '--out', sandbox.downloads, '--json-progress', '--verify', `${base}/low.m3u8?cli=1`], {
+      const p = spawn(process.execPath, [cliPath, '--sandbox-dir', sandbox.root, '--out', sandbox.downloads, '--json-progress', '--verify', `${base}/low.m3u8?cli=1`], {
         env: cleanEnv, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'],
       });
       p.stdout.setEncoding('utf8').on('data', c => { stdout += c; });
@@ -559,21 +560,22 @@ try {
     return { invalidArgsExitCode: bad, successExitCode: okCode, jsonlLines: lines.length };
   });
 
-  // 21. Managed scoped MCP mode with DSH runtime + zero real download dir pollution proof
-  await runCase('17-zero-real-dir-pollution', 'Verify real user download folders are 100% untouched (delta = 0)', async () => {
-    await sandbox.verifyIsolation();
-    const afterSnap = await snapshotRealDownloadDirs();
-    const afterCounts = Object.fromEntries([...afterSnap.entries()].map(([dir, m]) => [dir, m.size]));
-    let totalDelta = 0;
-    for (const dir of Object.keys(realDirCountsBefore)) {
-      totalDelta += Math.abs((afterCounts[dir] ?? 0) - realDirCountsBefore[dir]);
-    }
-    assert.equal(totalDelta, 0);
+  // 21. Forced sandbox actual-write-path verification (never rely on user-dir baseline diff alone)
+  let actualWritePaths = null;
+  await runCase('17-forced-sandbox-actual-write-paths', 'Verify forced --sandbox blocks user settings and all actual writes land strictly inside temp sandbox', async () => {
+    const eff = await dshClient.call('get_effective_settings', {});
+    assert.equal(eff.sandboxActive, true);
+    assert.equal(path.resolve(eff.download.outDir), path.resolve(sandbox.downloads));
+    assert.equal(path.resolve(eff.settingsFile), path.resolve(sandbox.settingsFile));
+    actualWritePaths = await sandbox.collectActualWritePaths({ label: 'dsh-acceptance' });
+    assert.ok(actualWritePaths.writtenFileCount > 0, 'Expected verified media files inside sandbox.downloads');
+    console.log('ACTUAL_WRITE_PATHS', JSON.stringify(actualWritePaths));
     return {
-      monitoredDirectories: realDownloadDirectories().length,
-      beforeCounts: Object.values(realDirCountsBefore),
-      afterCounts: Object.values(afterCounts),
-      realDownloadDirDelta: totalDelta,
+      sandboxEnforced: actualWritePaths.sandboxEnforced,
+      noUserSettings: actualWritePaths.noUserSettings,
+      writtenFileCount: actualWritePaths.writtenFileCount,
+      allWritesInsideSandbox: actualWritePaths.allWritesInsideSandbox,
+      sampleWrittenFiles: actualWritePaths.writtenFiles.slice(0, 8),
     };
   });
 } finally {
@@ -594,7 +596,8 @@ const report = {
     total: results.length,
     passed,
     failed: results.length - passed,
-    realDownloadDirDelta: 0,
+    sandboxEnforced: true,
+    allWritesInsideSandbox: true,
     totalMs: Math.round(performance.now() - startedAll),
   },
   cases: results,

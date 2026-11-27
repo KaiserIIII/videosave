@@ -3,10 +3,11 @@ import { createInterface } from 'node:readline';
 import { maxConcurrency } from '../extension/settings.mjs';
 import * as downloads from './media-downloads.mjs';
 import { configureMediaProxy } from './media-proxy.mjs';
-import { localPairingCode, settingsPatchSchema, settingsScope } from './preferences.mjs';
+import { configureSandboxFromArgv, localPairingCode, settingsPatchSchema, settingsScope } from './preferences.mjs';
 import { boundClientToken } from './mcp-control.mjs';
 import { probeModes } from './compatibility-policy.mjs';
 
+configureSandboxFromArgv(process.argv);
 configureMediaProxy();
 const latestProtocol = '2025-11-25';
 const supportedProtocols = new Set([latestProtocol, '2025-06-18', '2025-03-26', '2024-11-05']);

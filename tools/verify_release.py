@@ -104,7 +104,12 @@ def windows_smoke(archive_path, name, version):
         package = temp / name
         env = {key: value for key, value in os.environ.items()
                if key.upper() not in {"MEDIA_TOOLKIT_URL", "MEDIA_TOOLKIT_LOCAL_PAIRING", "MEDIA_TOOLKIT_TOKEN", "YTDLP_BIN"}}
-        env.update({"OUT_DIR": str(temp / "downloads"), "MEDIA_TOOLKIT_SETTINGS": str(temp / "settings.sqlite")})
+        env.update({
+            "OUT_DIR": str(temp / "downloads"),
+            "MEDIA_TOOLKIT_SETTINGS": str(temp / "settings.sqlite"),
+            "VIDEOSAVE_TEST_SANDBOX": str(temp),
+            "VIDEOSAVE_NO_USER_SETTINGS": "1",
+        })
         command = env.get("COMSPEC", r"C:\Windows\System32\cmd.exe")
         launch = subprocess.run(
             f'"{command}" /d /s /c "call "Start VideoSave.cmd" -McpConfig -SkipPlatform"',

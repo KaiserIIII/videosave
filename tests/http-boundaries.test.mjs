@@ -18,8 +18,9 @@ test('companion HTTP boundary rejects invalid requests and keeps failures privat
   const state = await mkdtemp(path.join(os.tmpdir(),'videosave-http-test-'));
   const token = randomBytes(24).toString('base64url');
   const controller = new AbortController();
-  const child = spawn(process.execPath,[entry],{env:{...process.env,PORT:'0',MEDIA_TOOLKIT_TOKEN:token,
-    MEDIA_TOOLKIT_SETTINGS:path.join(state,'settings.sqlite'),OUT_DIR:state},
+  const child = spawn(process.execPath,[entry,`--sandbox=${state}`],{env:{...process.env,PORT:'0',MEDIA_TOOLKIT_TOKEN:token,
+    MEDIA_TOOLKIT_SETTINGS:path.join(state,'settings.sqlite'),OUT_DIR:state,
+    VIDEOSAVE_TEST_SANDBOX:state,VIDEOSAVE_NO_USER_SETTINGS:'1'},
     signal:controller.signal,stdio:['ignore','pipe','pipe'],windowsHide:true});
   child.on('error', () => {});
   const closed = once(child,'close').catch(() => {});

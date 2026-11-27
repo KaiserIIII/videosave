@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **DSH-12 test isolation (reopened → partially fixed)**: User verification of `v1.1.0` showed 118 test artifacts in the real configured `outDir`; the previous `Delta = 0` claim compared against an already-polluted baseline and is withdrawn.
+  - Added forced sandbox mode: `--sandbox[=DIR]` / `--sandbox-dir DIR` on `server.mjs`, `mcp-server.mjs`, `media-cli.mjs`, plus `VIDEOSAVE_NO_USER_SETTINGS=1`. It overrides `OUT_DIR`, `MEDIA_TOOLKIT_SETTINGS`, profiles and tools into a temporary directory and refuses to open the user `settings.sqlite`.
+  - `update_settings` now rejects an out-of-sandbox `outDir` **before** persisting it (previously it was written to SQLite, then rejected).
+  - `media-cli.mjs --out` now takes precedence over a saved `outDir` in `settings.sqlite`; JSONL progress reports `actualOutDir`.
+  - `get_version` / `get_effective_settings` report `sandboxActive`, `sandboxRoot` and `settingsFile`.
+  - All tests, smoke, release smoke, compatibility, DSH acceptance and benchmarks run with forced sandbox and print `ACTUAL_WRITE_PATHS` (every written file, asserted inside the sandbox) instead of relying on before/after directory counts.
+
 ## 1.1.0
 
 - **Unified RequestContext, Referrer-Policy & Stage Diagnostics (`tools/request-context.mjs`, `tools/media-source.mjs`)**: Added case-insensitive header merging (`item > perItem > batch > observed`), `Accept` / `Accept-Language` support alongside `Referer` / `Origin` / `User-Agent`, `Referrer-Policy` enforcement (preventing private path/query leakage on auto-observed cross-origin requests while preserving explicit authorized full-URL `Referer`), and granular per-stage diagnostics (`master-playlist`, `variant`, `segment`, `key`, `init`, `mpd`, `mux`, `verification`) with sanitized `sentHeaderNames`.

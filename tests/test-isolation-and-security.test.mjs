@@ -53,6 +53,71 @@ test('sandbox guardrail refuses accessing settings or downloads outside the acti
   await assertRealDownloadDirsUntouched(realSnap, 'isolation-guard self check');
 });
 
+test('forced --sandbox mode forbids reading user settings.sqlite and overrides outDir into temp sandbox', async t => {
+  const sandbox = await createTestSandbox('forced-sandbox-flag');
+  t.after(() => sandbox.cleanup());
+
+  // Strip ALL OUT_DIR / MEDIA_TOOLKIT_SETTINGS / VIDEOSAVE_* env vars so ONLY --sandbox protects the process!
+  const bareEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([k]) => !/^(?:OUT_DIR|MEDIA_TOOLKIT_|VIDEOSAVE_)/i.test(k),
+    ),
+  );
+  const sandboxArg = `--sandbox=${sandbox.root}`;
+  const mcp = spawn(process.execPath, [mcpEntry, sandboxArg], {
+    env: bareEnv,
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  const closed = once(mcp, 'close');
+  const lines = createInterface({ input: mcp.stdout })[Symbol.asyncIterator]();
+  let reqId = 0;
+  const call = async (method, params) => {
+    const id = ++reqId;
+    mcp.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
+    return JSON.parse((await lines.next()).value);
+  };
+  try {
+    await call('initialize', { protocolVersion: '2025-11-25' });
+    const effResp = await call('tools/call', { name: 'get_effective_settings', arguments: {} });
+    const eff = effResp.result.structuredContent;
+    assert.equal(eff.sandboxActive, true);
+    assert.equal(path.resolve(eff.sandboxRoot), path.resolve(sandbox.root));
+    assert.equal(path.resolve(eff.download.outDir), path.resolve(sandbox.downloads));
+    assert.equal(path.resolve(eff.settingsFile), path.resolve(path.join(sandbox.root, 'settings.sqlite')));
+
+    // Attempting to update_settings with an outDir outside sandbox MUST fail with TEST_SANDBOX_VIOLATION
+    const escapeResp = await call('tools/call', {
+      name: 'update_settings',
+      arguments: { scope: 'download', settings: { outDir: path.join(os.homedir(), 'Downloads') } },
+    });
+    assert.equal(escapeResp.result.isError, true);
+    assert.equal(escapeResp.result.structuredContent.code, 'TEST_SANDBOX_VIOLATION');
+  } finally {
+    mcp.stdin.end();
+    await closed;
+  }
+
+  // Server with --sandbox prints its effective outDir inside sandbox even without OUT_DIR / MEDIA_TOOLKIT_SETTINGS
+  const srv = spawn(process.execPath, [serverEntry, sandboxArg], {
+    env: { ...bareEnv, PORT: '0', MEDIA_TOOLKIT_TOKEN: 'sandbox-srv-tok' },
+    windowsHide: true,
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  const srvClosed = once(srv, 'close');
+  const srvLines = createInterface({ input: srv.stdout })[Symbol.asyncIterator]();
+  try {
+    const line1 = (await srvLines.next()).value;
+    const endpoint = line1.match(/http:\/\/127\.0\.0\.1:\d+/)?.[0];
+    assert.ok(endpoint);
+    const health = await (await fetch(endpoint + '/api/health', { headers: { authorization: 'Bearer sandbox-srv-tok' } })).json();
+    assert.equal(path.resolve(health.outDir), path.resolve(sandbox.downloads));
+  } finally {
+    srv.kill();
+    await srvClosed;
+  }
+});
+
 test('security audit: cookie isolation, challenge cookie rejection, browser session traversal, binary allowlist, ReDoS, Host/Origin checks', async t => {
   const sandbox = await createTestSandbox('security-audit');
   const restoreEnv = sandbox.applyProcessEnv();
