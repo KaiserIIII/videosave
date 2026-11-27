@@ -9,9 +9,13 @@
 | 分片固定延迟 160 毫秒 | 3/3，1.216 秒 | 3/3，1.242 秒 | 3/3，3.519 秒 |
 | 最后一片首个响应停顿 4.2 秒 | 3/3，3.173 秒 | 3/3，3.213 秒 | 3/3，7.220 秒 |
 
-表中时间为中位数。18 份成品的对应音视频轨道 SHA-256 一致，均为 640×360、24.033 秒。慢尾场景中，VideoSave 两个版本每次补发一条请求，重复接收 1,024 字节。yt-dlp 每轮均只请求 24 个分片。样本为直达清单，本轮测试覆盖 HLS 的下载与封装。浏览器媒体识别和真实站点的对照，以及 Video DownloadHelper、IDM、Streamlink、JDownloader 的同机实测，留待独立验证。
+表中时间为中位数。18 份成品的对应音视频轨道 SHA-256 一致，均为 640×360、24.033 秒。慢尾场景中，VideoSave 两个版本每次补发一条请求，重复接收 1,024 字节。yt-dlp 每轮均只请求 24 个分片。样本为直达清单，本轮测试覆盖 HLS 的下载与封装。IDM、Streamlink、JDownloader 本轮未执行同机对照。
 
 复现脚本和逐轮数据见 [HLS benchmark](../tests/benchmark-hls.mjs) 和 [v1.0 HLS 对照数据](compatibility-data/v1-hls-competitors.json)。
+
+## v1.0 开发版浏览器探测抽查
+
+在独立 Edge 158.0.4370.45 配置中，v0.10.0 和本轮开发树均在 W3C 播放页中显示 854×480 的 Sintel Trailer，并在本地播放页中显示 640×360 的合成 MP4。Video DownloadHelper 10.7.9.2 的公网试验未能在观察预算内确认播放器开始播放。本地合成样本能播放，同时 Video DownloadHelper 面板显示首次使用条款确认。该轮竞品的识别结论记为未验证。 [逐次记录](compatibility-data/v1-vdh-probe.json)
 
 ## v0.8.1 历史对照
 

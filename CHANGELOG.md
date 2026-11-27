@@ -9,6 +9,13 @@
 - Package the release candidate as portable Windows and developer extension ZIPs. Browser build `0.99.0.1` sorts between the current stable version and `1.0.0`.
 - See the [compatibility results](docs/compatibility-report.zh-CN.md), [authorization and format limits](docs/mcp.md), and [security changes](docs/v1-security.md).
 
+### 简体中文
+
+- 托管 MCP 可以使用用户授权的浏览器播放证据下载公网 HTTPS CDN 媒体。关联来源按播放器和具体请求授权，签名地址和会话凭据保留在本机授权流程中。
+- 原生静态 DASH 支持选画质、多音轨、独立文本字幕和并行暂存。动态 DASH、跨任务续传和部分复杂多 Period 清单仍待支持。
+- 探测增加 Fast、Balanced、Deep、Maximum 和 Adaptive。Chromium 导航前的连接失败可重试一次。托管 MCP 可查询可用引擎，并返回当前任务实际使用的引擎、耗时及校验结果。
+- 桌面便携包与三个浏览器开发包附 SHA-256 和 CycloneDX SBOM。浏览器版本为 `0.99.0.1`。安装步骤和已知限制见[安装文档](docs/install.md)与[兼容性实测](docs/compatibility-report.zh-CN.md)。
+
 ## 0.10.0
 
 - Add **AI & MCP** settings with individually scoped local clients and credential-free stdio configuration generation.

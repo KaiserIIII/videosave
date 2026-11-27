@@ -2,7 +2,18 @@
 
 ## v1.0.0-rc.1 验证范围
 
-本轮对照基线为 v0.10.0 发布包，对应提交 `60dc36694087fd1d07f8f667c66baae1e24c944a`。在 Windows、Node.js 24.19.0 上重跑的独立 MCP 基线共执行 104 个场景，探测 95/95，正片判断 2/2，落盘验证 11/11，误报 0，首次探测中位 5,176 ms。托管 MCP 的授权与下载单独验证。
+2026 年 11 月 27 日在 Windows、Node.js 24.19.0 上用同一份矩阵对照 v0.10.0 发布包（`60dc36694087fd1d07f8f667c66baae1e24c944a`）和 v1.0 候选开发树。浏览器前后版本分别为 Edge 158.0.4370.45、Chrome 158.0.8127.38、Firefox 136.0.1。独立 MCP 的候选本地轮在版本号调整前启动，原始 JSON 的 `version` 字段保留 `0.10.0`。托管 MCP 的授权与下载单独验证。
+
+| 路径 | 场景 | 探测命中 | 正片判断 | FFprobe 验证落盘 | 首次探测中位数（旧版 → 候选） | 原始记录 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Edge 扩展 | 105 | 两版 96/96 | 两版 1/1 | 两版 5/5 | 251 → 285 ms | [旧版](compatibility-data/v1-baseline-edge.json) · [候选](compatibility-data/v1-candidate-edge.json) |
+| Chrome 扩展 | 105 | 两版 96/96 | 两版 1/1 | 两版 5/5 | 234 → 220 ms | [旧版](compatibility-data/v1-baseline-chrome.json) · [候选](compatibility-data/v1-candidate-chrome.json) |
+| Firefox 扩展 | 105 | 两版 96/96 | 两版 1/1 | 两版 5/5 | 278 → 275 ms | [旧版](compatibility-data/v1-baseline-firefox.json) · [候选](compatibility-data/v1-candidate-firefox.json) |
+| 独立 MCP（Edge） | 104 | 两版 95/95 | 两版 2/2 | 两版 11/11 | 5,176 → 5,409 ms | [旧版](compatibility-data/v1-baseline-mcp.json) · [候选](compatibility-data/v1-candidate-mcp.json) |
+| Edge 扩展，公网 | 7 | 两版 7/7 | — | 两版 1/1 | 1,925 → 2,436 ms | [旧版](compatibility-data/v1-baseline-edge-public.json) · [候选](compatibility-data/v1-edge-public.json) |
+| 独立 MCP（Edge），公网 | 7 | 两版 7/7 | — | 两版 2/2 | 11,918 → 12,770 ms | [旧版](compatibility-data/v1-baseline-mcp-public.json) · [候选](compatibility-data/v1-candidate-mcp-public.json) |
+
+各轮误报和模拟受限资源请求数均为 0。扩展记录首个候选出现时间，MCP 记录返回结果的时间。Edge 测试页面 JS 堆中位数由 5.35 MiB 变为 5.48 MiB，Chrome 由 5.35 MiB 变为 4.77 MiB。部分运行与其他测试并行，公网路径仅执行一轮对照。CPU、全进程内存、授权操作次数和长时间批量稳定性缺少可比较的采样。现有对照中，两版的探测和落盘命中率持平，独立 MCP 候选轮中位返回时间较长。
 
 | 路径 | 本轮实际验证 | 结果 |
 | --- | --- | --- |
@@ -13,7 +24,13 @@
 
 [DASH 记录](compatibility-data/v1-dash-public.json) · [DASH 初始化验证后复跑](compatibility-data/v1-dash-public-init-validation.json) · [HLS 竞品对照](competitive-review.zh-CN.md) · [安全审查和回归范围](v1-security.md)
 
+本地早期回归首轮通过 198/199。Chromium 空目标列表用例在 600 ms 的观察预算下报告 `observe` 超时，隔离复测该文件 5/5。调整该测试的观察预算后，完整回归通过 300/300。独立 Edge 的跨 CDN 直链首轮 1/1。 [回归与跨 CDN 试验记录](compatibility-data/v1-regression.json)
+
+[候选提交 `647dee9` 的 GitHub Actions](https://github.com/KaiserIIII/videosave/actions/runs/45965086247) 提供解压发行格式后的矩阵和构建产物。Edge、Chrome 和 Firefox 的扩展各命中 96/96，验证落盘各 5/5。Firefox ZIP 的清单只含数字版本 `0.99.0.1`。从这次运行下载的四个 ZIP 通过独立 SHA-256、源码字节和 CycloneDX 校验。解压桌面包后，Windows 启动器生成了正确的 MCP 配置，独立 MCP 完成了音视频下载、任务复用和 CLI 帮助验收。
+
 原生 DASH 暂缺动态和直播、复杂 Period、内嵌 TTML/WVTT、分层 SIDX 及跨任务分片续传。托管跨域传输需要可验证的公网直连，第三方 CDN 凭据和依赖代理的 CDN 路径未覆盖。多 CDN 清单对其他来源的每个资源要求有同一播放器的确切观察证据，公网样片尚未验证完整的跨域分片和故障切换。Streamlink 自动调度、通用实时传输和商店签名仍待交付。现有证据无法支持 200 种受控场景、30 个独立公网来源或总体领先竞品的结论。
+
+复现时在源码根目录运行 `node tests/compatibility.mjs --browser=edge --strict --output=edge-rc.json`。使用 `--source` 指向已解压 v0.10.0 的目录，扩展文件放在其 `extension` 子目录。公网对照加 `--public-only`。跨 CDN 直链是独立的联网测试，设置 `VIDEOSAVE_TEST_PUBLIC_CDN=1` 后运行 `node --test --test-name-pattern=Edge tests/mcp-control-browser.test.mjs`。
 
 ## v0.9.0 历史实测
 
