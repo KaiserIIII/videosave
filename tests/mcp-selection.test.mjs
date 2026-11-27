@@ -324,13 +324,13 @@ test('MCP gives a client evidence to choose the full film over the autoplay teas
   assert.deepEqual(list.candidates,[{url:new URL('/watch/untitled-player',url).href,title:'Film',kind:'page',duration:5}]);
   const adaptive = await tool('probe_page',{url:new URL('/watch/adaptive',url).href,waitMs:500,retries:0,harvestCodes:true});
   assert.deepEqual(adaptive.codes,['FEST-100','FILM-222']);
-  assert.deepEqual(adaptive.qualities,[
-    {height:270,bandwidth:600000,url:new URL('/high.m3u8',url).href},
-    {height:180,bandwidth:300000,url:new URL('/low.m3u8',url).href},
+  assert.deepEqual(adaptive.qualities.map(({ height, bandwidth, url, availability }) => ({ height, bandwidth, url, availability })), [
+    { height: 270, bandwidth: 600000, url: new URL('/high.m3u8', url).href, availability: 'unavailable' },
+    { height: 180, bandwidth: 300000, url: new URL('/low.m3u8', url).href, availability: 'unavailable' },
   ]);
-  assert.deepEqual(adaptive.streams[0].quality,[
-    {height:270,bitrate:600000,url:new URL('/high.m3u8',url).href},
-    {height:180,bitrate:300000,url:new URL('/low.m3u8',url).href},
+  assert.deepEqual(adaptive.streams[0].quality.map(({ height, bitrate, url }) => ({ height, bitrate, url })), [
+    { height: 270, bitrate: 600000, url: new URL('/high.m3u8', url).href },
+    { height: 180, bitrate: 300000, url: new URL('/low.m3u8', url).href },
   ]);
 
   const {id} = await tool('start_download', {items:[{kind:'stream', url:movie.url, title:movie.title}]});

@@ -29,23 +29,51 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           package-manager-cache: false
-      - name: Check JavaScript and Python syntax
+      - name: Check JavaScript, shell, and Python syntax
         shell: bash
         run: |
           while IFS= read -r -d '' source; do
             node --check "$source" || exit 1
-          done < <(git ls-files -z -- 'extension/*.mjs' 'tools/*.mjs' 'tests/*.mjs')
+          done < <(git ls-files -z -- 'extension/*.mjs' 'tools/*.mjs' 'tools/console/*.js' 'site/*.js' 'tests/*.mjs')
+          bash -n tools/start-unix.sh
           python3 -m py_compile tools/build_release.py tools/verify_release.py
-      - name: Test portable JavaScript modules and sandbox isolation
-        run: >-
-          node --test tests/detection.test.mjs tests/media.test.mjs tests/media-source.test.mjs
-          tests/http-boundaries.test.mjs tests/download-proxy.test.mjs tests/platform-download.test.mjs tests/range-performance.test.mjs
-          tests/mcp-control.test.mjs tests/compatibility-policy.test.mjs tests/test-isolation-and-security.test.mjs
+      - name: Test portable JavaScript modules, sandbox isolation, and Unix launcher
+        run: |
+          node --test tests/detection.test.mjs tests/media.test.mjs tests/media-source.test.mjs \
+            tests/http-boundaries.test.mjs tests/download-proxy.test.mjs tests/platform-download.test.mjs \
+            tests/range-performance.test.mjs tests/mcp-control.test.mjs tests/compatibility-policy.test.mjs \
+            tests/test-isolation-and-security.test.mjs
+          bash tools/start-unix.sh --mcp-config --client deepseek-harness | grep -q 'videosave-mcp'
+          bash tools/start-unix.sh --mcp-config --client codex | grep -q '\[mcp_servers.videosave\]'
+          python3 tools/build_release.py
+          python3 tools/verify_release.py
+
+  macos:
+    name: macOS Node.js 24.22.3
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, MIT
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0, MIT
+        with:
+          node-version: '24.22.3'
+          package-manager-cache: false
+      - name: Run portable tests, security checks, and release verification on macOS
+        run: |
+          bash -n tools/start-unix.sh
+          node --test tests/detection.test.mjs tests/media.test.mjs tests/media-source.test.mjs \
+            tests/http-boundaries.test.mjs tests/mcp-control.test.mjs tests/compatibility-policy.test.mjs \
+            tests/test-isolation-and-security.test.mjs
+          bash tools/start-unix.sh --mcp-config --client claude-desktop | grep -q 'mcp-server.mjs'
+          python3 tools/build_release.py
+          python3 tools/verify_release.py
 
   verify:
     name: Windows ${{ matrix.target }}
     runs-on: windows-2025
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -70,7 +98,6 @@ jobs:
           "FFPROBE_BIN=$($media.FFPROBE_BIN)" >> $env:GITHUB_ENV
       - name: Run regression tests with real-Downloads isolation gate
         if: matrix.target == 'delivery'
-        # Keep browser and FFmpeg fixtures within the Windows runner's CPU budget and verify zero pollution of real Downloads.
         run: |
           $downloads = Join-Path $env:USERPROFILE 'Downloads'
           $before = if (Test-Path $downloads) { @(Get-ChildItem -Force $downloads | Select-Object -ExpandProperty Name) } else { @() }
@@ -125,6 +152,7 @@ jobs:
           name: release-packages
           path: |
             dist/${{ steps.release.outputs.name }}*.zip
+            dist/${{ steps.release.outputs.name }}*.tar.gz
             dist/${{ steps.release.outputs.name }}-sbom.cdx.json
             dist/SHA256SUMS.txt
           if-no-files-found: error
@@ -139,7 +167,7 @@ jobs:
   attest:
     name: Attest verified release files
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [runtime, verify]
+    needs: [runtime, macos, verify]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -159,6 +187,7 @@ jobs:
         with:
           subject-path: |
             release/*.zip
+            release/*.tar.gz
             release/*-sbom.cdx.json
             release/SHA256SUMS.txt
 

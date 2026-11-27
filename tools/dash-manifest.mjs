@@ -235,7 +235,8 @@ function tracksForPeriod(state,period,seconds,quality,subtitles,onQualityNegotia
         context,
       };
     }).filter(track => (track.type === 'audio' || track.type === 'video') &&
-      (!track.mimeType || ['video/mp4','audio/mp4'].includes(track.mimeType)) ||
+      (!track.mimeType || ['video/mp4','audio/mp4'].includes(track.mimeType) ||
+        (['video/webm','audio/webm'].includes(track.mimeType) && track.context.address?.name !== 'SegmentBase')) ||
       subtitles && (track.mimeType === 'text/vtt' || track.mimeType === 'application/x-subrip'));
     return group.length ? [group] : [];
   });
@@ -265,7 +266,8 @@ function tracksForPeriod(state,period,seconds,quality,subtitles,onQualityNegotia
     const offset = text || !timing ? 0 : integer(timing.presentationTimeOffset,0) / integer(timing.timescale,1,1);
     if (offset > 86400) unsupported();
     return {type:text ? 'subtitle' : track.type,
-      extension:text ? track.mimeType === 'text/vtt' ? 'vtt' : 'srt' : 'mp4',offset,
+      extension:text ? track.mimeType === 'text/vtt' ? 'vtt' : 'srt'
+        : track.mimeType?.endsWith('/webm') ? 'webm' : 'mp4',offset,
       language:/^[a-zA-Z]{2,8}(?:-[a-zA-Z0-9]{1,8}){0,3}$/.test(track.lang ?? '') ? track.lang : undefined,
       ...addressing};
   });
@@ -312,8 +314,15 @@ export function dashQualitiesFromXml(xml, source) {
     }
     return videos
       .sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth)
-      .map(v => ({
+      .map((v, idx) => ({
+        candidateId: `dash-v${idx}-${v.height || 0}p`,
         ...v,
+        ...(v.codecs && { codec: v.codecs }),
+        availability: 'unknown',
+        available: true,
+        probeStatus: null,
+        verificationMethod: 'manifest-only',
+        checkedAt: new Date().toISOString(),
         ...(audioTracks.length && { audioTracks }),
         ...(subtitleTracks.length && { subtitleTracks }),
       }));

@@ -10,6 +10,7 @@ import { classify, isPlaylist } from '../extension/media.mjs';
 import { ApiError } from './media-source.mjs';
 import { createRequestContext } from './request-context.mjs';
 import { inspectMediaFile } from './media-inspector.mjs';
+import { paceBandwidth, recordHostFailure, recordHostSuccess } from './rate-controller.mjs';
 
 const MiB = 1024 * 1024;
 const minimumParallelSize = 8 * MiB;
@@ -81,6 +82,7 @@ async function rangeCheckpoint(root, target, size, etag, chunkSize) {
   const entries = await readdir(directory, { withFileTypes: true });
   const markers = entries.filter(entry => entry.isFile() && /^complete-\d+$/.test(entry.name));
   const completed = new Set();
+  let corrupted = 0;
   if (saved?.isFile() && saved.size === size) {
     for (const { name } of markers) {
       const offset = Number(name.slice('complete-'.length));
@@ -91,7 +93,10 @@ async function rangeCheckpoint(root, target, size, etag, chunkSize) {
         if (expected && /^[0-9a-f]{64}$/.test(expected.trim())) {
           const actual = await rangeSliceSha256(file, offset, sliceLen).catch(() => null);
           if (actual === expected.trim()) completed.add(offset);
-          else await rm(markerPath, { force: true });
+          else {
+            corrupted++;
+            await rm(markerPath, { force: true });
+          }
         } else {
           completed.add(offset);
         }
@@ -106,7 +111,9 @@ async function rangeCheckpoint(root, target, size, etag, chunkSize) {
   }
   return {
     file,
+    directory,
     completed,
+    corrupted,
     commit: async offset => {
       const sliceLen = Math.min(size - offset, chunkSize);
       const digest = await rangeSliceSha256(file, offset, sliceLen);
@@ -226,9 +233,25 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
     const transferSignal = AbortSignal.any([signal, controller.signal]);
     let offset = 0;
     let received = 0;
+    let savedBytes = 0;
+    let completedChunks = checkpoint?.completed.size ?? 0;
+    const restoredChunks = completedChunks;
+    const corruptedChunks = checkpoint?.corrupted ?? 0;
     if (checkpoint?.completed.size) {
-      for (const start of checkpoint.completed) received += Math.min(size-start,chunkSize);
-      onProgress(received / size, received, size);
+      for (const start of checkpoint.completed) {
+        const sliceLen = Math.min(size - start, chunkSize);
+        received += sliceLen;
+        savedBytes += sliceLen;
+      }
+      onProgress(received / size, received, size, {
+        completed: completedChunks,
+        total: chunkCount,
+        missing: chunkCount - completedChunks,
+        corrupted: corruptedChunks,
+        restored: restoredChunks,
+        duplicateBytes: 0,
+        savedBytes,
+      });
     }
     const worker = async () => {
       let writer;
@@ -272,8 +295,18 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
                 if (bytesWritten !== chunk.byteLength) throw new Error('Could not write the complete range');
                 position += bytesWritten;
                 received += bytesWritten;
-                onProgress(received / size, received, size);
+                onProgress(received / size, received, size, {
+                  completed: completedChunks,
+                  total: chunkCount,
+                  missing: Math.max(0, chunkCount - completedChunks),
+                  corrupted: corruptedChunks,
+                  restored: restoredChunks,
+                  duplicateBytes: 0,
+                  savedBytes,
+                });
+                await paceBandwidth(bytesWritten, transferSignal);
               }
+              recordHostSuccess(target.host, { bytes: end - start + 1 });
             } finally {
               clearTimeout(timeout);
               part?.body.destroy();
@@ -281,8 +314,10 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
           }
           // A range marker is published only after the body ends and every byte is written.
           await checkpoint?.commit(start);
+          completedChunks++;
         }
       } catch (error) {
+        recordHostFailure(target.host);
         controller.abort(error);
         throw error;
       } finally {

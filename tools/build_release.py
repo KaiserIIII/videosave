@@ -1,24 +1,35 @@
-"""Build deterministic VideoSave release archives and a CycloneDX inventory."""
+"""Build deterministic VideoSave release archives (ZIP + Unix tar.gz) and a CycloneDX SBOM."""
 
 import argparse
+import gzip
 from hashlib import sha256
+import io
 import json
 from pathlib import Path
 import re
+import tarfile
 from tempfile import NamedTemporaryFile
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_DOCS = (
-    "LICENSE", "README.md", "README.zh-CN.md", "CHANGELOG.md", "SECURITY.md",
+    "LICENSE", "README.md", "README.zh-CN.md", "CHANGELOG.md", "SECURITY.md", "CONTRIBUTING.md",
     "docs/logo.svg",
     "docs/videosave-0.9-detection.png", "docs/videosave-0.9-settings.png", "docs/videosave-mcp-control.png",
     "docs/architecture.md", "docs/compatibility-report.zh-CN.md", "docs/competitive-review.zh-CN.md",
     "docs/detection-research.zh-CN.md", "docs/privacy.md", "docs/mcp.md", "docs/install.md",
     "docs/dsh-guide.md", "docs/dsh-guide.zh-CN.md", "docs/dsh-feedback-tracker.md",
-    "docs/hls-benchmark.zh-CN.md", "docs/v1-security.md", "tests/benchmark-hls.mjs", "tests/dash-public.mjs",
+    "docs/ai-recipes.md", "docs/ai-recipes.zh-CN.md", "docs/third-party-notices.md", "docs/faq.md",
+    "docs/launch-kit.md", "docs/hls-benchmark.zh-CN.md", "docs/v1-security.md",
+    "tests/benchmark-hls.mjs", "tests/dash-public.mjs",
 )
+EXECUTABLE_SCRIPTS = frozenset({
+    "tools/start-unix.sh",
+    "tools/mcp-server.mjs",
+    "tools/media-cli.mjs",
+    "tools/server.mjs",
+})
 PROJECT = "https://github.com/KaiserIIII/videosave"
 
 
@@ -71,11 +82,22 @@ def package_entries(manifest):
     desktop.update(read_entries(ROOT, "tests/compatibility*.mjs"))
     desktop.update({"extension/" + file: data for file, data in dev_extension.items()})
     desktop.update(read_entries(ROOT, "tools/*.mjs"))
-    for file in ("Start VideoSave.cmd", "tools/start-windows.ps1"):
+    desktop.update(read_entries(ROOT, "tools/console/*"))
+    for file in (
+        "Start VideoSave.cmd", "Install VideoSave.cmd", "Uninstall VideoSave.cmd",
+        "tools/start-windows.ps1", "tools/install-windows.ps1", "tools/uninstall-windows.ps1",
+        "tools/start-unix.sh",
+    ):
         desktop[file] = (ROOT / file).read_bytes()
+
+    unix_desktop = {
+        k: v for k, v in desktop.items()
+        if not k.endswith(".cmd") and not k.endswith(".ps1")
+    }
 
     return {
         f"{name}.zip": {f"{name}/{file}": data for file, data in desktop.items()},
+        f"{name}-unix.tar.gz": {f"{name}/{file}": data for file, data in unix_desktop.items()},
         f"{name}-extension.zip": {**extension_files, **license_file, "manifest.json": browser_manifest()},
         f"{name}-firefox.zip": {**extension_files, **license_file, "manifest.json": browser_manifest(firefox=True)},
         f"{name}-android-dev.zip": {
@@ -140,12 +162,12 @@ def sbom(version, archives):
         "metadata": {
             "component": {
                 "type": "application", "bom-ref": project_ref, "name": "VideoSave", "version": version,
-                "description": "Browser extension and local companion with JavaScript standard-library imports.",
+                "description": "Browser extension, local management console, and MCP companion with zero third-party npm packages.",
                 "licenses": [{"license": {"id": "MIT"}}],
                 "externalReferences": [{"type": "vcs", "url": PROJECT}],
             },
             "properties": [{"name": "videosave:sbom:scope", "value":
-                            "Release ZIP files and pinned Windows launcher downloads. "
+                            "Release ZIP/tar.gz archives and pinned Windows launcher downloads. "
                             "Browser builds and system-installed executables vary by installation."}],
         },
         "components": [*filename_components, *installers],
@@ -156,7 +178,7 @@ def sbom(version, archives):
     })
 
 
-def write_archive(destination, entries):
+def write_zip(destination, entries):
     with NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
         staged = Path(temporary.name)
     try:
@@ -164,11 +186,43 @@ def write_archive(destination, entries):
             for name, content in sorted(entries.items()):
                 entry = ZipInfo(name)
                 entry.create_system = 3
-                entry.external_attr = 0o100644 << 16
+                rel = name.split("/", 1)[1] if "/" in name else name
+                mode = 0o100755 if rel in EXECUTABLE_SCRIPTS else 0o100644
+                entry.external_attr = mode << 16
                 archive.writestr(entry, content, compress_type=ZIP_DEFLATED)
         staged.replace(destination)
     finally:
         staged.unlink(missing_ok=True)
+
+
+def write_tar_gz(destination, entries):
+    with NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
+        staged = Path(temporary.name)
+    try:
+        with staged.open("wb") as raw:
+            with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as gz:
+                with tarfile.open(fileobj=gz, mode="w", format=tarfile.PAX_FORMAT) as tar:
+                    for name, content in sorted(entries.items()):
+                        info = tarfile.TarInfo(name=name)
+                        info.size = len(content)
+                        info.mtime = 0
+                        info.uid = 0
+                        info.gid = 0
+                        info.uname = ""
+                        info.gname = ""
+                        rel = name.split("/", 1)[1] if "/" in name else name
+                        info.mode = 0o755 if rel in EXECUTABLE_SCRIPTS else 0o644
+                        tar.addfile(info, io.BytesIO(content))
+        staged.replace(destination)
+    finally:
+        staged.unlink(missing_ok=True)
+
+
+def write_archive(destination, entries):
+    if destination.name.endswith(".tar.gz"):
+        write_tar_gz(destination, entries)
+    else:
+        write_zip(destination, entries)
 
 
 def main():

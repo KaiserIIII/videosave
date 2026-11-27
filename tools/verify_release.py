@@ -1,4 +1,4 @@
-"""Verify VideoSave release checksums, exact archive contents and packaged MCP."""
+"""Verify VideoSave release checksums, exact archive contents (ZIP + tar.gz), and packaged MCP."""
 
 import argparse
 from hashlib import sha256
@@ -8,6 +8,7 @@ from pathlib import Path
 import stat
 import subprocess
 import sys
+import tarfile
 from tempfile import TemporaryDirectory
 from zipfile import BadZipFile, ZipFile
 
@@ -37,6 +38,19 @@ def verify_checksums(directory, names):
 
 
 def verify_archive(file, expected):
+    if file.name.endswith(".tar.gz"):
+        with tarfile.open(file, "r:gz") as archive:
+            members = archive.getmembers()
+            require(len(members) == len(expected) and {entry.name for entry in members} == expected.keys(),
+                    f"{file.name} has missing, unexpected, or duplicate entries")
+            for entry in members:
+                require(entry.isfile(), f"{file.name} contains a non-regular file: {entry.name}")
+                contents = expected[entry.name]
+                extracted = archive.extractfile(entry).read()
+                require(entry.size == len(contents) and extracted == contents,
+                        f"{file.name} differs from source: {entry.name}")
+        print(f"Verified {file.name} ({len(expected)} files)", flush=True)
+        return
     with ZipFile(file) as archive:
         members = archive.infolist()
         require(len(members) == len(expected) and {entry.filename for entry in members} == expected.keys(),
@@ -137,14 +151,19 @@ def main():
         verify_browser_manifest(packages[f"{name}-firefox.zip"], "firefox", browser_version)
         verify_browser_manifest(packages[f"{name}-android-dev.zip"], "android", browser_version)
         desktop = packages[f"{name}.zip"]
-        for path in ("Start VideoSave.cmd", "tools/start-windows.ps1", "tools/mcp-server.mjs", "tools/media-cli.mjs", "tools/server.mjs"):
+        for path in (
+            "Start VideoSave.cmd", "Install VideoSave.cmd", "Uninstall VideoSave.cmd",
+            "tools/start-windows.ps1", "tools/install-windows.ps1", "tools/uninstall-windows.ps1",
+            "tools/start-unix.sh", "tools/console/index.html", "tools/console/app.js",
+            "tools/mcp-server.mjs", "tools/media-cli.mjs", "tools/server.mjs",
+        ):
             require(f"{name}/{path}" in desktop, f"Desktop package is missing {path}")
         require((args.dist / bom_name).read_bytes() == sbom(version, [args.dist / filename for filename in packages]),
                 "SBOM does not match the archive checksums and Windows launcher pins")
         print(f"Verified {bom_name} and browser permission profiles", flush=True)
         if args.smoke_windows:
             windows_smoke(args.dist / f"{name}.zip", name, version)
-    except (OSError, ValueError, KeyError, BadZipFile, subprocess.SubprocessError) as error:
+    except (OSError, ValueError, KeyError, BadZipFile, tarfile.TarError, subprocess.SubprocessError) as error:
         print(f"Release verification failed: {error}", file=sys.stderr)
         return 1
     return 0

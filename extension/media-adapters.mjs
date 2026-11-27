@@ -15,12 +15,33 @@ const adapters = [
   {
     name:'player-sources',
     read(value) {
-      if (!Array.isArray(value.sources)) return [];
-      return value.sources.slice(0, 12).map(source => typeof source === 'string' ? {url:source} : {
+      const list = Array.isArray(value.sources) ? value.sources : Array.isArray(value.streams) ? value.streams : null;
+      if (!list) return [];
+      return list.slice(0, 12).map(source => typeof source === 'string' ? {url:source} : {
         url:source?.file || source?.src || source?.url || source?.source,
-        type:source?.type, height:source?.height ?? source?.res, label:source?.label,
+        type:source?.type || source?.mimeType, height:source?.height ?? source?.res, label:source?.label,
         bitrate:source?.bitrate, role:source?.kind,
       });
+    },
+  },
+  {
+    name:'player-config',
+    read(value) {
+      if (Array.isArray(value)) return [];
+      const entries = [];
+      for (const [key, fallbackType] of [
+        ['hls', 'hls'], ['hlsUrl', 'hls'], ['dash', 'dash'], ['dashUrl', 'dash'],
+        ['manifestUrl', undefined], ['streamUrl', undefined],
+      ]) {
+        if (typeof value[key] === 'string') entries.push({url:value[key], type:fallbackType});
+      }
+      if (typeof value.file === 'string' && !Array.isArray(value.sources)) {
+        entries.push({url:value.file, type:value.type || value.mimeType});
+      }
+      if (typeof value.src === 'string' && (typeof value.type === 'string' || typeof value.mimeType === 'string' || value.media === true || /\.(?:mp4|webm|m3u8|mpd|mkv|mov|flv)(?:$|\?)/i.test(value.src))) {
+        entries.push({url:value.src, type:value.type || value.mimeType});
+      }
+      return entries;
     },
   },
 ];

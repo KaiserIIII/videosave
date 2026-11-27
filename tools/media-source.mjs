@@ -40,26 +40,63 @@ export function parseCookies(header = '') {
   });
 }
 
-export const allowedMediaHeaders = ['Referer','Origin','User-Agent'];
+export const allowedMediaHeaders = ['Referer', 'Origin', 'User-Agent', 'Accept', 'Accept-Language'];
 
 export function parseMediaHeaders(value) {
-  if (value === undefined) return {};
-  const invalid = () => new ApiError('INVALID_HEADERS','仅支持有效的 Referer、Origin 和 User-Agent 请求头');
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid();
+  if (value === undefined || value === null) return {};
+  const invalid = () => new ApiError('INVALID_HEADERS', '仅支持有效的 Referer、Origin、User-Agent、Accept 和 Accept-Language 请求头');
+  if (typeof value !== 'object' || Array.isArray(value)) throw invalid();
   const parsed = {};
   for (const [name, header] of Object.entries(value)) {
     const canonical = allowedMediaHeaders.find(allowed => allowed.toLowerCase() === name.toLowerCase());
-    if (!canonical || Object.hasOwn(parsed,canonical) || typeof header !== 'string' ||
+    if (!canonical || Object.hasOwn(parsed, canonical) || typeof header !== 'string' ||
         !header.trim() || header.length > 2048 || /[^\x20-\x7e]/.test(header)) throw invalid();
     const text = header.trim();
-    if (canonical !== 'User-Agent') {
+    if (canonical === 'Referer' || canonical === 'Origin') {
       const url = URL.parse(text);
-      if (!url || !['http:','https:'].includes(url.protocol) || url.username || url.password || url.hash ||
+      if (!url || !['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash ||
           canonical === 'Origin' && text !== url.origin) throw invalid();
     }
     parsed[canonical] = text;
   }
-  return Object.fromEntries(allowedMediaHeaders.filter(name => Object.hasOwn(parsed,name)).map(name => [name,parsed[name]]));
+  return Object.fromEntries(allowedMediaHeaders.filter(name => Object.hasOwn(parsed, name)).map(name => [name, parsed[name]]));
+}
+
+export function mergeMediaHeaders(...sources) {
+  const merged = {};
+  for (const source of sources) {
+    if (!source || typeof source !== 'object') continue;
+    const normalized = parseMediaHeaders(source);
+    Object.assign(merged, normalized);
+  }
+  return Object.fromEntries(allowedMediaHeaders.filter(name => Object.hasOwn(merged, name)).map(name => [name, merged[name]]));
+}
+
+export function sanitizeReferer(referer, targetUrl, { policy = 'strict-origin-when-cross-origin', explicit = false } = {}) {
+  if (!referer) return undefined;
+  const refUrl = URL.parse(referer);
+  const dstUrl = targetUrl instanceof URL ? targetUrl : URL.parse(targetUrl);
+  if (!refUrl || !['http:', 'https:'].includes(refUrl.protocol)) return undefined;
+  if (policy === 'no-referrer') return undefined;
+  if (policy === 'origin') return refUrl.origin + '/';
+  if (explicit && policy === 'unsafe-url') return refUrl.href;
+  const sameOrigin = Boolean(dstUrl && refUrl.origin === dstUrl.origin);
+  if (explicit) {
+    // Explicit authorized Referer keeps full URL (path + non-credential query) on same-origin or when explicitly required,
+    // while avoiding HTTPS -> HTTP downgrade leakage under strict-origin-when-cross-origin.
+    if (policy === 'strict-origin-when-cross-origin' && refUrl.protocol === 'https:' && dstUrl?.protocol === 'http:') {
+      return undefined;
+    }
+    return refUrl.href;
+  }
+  if (policy === 'strict-origin-when-cross-origin') {
+    if (refUrl.protocol === 'https:' && dstUrl?.protocol === 'http:') return undefined;
+    return sameOrigin ? `${refUrl.origin}${refUrl.pathname}` : `${refUrl.origin}/`;
+  }
+  if (policy === 'origin-when-cross-origin') {
+    return sameOrigin ? `${refUrl.origin}${refUrl.pathname}` : `${refUrl.origin}/`;
+  }
+  return sameOrigin ? `${refUrl.origin}${refUrl.pathname}` : `${refUrl.origin}/`;
 }
 
 export function streamExpiry(url) {
@@ -204,16 +241,33 @@ async function observeEmbedded(page, target, embedded, observe, networkOptions) 
 
 function visibleReferenceCodes(patternSource) {
   const description = document.querySelector('meta[name="description"],meta[property="og:description"]')?.content;
-  const text = [document.title.slice(0, 1024), description?.slice(0, 4096), document.body?.innerText.slice(0, 32_768)].join('\n');
-  const results = new Set();
+  const ldJson = [...document.querySelectorAll('script[type="application/ld+json"]')]
+    .slice(0, 6)
+    .map(el => el.textContent?.slice(0, 8192) || '')
+    .join('\n');
+  const text = [document.title.slice(0, 1024), description?.slice(0, 4096), document.body?.innerText.slice(0, 32_768), ldJson].join('\n');
+  const results = new Map();
   const re = new RegExp(patternSource || '\\b[A-Z]{2,6}-\\d{2,5}\\b', 'g');
   let iterations = 0;
   for (const match of text.matchAll(re)) {
     const token = (match[1] ?? match[0] ?? '').trim();
-    if (token && token.length <= 64) results.add(token);
+    if (token && token.length <= 64 && !results.has(token)) {
+      results.set(token, { id: token });
+    }
     if (results.size === 50 || ++iterations > 500) break;
   }
-  return [...results];
+  if (results.size) {
+    for (const anchor of document.querySelectorAll('a[href]')) {
+      const label = (anchor.getAttribute('title') || anchor.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+      if (!label) continue;
+      for (const [id, entry] of results) {
+        if (!entry.title && (label.includes(id) || (anchor.getAttribute('href') || '').includes(id))) {
+          entry.title = label;
+        }
+      }
+    }
+  }
+  return { codes: [...results.keys()], codeItems: [...results.values()] };
 }
 
 const emptyPage = reason => ({pageTitle:null,pageContext:null,streams:[],pages:[],candidates:[],reason});
@@ -443,10 +497,12 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
       } while (Date.now() < collectUntil);
       const blocker = frameBlockers.get(nav.frameId) || (found?.encrypted ? 'drm' : found?.blocker);
       const blocked = blockedFrames.has(nav.frameId) || Boolean(blocker);
-      const codes = harvestCodes && !blocked ? await page.evaluate(`(${visibleReferenceCodes})(${JSON.stringify(idPattern ?? null)})`).catch(() => {
+      const harvested = harvestCodes && !blocked ? await page.evaluate(`(${visibleReferenceCodes})(${JSON.stringify(idPattern ?? null)})`).catch(() => {
         signal.throwIfAborted();
-        return [];
-      }) : [];
+        return { codes: [], codeItems: [] };
+      }) : { codes: [], codeItems: [] };
+      const codes = Array.isArray(harvested?.codes) ? harvested.codes : [];
+      const codeItems = Array.isArray(harvested?.codeItems) ? harvested.codeItems : [];
       const childFrames = includeFrames && !blocked ? await inspectChildFrames(page,embedded,expression,blockedFrames,signal) : null;
       if (pendingBodies.size) await Promise.race([Promise.allSettled(pendingBodies),sleep(300,undefined,{signal})]);
       const allowedFrame = frameId => frameId === nav.frameId || childFrames?.urls.has(frameId);
@@ -475,7 +531,7 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
       return {
         pageTitle: found?.pageMetadata?.title || found?.pageTitle || null,
         pageContext: found?.pageContext ?? null,
-        ...(harvestCodes && {codes}),
+        ...(harvestCodes && {codes, codeItems}),
         streams: [...streams, ...streams.flatMap(stream => stream.alternates ?? [])].slice(0, 24).map(stream => {
           const {url,kind,duration,width,height,size,recommended,currentSource,playerContext} = stream;
           const title = stream.title || sourceTitle(stream) || undefined;
@@ -626,8 +682,12 @@ export async function runMedia(bin, args, signal, onLine, {onFailure, strict = f
   });
 }
 
+import { locateManagedBinary } from './runtime-manager.mjs';
+
 function mediaTool(name, override) {
   if (override) return override;
+  const managed = locateManagedBinary(name);
+  if (managed?.path) return managed.path;
   if (process.platform === 'win32') {
     const portable = new URL('../.local-tools/ffmpeg-8.1.2-essentials_build/bin/' + name + '.exe', import.meta.url);
     if (existsSync(portable)) return fileURLToPath(portable);

@@ -107,6 +107,7 @@ function detectIsoBmff(buffer, totalSize = buffer.length) {
   let hasInit = false;
   let hasMedia = false;
   let drm = false;
+  let cmaf = false;
   while (offset + 8 <= buffer.length && boxes < 16) {
     const size32 = buffer.readUInt32BE(offset);
     const type = buffer.toString('ascii', offset + 4, offset + 8);
@@ -137,6 +138,10 @@ function detectIsoBmff(buffer, totalSize = buffer.length) {
         }
       }
     }
+    if (type === 'ftyp' && boxSize >= 16) {
+      const brandSlice = buffer.subarray(offset + 8, Math.min(buffer.length, offset + boxSize)).toString('ascii');
+      if (/(?:cmfc|cmf2|iso6|dash)/i.test(brandSlice)) cmaf = true;
+    }
     if (FMP4_INIT_BOXES.has(type)) hasInit = true;
     if (FMP4_MEDIA_BOXES.has(type)) hasMedia = true;
     boxes++;
@@ -152,6 +157,7 @@ function detectIsoBmff(buffer, totalSize = buffer.length) {
     extension: hasInit ? 'mp4' : 'm4s',
     hasInit,
     hasMedia,
+    ...(cmaf && { cmaf: true }),
     syncOffset: 0,
     needsStrip: false,
   };
@@ -179,6 +185,9 @@ function detectImageOrText(buffer) {
   const head = buffer.subarray(0, Math.min(512, buffer.length)).toString('utf8').replace(/^\uFEFF/, '').trimStart();
   if (/^WEBVTT(?:[\t \r\n]|$)/.test(head)) {
     return { kind: 'webvtt', extension: 'vtt', rejected: false, syncOffset: 0, needsStrip: false };
+  }
+  if (/^\d+\r?\n\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3}/.test(head)) {
+    return { kind: 'srt', extension: 'srt', rejected: false, syncOffset: 0, needsStrip: false };
   }
   if (/^<!doctype\s+html|^<html\b|^<head\b|^<body\b|^<title\b|^<script\b/i.test(head)) {
     return { kind: 'html', rejected: true, reason: 'html-error-page' };

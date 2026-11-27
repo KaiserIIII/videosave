@@ -15,7 +15,7 @@
       <a class="brand" href="#top">
         <img src="./logo.svg" width="30" height="30" alt="">
         <span>VideoSave</span>
-        <span class="version-pill" id="live-version">v1.0.0</span>
+        <span class="version-pill" id="live-version">v1.1.0</span>
       </a>
       <nav class="nav-links" aria-label="Primary">
         <a href="#downloads" data-i18n="nav.downloads">Download</a>
@@ -57,13 +57,13 @@
           <div class="terminal-card">
             <div class="terminal-head">
               <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-              <span class="terminal-title">MCP · VideoSave v1.0.0</span>
+              <span class="terminal-title">MCP · VideoSave v1.1.0</span>
             </div>
             <pre class="terminal-body"><code><span class="t-muted"># Check live version &amp; transfer engines</span>
 → get_version()
-  { "version": "1.0.0", "mismatch": false }
+  { "version": "1.1.0", "schemaVersion": "1.1.0", "mismatch": false }
 
-<span class="t-muted"># Probe &amp; auto-select highest verified quality</span>
+<span class="t-muted"># Probe with 2-byte Range quality verification &amp; download best</span>
 → download_best_media({
     "url": "https://media.example/watch/101",
     "quality": "best",
@@ -72,9 +72,9 @@
   { "status": "done", "engine": "hls",
     "verification": { "ok": true, "height": 1080 } }
 
-<span class="t-muted"># Fault-tolerant checkpoint recovery</span>
-→ diagnose_download({ "id": "batch_…" })
-  { "resumable": true, "category": "ok" }</code></pre>
+<span class="t-muted"># Inspect stage diagnostics &amp; SHA-256 checkpoints</span>
+→ recover_download({ "id": "batch_…" })
+  { "resumable": true, "savedBytes": 35908000 }</code></pre>
           </div>
         </div>
       </div>
@@ -92,26 +92,26 @@
         <div class="card-grid four">
           <article class="card">
             <span class="tag tag-blue">Windows x64</span>
-            <h3 data-i18n="dl.winTitle">Desktop Portable Suite</h3>
-            <p data-i18n="dl.winDesc">Extension + local companion + MCP server + CLI + Windows launcher with verified Node.js &amp; FFmpeg setup.</p>
-            <a class="card-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.0.0.zip ↗</a>
+            <h3 data-i18n="dl.winTitle">Windows Setup &amp; Portable Suite</h3>
+            <p data-i18n="dl.winDesc">Extension + local companion + Management Center (`/console`) + MCP server + CLI + one-click Setup/Uninstall scripts.</p>
+            <a class="card-link" id="dl-win-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.1.0.zip ↗</a>
           </article>
           <article class="card">
-            <span class="tag">Edge · Chrome · Brave</span>
-            <h3 data-i18n="dl.crTitle">Chromium Extension</h3>
-            <p data-i18n="dl.crDesc">Manifest V3 package with offscreen HLS staging, 5 themes, bilingual UI, and MCP Control Center.</p>
-            <a class="card-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.0.0-extension.zip ↗</a>
+            <span class="tag">macOS · Linux</span>
+            <h3 data-i18n="dl.unixTitle">macOS &amp; Linux Suite</h3>
+            <p data-i18n="dl.unixDesc">Deterministic tar.gz bundle with start-unix.sh launcher, Local Management Center, CLI, and MCP server.</p>
+            <a class="card-link" id="dl-unix-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.1.0-unix.tar.gz ↗</a>
           </article>
           <article class="card">
-            <span class="tag">Firefox 136+</span>
-            <h3 data-i18n="dl.ffTitle">Firefox &amp; Android Dev</h3>
-            <p data-i18n="dl.ffDesc">Desktop Firefox package plus experimental Firefox for Android direct-link workflow package.</p>
-            <a class="card-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.0.0-firefox.zip ↗</a>
+            <span class="tag">Edge · Chrome · Firefox</span>
+            <h3 data-i18n="dl.crTitle">Browser Extensions</h3>
+            <p data-i18n="dl.crDesc">Manifest V3 packages for Chromium (Edge/Chrome/Brave), Firefox 136+, and experimental Firefox Android.</p>
+            <a class="card-link" id="dl-ext-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Extension &amp; Firefox ZIPs ↗</a>
           </article>
           <article class="card">
             <span class="tag tag-green">Supply Chain</span>
             <h3 data-i18n="dl.sbomTitle">SHA-256 &amp; CycloneDX SBOM</h3>
-            <p data-i18n="dl.sbomDesc">Verify every archive locally before running, including pinned upstream commit hashes for portable tools.</p>
+            <p data-i18n="dl.sbomDesc">Verify every archive locally before running, including pinned upstream commit hashes and GitHub provenance.</p>
             <a class="card-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt &amp; SBOM ↗</a>
           </article>
         </div>
@@ -132,10 +132,12 @@
             <label>
               <span data-i18n="mcp.client">MCP Client</span>
               <select id="cfg-client">
-                <option value="dsh">DeepSeek Harness (DSH)</option>
-                <option value="codex">Codex CLI</option>
-                <option value="claude">Claude Code / Desktop</option>
-                <option value="cursor">Cursor</option>
+                <option value="dsh">DeepSeek Harness (YAML)</option>
+                <option value="codex">Codex CLI (TOML)</option>
+                <option value="claude-code">Claude Code (JSON / CLI)</option>
+                <option value="claude-desktop">Claude Desktop (JSON)</option>
+                <option value="cursor">Cursor (JSON)</option>
+                <option value="antigravity">Antigravity (JSON)</option>
               </select>
             </label>
             <label>
@@ -148,7 +150,7 @@
             </label>
             <label>
               <span data-i18n="mcp.path">Extracted VideoSave Folder</span>
-              <input id="cfg-path" type="text" value="C:/VideoSave/VideoSave-1.0.0" spellcheck="false">
+              <input id="cfg-path" type="text" value="C:/VideoSave/VideoSave-1.1.0" spellcheck="false">
             </label>
             <label id="cfg-client-id-wrap" hidden>
               <span data-i18n="mcp.clientId">Managed Client ID (from AI &amp; MCP panel)</span>
@@ -269,18 +271,18 @@
         </div>
         <div class="card-grid three">
           <article class="card">
-            <h3 data-i18n="dsh.doc1Title">DSH Integration Guide</h3>
-            <p data-i18n="dsh.doc1Desc">Step-by-step setup, stale version detection via <code>get_version</code>, Netscape cookie import, and batch workflows.</p>
-            <a class="card-link" href="https://github.com/KaiserIIII/videosave/blob/main/docs/dsh-guide.md" target="_blank" rel="noopener">docs/dsh-guide.md ↗</a>
+            <h3 data-i18n="dsh.doc1Title">AI &amp; CLI Cookbook (8+ Recipes)</h3>
+            <p data-i18n="dsh.doc1Desc">Copy-paste MCP &amp; CLI examples for best-quality probing, batch queues, 403 stage diagnostics, and dedicated browser sessions.</p>
+            <a class="card-link" href="https://github.com/KaiserIIII/videosave/blob/main/docs/ai-recipes.md" target="_blank" rel="noopener">docs/ai-recipes.md ↗</a>
           </article>
           <article class="card">
-            <h3 data-i18n="dsh.doc2Title">12-Item Feedback Tracker</h3>
+            <h3 data-i18n="dsh.doc2Title">12-Item DSH Feedback Tracker</h3>
             <p data-i18n="dsh.doc2Desc">Complete audit trail from v0.9.0 reports through source fixes, fault-injection tests, and real DSH acceptance.</p>
             <a class="card-link" href="https://github.com/KaiserIIII/videosave/blob/main/docs/dsh-feedback-tracker.md" target="_blank" rel="noopener">docs/dsh-feedback-tracker.md ↗</a>
           </article>
           <article class="card">
-            <h3 data-i18n="dsh.doc3Title">Security &amp; Privacy Model</h3>
-            <p data-i18n="dsh.doc3Desc">Scoped permissions, sandbox guards, cross-origin credential isolation, and loopback origin protections.</p>
+            <h3 data-i18n="dsh.doc3Title">Security, Privacy &amp; FAQ</h3>
+            <p data-i18n="dsh.doc3Desc">Scoped permissions, sandbox guards, cross-origin credential isolation, third-party notices, and common answers.</p>
             <a class="card-link" href="https://github.com/KaiserIIII/videosave/blob/main/docs/v1-security.md" target="_blank" rel="noopener">docs/v1-security.md ↗</a>
           </article>
         </div>

@@ -82,6 +82,11 @@ export async function assertRealDownloadDirsUntouched(beforeSnapshots, context =
         violations.push({ dir, name, change: 'modified', before: prior, after: info });
       }
     }
+    for (const [name, prior] of before.entries()) {
+      if (!after.has(name)) {
+        violations.push({ dir, name, change: 'deleted', before: prior });
+      }
+    }
   }
   assert.equal(
     violations.length,
@@ -105,6 +110,7 @@ export async function createTestSandbox(label = 'run') {
     logs: path.join(root, 'logs'),
     packages: path.join(root, 'packages'),
     results: path.join(root, 'results'),
+    tools: path.join(root, 'tools'),
   };
   await Promise.all(Object.values(dirs).map(dir => mkdir(dir, { recursive: true })));
   const settingsFile = path.join(dirs.dbDir, 'settings.sqlite');
@@ -113,7 +119,7 @@ export async function createTestSandbox(label = 'run') {
   function env(extra = {}) {
     const clean = Object.fromEntries(
       Object.entries(process.env).filter(
-        ([name]) => !/^(?:OUT_DIR|MEDIA_TOOLKIT_(?:URL|TOKEN|MCP_CLIENT|LOCAL_PAIRING|SETTINGS)|VIDEOSAVE_PROFILES_DIR|VIDEOSAVE_TEST_SANDBOX)$/i.test(name),
+        ([name]) => !/^(?:OUT_DIR|MEDIA_TOOLKIT_(?:URL|TOKEN|MCP_CLIENT|LOCAL_PAIRING|SETTINGS)|VIDEOSAVE_(?:PROFILES_DIR|TEST_SANDBOX|TOOLS_DIR))$/i.test(name),
       ),
     );
     return {
@@ -122,6 +128,7 @@ export async function createTestSandbox(label = 'run') {
       MEDIA_TOOLKIT_SETTINGS: settingsFile,
       VIDEOSAVE_PROFILES_DIR: dirs.profiles,
       VIDEOSAVE_TEST_SANDBOX: root,
+      VIDEOSAVE_TOOLS_DIR: dirs.tools,
       ...extra,
     };
   }
@@ -132,11 +139,13 @@ export async function createTestSandbox(label = 'run') {
       MEDIA_TOOLKIT_SETTINGS: process.env.MEDIA_TOOLKIT_SETTINGS,
       VIDEOSAVE_PROFILES_DIR: process.env.VIDEOSAVE_PROFILES_DIR,
       VIDEOSAVE_TEST_SANDBOX: process.env.VIDEOSAVE_TEST_SANDBOX,
+      VIDEOSAVE_TOOLS_DIR: process.env.VIDEOSAVE_TOOLS_DIR,
     };
     process.env.OUT_DIR = dirs.downloads;
     process.env.MEDIA_TOOLKIT_SETTINGS = settingsFile;
     process.env.VIDEOSAVE_PROFILES_DIR = dirs.profiles;
     process.env.VIDEOSAVE_TEST_SANDBOX = root;
+    process.env.VIDEOSAVE_TOOLS_DIR = dirs.tools;
     return () => {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) delete process.env[key];

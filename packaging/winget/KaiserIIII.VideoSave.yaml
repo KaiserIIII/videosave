@@ -1,0 +1,27 @@
+PackageIdentifier: KaiserIIII.VideoSave
+PackageVersion: 1.1.0
+PackageName: VideoSave
+Publisher: VideoSave Contributors
+PublisherUrl: https://github.com/KaiserIIII/videosave
+PackageUrl: https://kaiseriiii.github.io/videosave/
+License: MIT
+LicenseUrl: https://github.com/KaiserIIII/videosave/blob/main/LICENSE
+ShortDescription: Open-source local-first browser media downloader, management center, and MCP server for AI agents.
+Tags:
+  - video-downloader
+  - hls
+  - dash
+  - mcp
+  - browser-extension
+  - ffmpeg
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: VideoSave-1.1.0\Start VideoSave.cmd
+    PortableCommandAlias: videosave
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/KaiserIIII/videosave/releases/download/v1.1.0/VideoSave-1.1.0.zip
+    InstallerSha256: 2D3A0BD3589294877CE21005AFAD95476C815F1DA6977AF70FA934DE50CBEEDA
+ManifestType: singleton
+ManifestVersion: 1.6.0

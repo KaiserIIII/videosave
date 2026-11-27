@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VideoSave Control Center</title>
+  <link rel="icon" type="image/svg+xml" href="/console/logo.svg" />
+  <link rel="stylesheet" href="/console/styles.css" />
+</head>
+<body>
+  <div id="auth-overlay" class="auth-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <form id="auth-form" class="auth-card">
+      <div class="auth-brand">
+        <img src="/console/logo.svg" alt="VideoSave" width="36" height="36" />
+        <div>
+          <h1 id="auth-title" data-i18n="authTitle">VideoSave 本机管理中心</h1>
+          <p class="muted" data-i18n="authSubtitle">仅限本机 127.0.0.1 认证访问，请输入终端显示的配对码。</p>
+        </div>
+      </div>
+      <label class="field">
+        <span data-i18n="pairingLabel">本机配对码</span>
+        <input id="pairing-input" type="password" autocomplete="off" required placeholder="Paste pairing code..." />
+      </label>
+      <div id="auth-error" class="alert hidden" role="alert"></div>
+      <button type="submit" class="btn primary full" data-i18n="authSubmit">解锁管理中心</button>
+    </form>
+  </div>
+
+  <div id="app" class="shell hidden">
+    <aside class="sidebar" aria-label="Navigation">
+      <div class="brand">
+        <img src="/console/logo.svg" alt="VideoSave" width="28" height="28" />
+        <div>
+          <div class="brand-name">VideoSave</div>
+          <div id="version-badge" class="pill subtle">v1.1.0</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-view="overview" data-i18n="navOverview">总览</button>
+        <button class="nav-item" data-view="new-task" data-i18n="navNewTask">解析与新建</button>
+        <button class="nav-item" data-view="queue" data-i18n="navQueue">下载队列</button>
+        <button class="nav-item" data-view="history" data-i18n="navHistory">已完成文件</button>
+        <button class="nav-item" data-view="mcp" data-i18n="navMcp">MCP 与 AI</button>
+        <button class="nav-item" data-view="sessions" data-i18n="navSessions">会话与兼容库</button>
+        <button class="nav-item" data-view="settings" data-i18n="navSettings">引擎与设置</button>
+      </nav>
+      <div class="sidebar-footer">
+        <button id="lang-toggle" class="btn ghost small">EN / 中文</button>
+        <button id="theme-toggle" class="btn ghost small" data-i18n="themeToggle">切换主题</button>
+        <button id="logout-btn" class="btn ghost small" data-i18n="logout">锁定</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <h2 id="view-title" data-i18n="navOverview">总览</h2>
+        <div class="topbar-actions">
+          <span id="health-pill" class="pill ok">Local Companion Ready</span>
+          <button id="refresh-btn" class="btn ghost small" data-i18n="refresh">刷新</button>
+        </div>
+      </header>
+
+      <section id="view-overview" class="view active">
+        <div class="grid stats" id="overview-stats"></div>
+        <div class="card">
+          <div class="card-head">
+            <h3 data-i18n="quickDownload">快速解析或下载</h3>
+          </div>
+          <form id="quick-form" class="row">
+            <input id="quick-url" type="url" required placeholder="https://example.com/watch/... or .m3u8 / .mpd / Bilibili / YouTube" />
+            <button type="submit" class="btn primary" data-i18n="probeNow">探测可用画质</button>
+          </form>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <div class="card-head"><h3 data-i18n="runtimeComponents">运行组件与平台就绪度</h3></div>
+            <div id="runtime-list" class="list"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3 data-i18n="telemetryTitle">实时资源与主机遥测</h3></div>
+            <div id="telemetry-panel" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-new-task" class="view">
+        <div class="card">
+          <div class="card-head"><h3 data-i18n="probeHeading">媒体链接探测与画质验证</h3></div>
+          <form id="probe-form" class="stack">
+            <div class="row">
+              <input id="probe-url" type="url" required placeholder="https://..." />
+              <select id="probe-compat">
+                <option value="adaptive">Adaptive</option>
+                <option value="standard">Standard</option>
+                <option value="deep">Deep</option>
+                <option value="maximum">Maximum</option>
+              </select>
+              <button type="submit" class="btn primary" data-i18n="probeNow">探测可用画质</button>
+            </div>
+            <div class="grid three">
+              <label class="field"><span data-i18n="formatLabel">封装格式</span>
+                <select id="dl-format"><option value="mp4">MP4</option><option value="mkv">MKV</option></select>
+              </label>
+              <label class="field"><span data-i18n="modeLabel">保存模式</span>
+                <select id="dl-mode"><option value="combined">音视频合并</option><option value="video">仅视频</option><option value="audio">仅音频</option><option value="separate">分开保存</option></select>
+              </label>
+              <label class="field"><span data-i18n="conflictLabel">重名策略</span>
+                <select id="dl-conflict"><option value="uniquify">自动编号</option><option value="skip">跳过已有</option><option value="overwrite">原子覆盖</option></select>
+              </label>
+            </div>
+            <div class="grid two">
+              <label class="field"><span data-i18n="qualityLabel">画质策略</span>
+                <select id="dl-quality">
+                  <option value="best">Best (最高已验证画质)</option>
+                  <option value="1080">1080p 上限</option>
+                  <option value="720">720p 上限</option>
+                  <option value="auto">Auto (均衡)</option>
+                  <option value="lowest">Lowest</option>
+                </select>
+              </label>
+              <label class="field"><span data-i18n="templateLabel">命名模板（可选）</span>
+                <input id="dl-template" type="text" placeholder="{title}_{height}p" />
+              </label>
+            </div>
+            <div class="row">
+              <button type="button" id="start-direct-btn" class="btn" data-i18n="startDirect">直接加入下载队列</button>
+            </div>
+          </form>
+          <div id="probe-output" class="probe-result hidden"></div>
+        </div>
+      </section>
+
+      <section id="view-queue" class="view">
+        <div class="card">
+          <div class="card-head">
+            <h3 data-i18n="activeBatches">下载队列与任务批次</h3>
+            <span id="queue-summary" class="muted"></span>
+          </div>
+          <div id="batch-list" class="list"></div>
+        </div>
+        <div id="diag-card" class="card hidden">
+          <div class="card-head">
+            <h3 data-i18n="diagnosticDetail">任务诊断与校验报告</h3>
+            <button id="close-diag" class="btn ghost small">×</button>
+          </div>
+          <pre id="diag-json" class="code-box"></pre>
+        </div>
+      </section>
+
+      <section id="view-history" class="view">
+        <div class="card">
+          <div class="card-head">
+            <h3 data-i18n="recentOutputs">最近保存的媒体文件</h3>
+            <span id="out-dir-label" class="muted mono"></span>
+          </div>
+          <div id="recent-list" class="list"></div>
+        </div>
+      </section>
+
+      <section id="view-mcp" class="view">
+        <div class="card">
+          <div class="card-head"><h3 data-i18n="mcpGenerator">AI 客户端 MCP 配置生成器</h3></div>
+          <div class="row">
+            <select id="mcp-client-select">
+              <option value="deepseek-harness">DeepSeek Harness (YAML)</option>
+              <option value="codex">Codex (TOML)</option>
+              <option value="claude-code">Claude Code (JSON / CLI)</option>
+              <option value="claude-desktop">Claude Desktop (JSON)</option>
+              <option value="cursor">Cursor (JSON)</option>
+              <option value="antigravity">Antigravity (JSON)</option>
+            </select>
+            <select id="mcp-mode-select">
+              <option value="standalone">Standalone Stdio</option>
+              <option value="shared-queue">Shared Queue (Companion)</option>
+            </select>
+            <button id="copy-mcp-btn" class="btn primary" data-i18n="copyConfig">复制配置</button>
+          </div>
+          <p id="mcp-target-path" class="muted mono"></p>
+          <pre id="mcp-config-code" class="code-box"></pre>
+        </div>
+        <div class="grid two">
+          <div class="card">
+            <div class="card-head"><h3 data-i18n="registeredClients">已注册受管客户端</h3></div>
+            <div id="clients-list" class="list"></div>
+          </div>
+          <div class="card">
+            <div class="card-head"><h3 data-i18n="activityLog">最近 MCP 审计记录</h3></div>
+            <div id="activity-list" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-sessions" class="view">
+        <div class="grid two">
+          <div class="card">
+            <div class="card-head"><h3 data-i18n="dedicatedSessions">专用隔离浏览器会话</h3></div>
+            <p class="muted" data-i18n="sessionsNotice">绝不读取系统浏览器全部 Cookie 或密码，同一会话自动串行加锁。</p>
+            <div id="sessions-list" class="list"></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3 data-i18n="compatRulesTitle">本地网站兼容性知识库</h3>
+              <button id="reset-compat-btn" class="btn ghost small" data-i18n="resetRules">清空学习记录</button>
+            </div>
+            <p class="muted" data-i18n="compatPrivacy">仅记录源站级探测策略与引擎成功率，不存储私人标题或 Cookie。</p>
+            <div id="compat-list" class="list"></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-settings" class="view">
+        <div class="grid two">
+          <div class="card">
+            <div class="card-head"><h3 data-i18n="downloadDefaults">下载默认设置</h3></div>
+            <form id="settings-form" class="stack">
+              <label class="field"><span data-i18n="outDirLabel">默认下载目录</span>
+                <input id="set-outdir" type="text" required />
+              </label>
+              <div class="grid two">
+                <label class="field"><span data-i18n="concurrencyLabel">批量并发数</span>
+                  <input id="set-concurrency" type="number" min="1" max="8" />
+                </label>
+                <label class="field"><span data-i18n="connectionsLabel">单任务连接数</span>
+                  <select id="set-connections"><option value="4">4</option><option value="8">8</option><option value="12">12</option></select>
+                </label>
+              </div>
+              <button type="submit" class="btn primary" data-i18n="saveSettings">保存设置</button>
+              <div id="settings-msg" class="muted"></div>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <h3 data-i18n="networkDiag">网络代理与连通性</h3>
+              <button id="check-net-btn" class="btn ghost small" data-i18n="testNetwork">检测网络</button>
+            </div>
+            <div id="network-info" class="list"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script type="module" src="/console/app.js"></script>
+</body>
+</html>

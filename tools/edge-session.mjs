@@ -6,7 +6,7 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { browserProxyArgs } from './media-proxy.mjs';
-import { prepareDedicatedProfile } from './browser-sessions.mjs';
+import { prepareDedicatedProfile, withDedicatedSessionQueue } from './browser-sessions.mjs';
 import { ApiError } from './media-source.mjs';
 
 const edgeDefault = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
@@ -169,7 +169,15 @@ export function withEdge(args, run, signal, options) {
   return withChromium(args, run, signal, { ...options, executable: process.env.EDGE_BIN || edgeDefault });
 }
 
-export async function withChromium(args, run, signal, {
+export async function withChromium(args, run, signal, options = {}) {
+  const { profileMode = 'ephemeral', browserSessionId } = options;
+  if (profileMode === 'dedicated' && browserSessionId) {
+    return withDedicatedSessionQueue(browserSessionId, () => runChromiumOnce(args, run, signal, options), { signal });
+  }
+  return runChromiumOnce(args, run, signal, options);
+}
+
+async function runChromiumOnce(args, run, signal, {
   downloadsDirectory,
   executable,
   browser = 'auto',
@@ -184,7 +192,7 @@ export async function withChromium(args, run, signal, {
   signal?.throwIfAborted();
   const binary = executable || resolveChromiumExecutable({ browser, browserBinary });
   const dedicated = profileMode === 'dedicated' && browserSessionId
-    ? await prepareDedicatedProfile(browserSessionId, { browser: path.basename(binary), userAgent })
+    ? await prepareDedicatedProfile(browserSessionId, { browser: path.basename(binary), userAgent, signal })
     : null;
   const profile = dedicated ? dedicated.profileDir : await mkdtemp(path.join(os.tmpdir(), 'media-toolkit-edge-'));
   let edge;
@@ -276,7 +284,7 @@ export async function withChromium(args, run, signal, {
     }
     if (dedicated) {
       await rm(path.join(profile, 'DevToolsActivePort'), { force: true }).catch(() => {});
-      dedicated.release();
+      await dedicated.release();
     } else {
       await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
     }
