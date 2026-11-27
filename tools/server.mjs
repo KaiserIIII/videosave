@@ -5,7 +5,7 @@ import { createReadStream } from 'node:fs';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as downloads from './media-downloads.mjs';
-import { configureMediaProxy } from './media-proxy.mjs';
+import { configureMediaProxy, diagnoseNetwork, networkPreferences } from './media-proxy.mjs';
 import { localPairingCode } from './preferences.mjs';
 import { activity, approveGrant, auditSettings, authenticateClient, listClients, listGrants, renewGrant, revokeGrant, saveClient, sitePreferences } from './mcp-control.mjs';
 import { invokeManaged, managedTools } from './managed-mcp.mjs';
@@ -153,6 +153,9 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
         const options = await body(req);
         return reply(res,200,options.clear === true ? activity(true) : auditSettings(options));
       }
+      case 'GET /api/ai/network': return reply(res,200,networkPreferences());
+      case 'POST /api/ai/network': return reply(res,200,networkPreferences(await body(req)));
+      case 'GET /api/ai/network/check': return reply(res,200,await diagnoseNetwork());
       case 'GET /api/health':
         return reply(res, 200, { ok: true, version: VERSION, mcpControl:true, outDir: downloads.getSettings().settings.outDir,
           ...(downloads.platformDownloadsEnabled() && {platformDownloads:true}) });

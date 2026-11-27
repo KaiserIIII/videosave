@@ -182,6 +182,30 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
         assert.ok(nativeCookies.length > 0, 'companion fetched the media independently');
         assert.deepEqual([...new Set(nativeCookies)],[undefined,login]);
         assert.ok(!(JSON.stringify(await admin('activity'))).includes(login));
+
+        const otherProfile = await admin('clients',{name:'No activity yet',preset:'read-only'});
+        const error = await call('get_progress');
+        assert.equal(error.code,'MCP_INVALID_ARGUMENTS');
+        await popup.evaluate('document.querySelector("#mcp-refresh").click(); true');
+        const failedActivity = 'document.querySelector("#mcp-activity").textContent.includes("MCP_INVALID_ARGUMENTS")';
+        await until(() => popup.evaluate(failedActivity),
+          () => 'waiting for audit refresh after a failed tool call');
+        assert.ok(await popup.evaluate('document.querySelector("#mcp-activity").textContent.includes(' + JSON.stringify(batch.id) + ')'));
+        await until(() => popup.evaluate('Boolean(document.querySelector("#mcp-clients time"))'),
+          () => 'waiting for the client’s latest recorded activity');
+        const filter = async (id,value) => popup.evaluate(
+          '((control) => {control.value = ' + JSON.stringify(value) + '; control.dispatchEvent(new Event("change")); true})(document.querySelector(' +
+          JSON.stringify(id) + '))');
+        await filter('#mcp-audit-result','failure');
+        assert.match(await popup.evaluate('document.querySelector("#mcp-activity").textContent'),/get_progress.*MCP_INVALID_ARGUMENTS/);
+        assert.doesNotMatch(await popup.evaluate('document.querySelector("#mcp-activity").textContent'),/start_download/);
+        await filter('#mcp-audit-client',otherProfile.id);
+        assert.equal(await popup.evaluate('document.querySelector("#mcp-activity").childElementCount'),0);
+        await filter('#mcp-audit-client',profile.id);
+        assert.ok(await popup.evaluate(failedActivity));
+        await filter('#mcp-audit-result','success');
+        assert.equal(await popup.evaluate(failedActivity),false);
+
         if (browserName === 'edge' && process.env.VIDEOSAVE_MCP_SCREENSHOT) {
           await popup.send('Emulation.setDeviceMetricsOverride',{width:472,height:560,deviceScaleFactor:1,mobile:false});
           await popup.evaluate('document.querySelector("#mcp-center").scrollIntoView()');

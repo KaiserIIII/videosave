@@ -11,6 +11,9 @@
 - Recheck an empty media panel within a bounded window for players attached to open Shadow DOM after loading.
 - Apply website settings to managed downloads. Add batch ownership, download limits and an optional activity log with retention and export controls.
 - Report site authorization status, candidate eligibility and observed download size without requesting media again.
+- Add hour-long and browser-session grants, inherited website download defaults, batch-size limits, minimum known duration and preview filtering.
+- Pause and resume queued items, or reapprove failed sources to retry them. Audit records can be filtered by client and outcome.
+- Configure direct, environment or unauthenticated HTTP proxy routing for the companion, with a restart pending indicator and connection check.
 - Exercise Edge and Chrome login approval, denied access, redirect rejection, dual-track output and same-URL reload revocation through MCP in CI.
 
 ## 0.9.0

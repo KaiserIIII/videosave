@@ -69,7 +69,7 @@ function capturedHeaders(source) {
 function pump() {
   while (workQueue.length) {
     const next = workQueue.findIndex(job => job.signal.aborted || (job.batch
-      ? runningDownloads < maxConcurrency && job.batch.running < job.batch.concurrency
+      ? !job.batch.paused && runningDownloads < maxConcurrency && job.batch.running < job.batch.concurrency
       : runningProbes < 2));
     if (next < 0) return;
     const [{ signal, run, resolve, reject, batch }] = workQueue.splice(next, 1);
@@ -266,6 +266,10 @@ export function isTerminal(status) {
   return ['done','partial','failed','cancelled'].includes(status);
 }
 
+function displayedStatus(batch) {
+  return batch.status === 'running' && batch.paused ? 'paused' : batch.status;
+}
+
 function snapshot(batch) {
   const counts = {active:0,queued:0,failed:0};
   for (const item of batch.items) {
@@ -273,7 +277,7 @@ function snapshot(batch) {
     else if (item.status === 'queued') counts.queued++;
     else if (['resolving','downloading','verifying'].includes(item.status)) counts.active++;
   }
-  return {id:batch.id,status:batch.status,...counts,items:batch.items.map(item => ({...item})),
+  return {id:batch.id,status:displayedStatus(batch),...counts,items:batch.items.map(item => ({...item})),
     log:[...batch.log],lastError:batch.lastError ?? null,...(batch.resumable && {resumable:true})};
 }
 
@@ -294,7 +298,8 @@ function historyRecord(batch, status = batch.status) {
     ...(Number.isSafeInteger(detail.retryAfterSec) && {retryAfterSec:detail.retryAfterSec})};
   return {id:batch.id, status, outDir:batch.outDir, delivery:batch.delivery, createdAt:batch.createdAt,
     log:batch.log, items:batch.items.map(item => item.detail ? {...item,detail:redact(item.detail)} : item),
-    lastError:batch.lastError && {...batch.lastError,detail:redact(batch.lastError.detail)}, retry:batch.retry, principal:batch.principal};
+    lastError:batch.lastError && {...batch.lastError,detail:redact(batch.lastError.detail)}, retry:batch.retry, principal:batch.principal,
+    ...(status === 'running' && batch.paused && {paused:true}), managedRetry:batch.managedRetry};
 }
 
 function savedBatch(id) {
@@ -322,6 +327,17 @@ export function progress(id) {
 }
 
 export function batchPrincipal(id) { return lookup(id).principal; }
+
+export function batchAuthorizationId(id) { return lookup(id).managedRetry?.authorizationId; }
+
+export function managedRetryPlan(id) {
+  const batch = lookup(id);
+  if (!isTerminal(batch.status)) throw new ApiError('BATCH_ACTIVE','Wait for the batch to stop or finish',409);
+  const retryItems = batch.items.filter(item => ['error','cancelled'].includes(item.status));
+  if (!retryItems.length) throw new ApiError('NOTHING_TO_RETRY','All downloads in this batch already finished',409);
+  if (!batch.managedRetry) throw new ApiError('MCP_REAPPROVAL_REQUIRED','Start a new download from an approved tab',409);
+  return {...batch.managedRetry,items:retryItems.map(item => batch.managedRetry.items[item.idx])};
+}
 
 async function checkedBatchOutput(batch,file) {
   const directory = await realpath(batch.outDir);
@@ -360,16 +376,28 @@ export async function verifyBatchFiles(id, signal) {
   return result;
 }
 
+function knownBatches() {
+  const all = new Map(storedBatches().map(batch => [batch.id,batch]));
+  for (const [id,batch] of batches) all.set(id,batch);
+  return all.values();
+}
+
+export function activeBatchCount(principal) {
+  let count = 0;
+  for (const batch of knownBatches()) {
+    if (batch.principal === principal && ['running','cancelling'].includes(batch.status)) count++;
+  }
+  return count;
+}
+
 export function listBatches({limit = 20} = {}, principal) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ApiError('INVALID_LIMIT', 'limit must be 1–100');
   const items = [];
-  const all = new Map(storedBatches().map(batch => [batch.id,batch]));
-  for (const [id,batch] of batches) all.set(id,batch);
-  for (const batch of all.values()) {
+  for (const batch of knownBatches()) {
     if (principal !== undefined && batch.principal !== principal) continue;
     const interrupted = batch.status === 'interrupted';
     const completed = batch.items.filter(item => item.status === 'done').length;
-    const status = interrupted ? (completed ? 'partial' : 'failed') : batch.status;
+    const status = interrupted ? (completed ? 'partial' : 'failed') : displayedStatus(batch);
     items.push({id:batch.id, status, delivery:batch.delivery, createdAt:batch.createdAt,
       ...(interrupted && {resumable:true}),
       total:batch.items.length, completed,
@@ -460,6 +488,18 @@ export function cancel(id) {
     pump();
   }
   return { ok: true };
+}
+
+export function setBatchPaused(id, paused) {
+  const batch = lookup(id);
+  if (batch.status !== 'running') throw new ApiError('BATCH_INACTIVE','This batch is no longer running',409);
+  if (!batch.controller) throw new ApiError('BATCH_OTHER_PROCESS','Control this batch in the download process that submitted it',409);
+  if (Boolean(batch.paused) === paused) return {ok:true};
+  if (batch.delivery === 'local') storeBatch(historyRecord({...batch,paused}));
+  batch.paused = paused;
+  publish(batch, paused ? '已暂停后续队列任务' : '已恢复队列任务');
+  if (!paused) pump();
+  return {ok:true};
 }
 
 function stagingRoot(outDir, id, index) {
@@ -593,6 +633,7 @@ function enqueue(request) {
     const items = targets.map(({kind,title},idx) => ({idx,kind,title,status:'queued',percent:0,speed:0,bytes:0,
       totalBytes:null,etaSec:null,prefetch:null,file:null,error:null}));
     return {id:previous?.id ?? randomUUID(),status:'running',outDir,delivery,principal:request.principal,
+      managedRetry:request.authorization?.retryPlan,
       createdAt:previous?.createdAt ?? new Date().toISOString(),
       log:previous ? ['已恢复中断的下载批次'] : [],
       items:items.map((item,index) => {
@@ -611,8 +652,10 @@ function enqueue(request) {
   batches.set(id, batch);
   batchKeys.set(key, id);
   const signal = AbortSignal.any([batch.controller.signal, session.signal]);
-  const jobs = targets.flatMap((target, index) => pendingItem(batch.items[index]) ? [schedule(signal,
-    () => runItem(batch, batch.items[index], {...target}, limit, cookies, signal), batch)
+  const jobs = targets.flatMap((target, index) => pendingItem(batch.items[index]) ? [schedule(signal, () => {
+    request.authorization?.check?.();
+    return runItem(batch, batch.items[index], {...target}, limit, cookies, signal);
+  }, batch)
     .catch(error => {
       const item = batch.items[index];
       if (session.signal.aborted && !batch.controller.signal.aborted && delivery === 'local') return;

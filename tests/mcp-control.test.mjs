@@ -117,6 +117,12 @@ test('paired management and managed sessions use separate permissions', {timeout
   assert.ok(estimate.body.freeBytes > 0);
   assert.equal(estimate.body.settings.connections,8);
   assert.ok(!JSON.stringify(estimate.body).includes(temp));
+  assert.equal(estimate.body.settings.maxBatchItems,8);
+  assert.equal(estimate.body.settings.minDurationSec,0);
+  const updated = await request('/api/ai/site',{origin:tab.url,settings:{excludePreviews:true,maxBatchItems:3,minDurationSec:100}});
+  assert.equal(updated.body.settings.excludePreviews,true);
+  assert.equal(updated.body.settings.maxBatchItems,3);
+  assert.equal(updated.body.settings.minDurationSec,100);
   const diagnostic = await call('diagnose_probe',{authorizationId:requestId});
   assert.equal(diagnostic.body.code,'media-found');
   assert.equal(diagnostic.body.candidateCount,1);
@@ -138,7 +144,9 @@ test('a browser grant stops when the extension can no longer confirm the tab', t
   t.mock.timers.enable({apis:['Date'],now:new Date('2026-11-27T00:00:00Z')});
   const client = {id:'fixture-lease-client',name:'Reachability test'};
   const request = requestGrant(client,'https://lease.example');
-  const approved = approveGrant({id:request.id,tab:{url:'https://lease.example/watch',streams:[]},minutes:5});
+  const approved = approveGrant({id:request.id,tab:{url:'https://lease.example/watch',streams:[]},sessionMode:'browser'});
+  assert.equal(approved.sessionMode,'browser');
+  assert.equal(Date.parse(approved.expiresAt) - Date.now(),12*60*60_000);
   t.mock.timers.tick(50_000);
   renewGrant(request.id);
   t.mock.timers.tick(50_000);

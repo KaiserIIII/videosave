@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { statfs } from 'node:fs/promises';
 import path from 'node:path';
 import * as downloads from './media-downloads.mjs';
@@ -16,7 +17,8 @@ const boolean = {type:'boolean'};
 const measured = {type:['number','null']};
 const array = items => ({type:'array',items});
 const grantFields = {id,clientId:id,clientName:stringResult,origin,status:stringResult,expiresAt:stringResult};
-const grantResult = object(grantFields,Object.keys(grantFields));
+const sessionMode = {enum:['timed','browser']};
+const grantResult = object({...grantFields,sessionMode},Object.keys(grantFields));
 const tabFields = {origin,title:stringResult,playing:boolean,sessionShared:boolean};
 const tab = object(tabFields,Object.keys(tabFields));
 const diagnosticFields = {code:stringResult,nextAction:stringResult,candidateCount:measured,players:measured,
@@ -37,7 +39,7 @@ const outputSchemas = {
   request_site_authorization:grantResult, get_authorization_status:grantResult, revoke_site_authorization:grantResult,
   list_authorized_sites:object({items:array(grantResult)},['items']),
   get_session_status:object({origin,status:stringResult,authorizationId:id,expiresAt:stringResult,sessionShared:boolean,
-    singleTask:boolean,used:boolean},['origin','status']),
+    singleTask:boolean,used:boolean,sessionMode},['origin','status']),
   validate_media:object({candidateId:id,kind:stringResult,eligible:boolean,code:stringResult,availabilityChecked:{const:false}},
     ['candidateId','kind','eligible','code','availabilityChecked']),
   estimate_download:object({candidateId:id,sourceBytes:measured,stagingBytes:measured,freeBytes:measured,
@@ -49,9 +51,11 @@ const outputSchemas = {
   },['candidateId','kind','downloadable']))},['authorizationId','tab','diagnostic','streams']),
   diagnose_probe:diagnostic, get_site_preferences:siteResult, get_effective_settings:siteResult,
   start_download:object({id,total:int(1,8)},['id','total']),
+  retry_download:object({id,total:int(1,8)},['id','total']),
   get_progress:batch, wait_for_download:batch, verify_download:batch,
   list_batches:object({items:array(object({...status,delivery:stringResult,createdAt:stringResult,completed:measured,
     total:measured,failed:measured,resumable:boolean},['id','status','total']))},['items']),
+  pause_download:object({ok:boolean},['ok']), resume_download:object({ok:boolean},['ok']),
   cancel_download:object({ok:boolean},['ok']), open_file:object({ok:boolean},['ok']),
 };
 const specs = [
@@ -76,7 +80,11 @@ const specs = [
   ['read','wait_for_download','Wait for a batch submitted by this client.',object({id,timeoutMs:int(1,60_000)},['id'])],
   ['read','verify_download','Check the owned output files on disk and compare their media properties with the saved results.',object({id},['id'])],
   ['read','list_batches','List this client’s recent batches.',object({limit:int(1,100)})],
+  ['download','pause_download','Hold pending items in an owned batch. Items in progress finish before the queue is idle.',object({id},['id'])],
+  ['download','resume_download','Resume pending items in the same owned batch while its browser authorization is still active.',object({id},['id'])],
   ['download','cancel_download','Cancel a batch submitted by this client.',object({id},['id'])],
+  ['download','retry_download','Queue failed or cancelled items in an owned batch after the user grants a new approval that observes the same sources.',
+    object({id,authorizationId:id},['id','authorizationId'])],
   ['files','open_file','Show a verified output from this client’s batch in the file manager.',object({id,index:int(0,7)},['id'])],
 ];
 const descriptors = new Map(specs.map(([scope,name,description,inputSchema]) => [name,{scope,name,description,inputSchema}]));
@@ -107,6 +115,13 @@ function approvedCandidate(streams,candidateId) {
 
 const supportedCandidate = source => source.kind !== 'mpd';
 
+function candidatePolicy(source,settings) {
+  if (!supportedCandidate(source)) return 'MCP_MEDIA_UNSUPPORTED';
+  if (settings.excludePreviews && source.preview) return 'MCP_MEDIA_PREVIEW';
+  if (settings.minDurationSec && source.duration && source.duration < settings.minDurationSec) return 'MCP_MEDIA_TOO_SHORT';
+  return null;
+}
+
 async function availableDiskBytes(directory) {
   for (let depth = 0; depth < 16; depth++) {
     try {
@@ -122,23 +137,34 @@ async function availableDiskBytes(directory) {
   return null;
 }
 
-function enqueue(client,args) {
-  const {streams,settings,authorizationId,tab,used} = getContext(client,args);
+function assertDownloadAllowed({used,settings}) {
   if (used) throw new ApiError('MCP_AUTHORIZATION_USED','Request a new authorization for another batch',409);
   if (!settings.download) throw new ApiError('MCP_SITE_DENIED','Enable downloads for this site in VideoSave',403);
-  const active = downloads.listBatches({limit:100},client.id).items.filter(batch => ['running','cancelling'].includes(batch.status)).length;
-  if (active >= 2) throw new ApiError('MCP_BATCH_LIMIT','This client already has two active batches',429);
+}
+
+const sourceDigest = source => createHash('sha256').update(source.kind + '\n' + source.url).digest('hex');
+
+function enqueue(client,args, context = getContext(client,args)) {
+  const {streams,settings,authorizationId,tab} = context;
+  assertDownloadAllowed(context);
+  if (args.items.length > settings.maxBatchItems) throw new ApiError('MCP_SITE_BATCH_LIMIT','This batch exceeds the site limit',422);
+  if (downloads.activeBatchCount(client.id) >= 2) {
+    throw new ApiError('MCP_BATCH_LIMIT','This client already has two active batches',429);
+  }
+  const retryPlan = {authorizationId,origin:tab.origin,items:[]};
   const items = args.items.map(item => {
     const source = approvedCandidate(streams,item.candidateId);
-    if (!supportedCandidate(source)) {
-      throw new ApiError('MCP_MEDIA_UNSUPPORTED','Managed downloads support direct media and eligible HLS',422);
-    }
-    return {kind:'stream',url:source.url,title:tab.title || undefined,format:item.format ?? settings.format,
+    const blocked = candidatePolicy(source,settings);
+    if (blocked) throw new ApiError(blocked,'This candidate is outside the site download policy or supported formats',422);
+    const format = item.format ?? settings.format;
+    const quality = Math.min(item.quality ?? settings.quality,settings.quality);
+    retryPlan.items.push({digest:sourceDigest(source),format,quality});
+    return {kind:'stream',url:source.url,title:tab.title || undefined,format,
       ...(source.kind === 'm3u8' && {sourceKind:'m3u8'}),
-      quality:Math.min(item.quality ?? settings.quality,settings.quality),audioFormat:settings.audioFormat,subtitles:settings.subtitles};
+      quality,audioFormat:settings.audioFormat,subtitles:settings.subtitles};
   });
   const batch = downloads.queue({items,connections:settings.connections,concurrency:settings.concurrency},undefined,client.id,
-    {id:authorizationId,cookiesFor(url) {
+    {id:authorizationId,retryPlan,check:() => activeTab(client,authorizationId),cookiesFor(url) {
       const current = activeTab(client,authorizationId).streams.find(stream => stream.url === url.href);
       if (!current) throw new ApiError('MCP_SOURCE_NOT_APPROVED','Choose a candidate from the approved tab',403);
       return current.cookiesFor(url);
@@ -149,13 +175,32 @@ function enqueue(client,args) {
   return batch;
 }
 
+function retry(client,args) {
+  const plan = downloads.managedRetryPlan(args.id);
+  if (args.authorizationId === plan.authorizationId) {
+    throw new ApiError('MCP_REAPPROVAL_REQUIRED','Request a new tab authorization before retrying',409);
+  }
+  const context = getContext(client,args);
+  assertDownloadAllowed(context);
+  if (context.tab.origin !== plan.origin) {
+    throw new ApiError('MCP_SOURCE_NOT_APPROVED','Approve the site that supplied the failed media',403);
+  }
+  const approved = new Map(context.streams.map(source => [sourceDigest(source),source.candidateId]));
+  const items = plan.items.map(({digest,format,quality}) => {
+    const candidateId = approved.get(digest);
+    if (!candidateId) throw new ApiError('MCP_SOURCE_NOT_APPROVED','The newly approved tab must observe each failed source again',403);
+    return {candidateId,format,quality};
+  });
+  return enqueue(client,{items},context);
+}
+
 async function invalidateManagedGrant(id) {
   const assigned = batches.get(id);
   if (!assigned) return;
   batches.delete(id);
   await Promise.allSettled([...assigned].map(async batch => {
     try {
-      if (downloads.progress(batch).status === 'running') await downloads.cancel(batch);
+      if (['running','paused'].includes(downloads.progress(batch).status)) await downloads.cancel(batch);
     } catch (error) {
       if (error.code !== 'BATCH_NOT_FOUND') throw error;
     }
@@ -185,10 +230,10 @@ async function perform(client,name,args,signal) {
       return {authorizationId,tab};
     }
     case 'probe_active_tab': {
-      const {authorizationId,tab,streams,diagnostic} = getContext(client,args);
+      const {authorizationId,tab,streams,diagnostic,settings} = getContext(client,args);
       return {authorizationId,tab,streams:streams.map(source => {
         const {candidateId,kind,duration,height} = source;
-        return {candidateId,kind,duration,height,downloadable:supportedCandidate(source)};
+        return {candidateId,kind,duration,height,downloadable:!candidatePolicy(source,settings)};
       }),
         diagnostic};
     }
@@ -201,7 +246,7 @@ async function perform(client,name,args,signal) {
       if (!client.scopes.includes('download')) code = 'MCP_PERMISSION_DENIED';
       else if (used) code = 'MCP_AUTHORIZATION_USED';
       else if (!settings.download) code = 'MCP_SITE_DENIED';
-      else if (!supportedCandidate(source)) code = 'MCP_MEDIA_UNSUPPORTED';
+      else code = candidatePolicy(source,settings) ?? code;
       return {candidateId,kind:source.kind,eligible:code === 'eligible',code,availabilityChecked:false};
     }
     case 'estimate_download': {
@@ -224,7 +269,16 @@ async function perform(client,name,args,signal) {
     case 'get_progress': return publicBatch(downloads.progress(args.id));
     case 'verify_download': return publicBatch(await downloads.verifyBatchFiles(args.id,signal));
     case 'wait_for_download': return publicBatch(await downloads.waitForBatch(args,signal));
+    case 'pause_download': return downloads.setBatchPaused(args.id,true);
+    case 'resume_download': {
+      const authorizationId = downloads.batchAuthorizationId(args.id);
+      if (!authorizationId) throw new ApiError('MCP_TAB_REQUIRED','This batch has no current browser authorization',409);
+      const {settings} = getContext(client,{authorizationId});
+      if (!settings.download) throw new ApiError('MCP_SITE_DENIED','Enable downloads for this site in VideoSave',403);
+      return downloads.setBatchPaused(args.id,false);
+    }
     case 'cancel_download': return downloads.cancel(args.id);
+    case 'retry_download': return retry(client,args);
     case 'open_file': return downloads.openBatchOutput(args.id,args.index ?? 0);
   }
 }
@@ -245,7 +299,8 @@ export async function invokeManaged(client,{name,args = {}} = {},signal) {
     try {
       recordActivity({client:client.id,tool:name,result:code,
         origin:name === 'request_site_authorization' && code === 'ok' ? result.origin : undefined,
-        batch:name === 'start_download' && code === 'ok' ? result.id : undefined});
+        batch:['start_download','retry_download'].includes(name) && code === 'ok' ? result.id :
+          ['pause_download','resume_download','cancel_download'].includes(name) && code === 'ok' ? args.id : undefined});
     } catch {
       // An audit storage failure must not turn a queued download into a failed tool response.
     }

@@ -1,5 +1,6 @@
 import { browserApi } from './browser.mjs';
 import { companion } from './downloads.mjs';
+import { assessCandidates } from './detection.mjs';
 import { importedCookies, maxCredentialFileBytes } from './session-credentials.mjs';
 
 const grantPrefix = 'mcp-grant:';
@@ -83,6 +84,13 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
   const ownOrigin = () => cleanUrl(getTab()?.url)?.origin;
   const preset = byId('mcp-preset');
   const profileName = byId('mcp-client-name');
+  const auditClient = byId('mcp-audit-client');
+  const auditResult = byId('mcp-audit-result');
+  const moreActivity = byId('mcp-more-audit');
+  const activityPageSize = 20;
+  let activityLimit = activityPageSize;
+  let activityEntries = [];
+  let activityClients = new Map();
   let selectedId;
   let selectedClient;
   let configText;
@@ -150,9 +158,11 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
     const streams = snapshot.streams.flatMap(stream => [stream,...(stream.alternates ?? [])]).filter(stream => {
       const source = cleanUrl(stream.url);
       return source?.origin === page.origin && !source.search && !source.hash && !stream.drm && !stream.restricted;
-    }).slice(0,40).map(({url,kind,duration,height,size,sizeEstimated,observedTopFrame}) => ({
-      url,kind,duration,height,observedTopFrame,...(size && !sizeEstimated && {size}),
-    }));
+    }).slice(0,40).map(stream => {
+      const {url,kind,duration,height,size,sizeEstimated,observedTopFrame} = stream;
+      return {url,kind,duration,height,observedTopFrame,...(size && !sizeEstimated && {size}),
+        preview:assessCandidates([stream])[0].evidence.includes('preview-label')};
+    });
     const sessionCandidates = streams.filter(stream => stream.observedTopFrame)
       .map(({url,kind}) => ({url,kind}));
     if (file?.size > maxCredentialFileBytes) throw new Error(label('Cookie 文件超过 64 KB。','The cookie file exceeds 64 KB.'));
@@ -175,12 +185,19 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
     byId('mcp-session-file').value = '';
     const singleTask = byId('mcp-single-task').checked;
     byId('mcp-single-task').checked = false;
-    const minutes = Number(byId('mcp-duration').value);
+    const duration = byId('mcp-duration').value;
+    const sessionMode = duration === 'browser' ? 'browser' : 'timed';
+    const minutes = sessionMode === 'browser' ? 12 * 60 : Number(duration);
     const key = grantPrefix + grant.id;
     await browserApi.storage.session.set({[key]:{tabId:tab.id,document,sessionScope,expiresAt:Date.now()+minutes*60_000+6500}});
     if (!await browserApi.alarms.get(grantAlarm)) await browserApi.alarms.create(grantAlarm,{periodInMinutes:0.5});
-    await call('approve',{id:grant.id,minutes,shareSession:Boolean(shareBrowser || manual),singleTask,
-      tab:{url:page.origin,title:snapshot.title,playing:snapshot.playing,diagnostic:snapshot.diagnostic,streams}});
+    try {
+      await call('approve',{id:grant.id,minutes,sessionMode,shareSession:Boolean(shareBrowser || manual),singleTask,
+        tab:{url:page.origin,title:snapshot.title,playing:snapshot.playing,diagnostic:snapshot.diagnostic,streams}});
+    } catch (error) {
+      if (error.status) await browserApi.storage.session.remove(key);
+      throw error;
+    }
     if (!sameDocument(await tabDocument(tab.id).catch(() => null),document)) {
       await call('revoke',{id:grant.id});
       throw new Error(label('页面已变化，请重新申请。','The page changed. Request authorization again.'));
@@ -189,7 +206,10 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
   }
 
   const policyFields = [...root.querySelectorAll('[data-mcp-policy]')];
-  function renderPolicy(settings) {
+  let effectivePolicy;
+  function renderPolicy(policy) {
+    effectivePolicy = policy;
+    const settings = policy?.settings;
     const form = byId('mcp-policy');
     form.hidden = !settings;
     if (!settings) return;
@@ -200,12 +220,103 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
     }
   }
 
+  function activityTime(value) {
+    const time = node('time',new Date(value).toLocaleString());
+    time.dateTime = value;
+    return time;
+  }
+
+  function renderActivity() {
+    const client = auditClient.value;
+    const result = auditResult.value;
+    const matches = activityEntries.filter(item => {
+      const outcome = item.result === 'ok' ? 'success' : 'failure';
+      return (!client || item.client === client) && (!result || outcome === result);
+    });
+    const visible = matches.slice(0,activityLimit);
+    byId('mcp-activity').replaceChildren(...visible.map(item => {
+      const row = node('li');
+      const outcome = item.result === 'ok' ? label('调用成功','Call succeeded') : item.result;
+      const detail = node('small');
+      detail.append(activityTime(item.time), ' · ' + (activityClients.get(item.client) ?? item.client));
+      if (item.origin) detail.append(' · ' + item.origin);
+      row.append(node('strong',item.tool + ' · ' + outcome),detail);
+      if (item.batch) row.append(node('small',label('批次 ','Batch ') + item.batch));
+      return row;
+    }));
+    byId('mcp-audit-summary').textContent = matches.length
+      ? label(`显示 ${visible.length} / ${matches.length} 条近期记录`,`Showing ${visible.length} of ${matches.length} recent entries`)
+      : label('没有匹配的活动记录','No matching activity');
+    moreActivity.hidden = visible.length === matches.length;
+  }
+
+  function updateActivity(audit,clients) {
+    byId('mcp-audit-enabled').checked = audit.settings.enabled;
+    byId('mcp-audit-days').value = audit.settings.days;
+    activityEntries = audit.items;
+    activityClients = new Map(clients.map(({id,name}) => [id,name]));
+    const selected = auditClient.value;
+    const clientIds = new Set([...activityClients.keys(),...activityEntries.map(item => item.client)]);
+    auditClient.replaceChildren(auditClient.options[0],...[...clientIds].map(id => {
+      const option = node('option',activityClients.get(id) ?? id);
+      option.value = id;
+      return option;
+    }));
+    if (clientIds.has(selected)) auditClient.value = selected;
+    renderActivity();
+  }
+
+  const networkMode = byId('mcp-network-mode');
+  function networkFields() {
+    byId('mcp-network-address').hidden = networkMode.value !== 'http';
+    byId('mcp-network-bypass').hidden = networkMode.value === 'direct';
+  }
+
+  function renderNetwork(network) {
+    const state = byId('mcp-network-status');
+    if (!network) {
+      state.textContent = label('本机服务未返回网络设置。','The companion did not return network settings.');
+      return;
+    }
+    const {configured,restartRequired,connection} = network;
+    networkMode.value = configured.mode;
+    byId('mcp-network-proxy').value = configured.proxyUrl ?? '';
+    byId('mcp-network-no-proxy').value = configured.noProxy ?? '';
+    networkFields();
+    const modes = {
+      environment:label('系统浏览器 · 本机环境变量','System browser · companion environment'),
+      direct:label('直连','Direct'),
+      http:label('指定 HTTP 代理','Custom HTTP proxy'),
+    };
+    const results = {
+      direct:label('直连模式','Direct mode'),
+      'proxy-reachable':label('当前代理端口可达','Active proxy port reachable'),
+      'proxy-partial':label('部分代理端口不可达','Some proxy ports are unreachable'),
+      'proxy-unreachable':label('代理端口不可达','Proxy port unreachable'),
+      'not-configured':label('未设置环境变量代理','No environment proxy configured'),
+      'invalid-environment':label('环境变量代理配置无效','Invalid environment proxy configuration'),
+      'disabled-by-environment':label('环境变量禁用了本机代理','Environment disables the Node proxy'),
+      'runtime-unsupported':label('当前 Node 版本不支持内置代理','Node runtime does not support built-in proxying'),
+    };
+    state.textContent = [modes[network.effective.mode],results[connection],restartRequired &&
+      label('重启本机服务后生效','Restart the companion to apply saved settings')].filter(Boolean).join(' · ');
+  }
+  networkMode.addEventListener('change',networkFields);
+  safeClick(byId('mcp-network-save'),async () => {
+    const mode = networkMode.value;
+    renderNetwork(await call('network',{mode,
+      ...(mode === 'http' && {proxyUrl:byId('mcp-network-proxy').value.trim()}),
+      ...(mode !== 'direct' && {noProxy:byId('mcp-network-no-proxy').value.trim()}),
+    }));
+  });
+  safeClick(byId('mcp-network-check'),async () => renderNetwork(await call('network/check')));
+
   async function refresh() {
     const turn = ++epoch;
     const origin = ownOrigin();
-    const [health,clients,grants,audit,policy] = await Promise.all([
+    const [health,clients,grants,audit,policy,network] = await Promise.all([
       companion(getConnection(),'/api/health'),call('clients'),call('authorizations'),call('activity'),
-      origin ? call('site?origin=' + encodeURIComponent(origin)) : null,
+      origin ? call('site?origin=' + encodeURIComponent(origin)) : null,call('network').catch(() => null),
     ]);
     if (turn !== epoch) return;
     alert(label('本机服务已连接 · ','Companion connected · ') + health.version);
@@ -215,6 +326,12 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
         inlineButton('编辑','Edit',() => loadClient(client)),
         inlineButton(client.disabled ? '启用' : '停用',client.disabled ? 'Enable' : 'Disable',
           async () => { await call('clients',{id:client.id,disabled:!client.disabled}); await refresh(); }));
+      const lastRecordedAt = audit.lastRecordedAt?.[client.id];
+      if (lastRecordedAt) {
+        const last = node('small',label('最近记录的活动 ','Last recorded activity '));
+        last.append(activityTime(lastRecordedAt));
+        row.append(last);
+      }
       return row;
     }));
     byId('mcp-grants').replaceChildren(...grants.items.filter(item => ['pending','approved'].includes(item.status)).map(grant => {
@@ -223,20 +340,17 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
         ' · ' + new Date(grant.expiresAt).toLocaleTimeString()));
       if (grant.status === 'pending' && grant.origin === origin) row.append(inlineButton('授权当前页','Approve current tab',() => approve(grant)));
       row.append(inlineButton(grant.status === 'pending' ? '拒绝' : '撤销',grant.status === 'pending' ? 'Deny' : 'Revoke',
-        async () => { await call('revoke',{id:grant.id}); await refresh(); }));
+        async () => {
+          await call('revoke',{id:grant.id});
+          await browserApi.storage.session.remove(grantPrefix + grant.id);
+          await refresh();
+        }));
       return row;
     }));
-    byId('mcp-audit-enabled').checked = audit.settings.enabled;
-    byId('mcp-audit-days').value = audit.settings.days;
-    byId('mcp-activity').replaceChildren(...audit.items.slice(0,20).map(item => {
-      const client = clients.items.find(profile => profile.id === item.client);
-      const row = node('li');
-      row.append(node('strong',item.tool + ' · ' + item.result),
-        node('small',new Date(item.time).toLocaleString() + ' · ' + (client?.name ?? item.client) + (item.origin ? ' · ' + item.origin : '')));
-      return row;
-    }));
+    updateActivity(audit,clients.items);
     byId('mcp-policy-origin').textContent = origin ?? label('请打开网页','Open a web page');
-    renderPolicy(policy?.settings);
+    renderPolicy(policy);
+    renderNetwork(network);
   }
 
   safeClick(byId('mcp-refresh'),refresh);
@@ -269,18 +383,40 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
       : label('已复制配置生成命令。','Configuration command copied.'));
   });
   safeClick(byId('mcp-save-policy'),async () => {
-    const settings = Object.fromEntries(policyFields.map(field => [
-      field.dataset.mcpPolicy,field.type === 'checkbox' ? field.checked : field.type === 'number' ? Number(field.value) : field.value,
-    ]));
-    settings.connections = Number(settings.connections);
-    await call('site',{origin:ownOrigin(),settings});
+    const origin = ownOrigin();
+    if (!origin || effectivePolicy?.origin !== origin) {
+      throw new Error(label('站点已变化，请刷新后再保存。','The site changed. Refresh before saving.'));
+    }
+    const settings = {};
+    for (const field of policyFields) {
+      const key = field.dataset.mcpPolicy;
+      const current = effectivePolicy.settings[key];
+      const value = field.type === 'checkbox' ? field.checked : typeof current === 'number' && field.value !== ''
+        ? Number(field.value) : field.value;
+      if (value !== current) settings[key] = value;
+    }
+    if (!Object.keys(settings).length) return;
+    await call('site',{origin,settings});
     await refresh();
   });
   safeClick(byId('mcp-save-audit'),async () => {
     await call('activity',{enabled:byId('mcp-audit-enabled').checked,days:Number(byId('mcp-audit-days').value)});
     await refresh();
   });
-  safeClick(byId('mcp-export-audit'),async () => saveJson('videosave-mcp-activity.json',await call('activity')));
+  safeClick(byId('mcp-export-audit'),async () => {
+    const {settings,items} = await call('activity');
+    saveJson('videosave-mcp-activity.json',{settings,items});
+  });
+  for (const filter of [auditClient,auditResult]) {
+    filter.addEventListener('change',() => {
+      activityLimit = activityPageSize;
+      renderActivity();
+    });
+  }
+  moreActivity.addEventListener('click',() => {
+    activityLimit += activityPageSize;
+    renderActivity();
+  });
   safeClick(byId('mcp-clear-audit'),async () => {
     if (!globalThis.confirm(label('清除本机 MCP 活动记录？','Clear local MCP activity records?'))) return;
     await call('activity',{clear:true});

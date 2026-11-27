@@ -122,7 +122,10 @@
           <section class="mcp-section">
             <h3 data-i18n>浏览器页面授权</h3>
             <p class="details" data-i18n>分享当前页的同源媒体候选。授权在标签页导航、关闭或到期时撤销。</p>
-            <label><span data-i18n>授权时长</span><select id="mcp-duration"><option value="1">1 min</option><option value="5" selected>5 min</option><option value="15">15 min</option></select></label>
+            <label><span data-i18n>授权时长</span><select id="mcp-duration">
+              <option value="1">1 min</option><option value="5" selected>5 min</option><option value="15">15 min</option>
+              <option value="60">1 h</option><option value="browser" data-i18n>当前浏览器会话（最长 12 小时）</option>
+            </select></label>
             <label class="check-row"><input type="checkbox" id="mcp-share-session" autocomplete="off"><span data-i18n>本次授权同时使用当前站点的登录会话</span></label>
             <label class="check-row"><input type="checkbox" id="mcp-single-task" autocomplete="off"><span data-i18n>仅允许一个下载批次</span></label>
             <details class="settings-block">
@@ -145,7 +148,29 @@
               <label><span data-i18n>连接数</span><select data-mcp-policy="connections"><option>4</option><option>8</option><option>12</option></select></label>
               <label><span data-i18n>同时下载数</span><input type="number" min="1" max="2" data-mcp-policy="concurrency"></label>
               <label class="check-row"><input type="checkbox" data-mcp-policy="subtitles"><span data-i18n>源文件内嵌字幕</span></label>
+              <label><span data-i18n>单批任务上限</span><input type="number" min="1" max="8" data-mcp-policy="maxBatchItems"></label>
+              <label><span data-i18n>最低时长（秒，0 为关闭）</span><input type="number" min="0" max="86400" data-mcp-policy="minDurationSec"></label>
+              <label class="check-row"><input type="checkbox" data-mcp-policy="excludePreviews"><span data-i18n>跳过明确标识的广告和预告</span></label>
               <button type="button" id="mcp-save-policy" data-i18n>保存站点设置</button>
+            </div>
+          </section>
+          <section class="mcp-section">
+            <h3 data-i18n>本机服务网络</h3>
+            <p class="details" id="mcp-network-status" role="status"></p>
+            <label><span data-i18n>代理模式</span><select id="mcp-network-mode">
+              <option value="environment" data-i18n>浏览器系统代理与环境变量</option>
+              <option value="direct" data-i18n>直连</option>
+              <option value="http" data-i18n>指定 HTTP 代理</option>
+            </select></label>
+            <label id="mcp-network-address" hidden><span data-i18n>HTTP 代理地址</span>
+              <input id="mcp-network-proxy" maxlength="512" type="url" placeholder="http://127.0.0.1:8080" autocomplete="off" spellcheck="false">
+            </label>
+            <label id="mcp-network-bypass"><span data-i18n>绕过代理的主机（逗号分隔）</span>
+              <input id="mcp-network-no-proxy" maxlength="2048" autocomplete="off" spellcheck="false">
+            </label>
+            <div class="settings-actions">
+              <button type="button" id="mcp-network-save" class="quiet" data-i18n>保存网络设置</button>
+              <button type="button" id="mcp-network-check" class="quiet" data-i18n>检查连接</button>
             </div>
           </section>
           <section class="mcp-section">
@@ -157,7 +182,15 @@
               <button type="button" class="quiet" id="mcp-export-audit" data-i18n>导出活动记录</button>
               <button type="button" class="text-button" id="mcp-clear-audit" data-i18n>清除记录</button>
             </div>
+            <label><span data-i18n>按客户端筛选</span><select id="mcp-audit-client"><option value="" data-i18n>全部客户端</option></select></label>
+            <label><span data-i18n>调用结果</span><select id="mcp-audit-result">
+              <option value="" data-i18n>全部结果</option>
+              <option value="success" data-i18n>调用成功</option>
+              <option value="failure" data-i18n>调用失败</option>
+            </select></label>
+            <p class="details" id="mcp-audit-summary" role="status"></p>
             <ul class="mcp-list" id="mcp-activity"></ul>
+            <button type="button" class="quiet" id="mcp-more-audit" data-i18n hidden>显示更多记录</button>
           </section>
         </details>
         <details class="settings-block" id="service-settings">

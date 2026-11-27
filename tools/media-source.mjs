@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { connectCdp, withChromium } from './edge-session.mjs';
+import { mediaProcessEnvironment } from './media-proxy.mjs';
 import { classify, isMediaFragment, isPlaylist, mediaResponseSize, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
 import { assessCandidates, detectionDiagnostic, documentBlockers } from '../extension/detection.mjs';
 import { publicMediaSources } from '../extension/media-adapters.mjs';
@@ -500,7 +501,7 @@ export async function runMedia(bin, args, signal, onLine, {onFailure, strict = f
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const grouped = process.platform !== 'win32';
-    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    const proc = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env:mediaProcessEnvironment(),
       detached:grouped });
     let stopping;
     const stop = () => {

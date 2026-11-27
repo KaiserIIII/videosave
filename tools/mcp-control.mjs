@@ -5,7 +5,7 @@ import path from 'node:path';
 import { ApiError } from './media-source.mjs';
 import { approvedCookies } from './approved-cookies.mjs';
 import { detectionDiagnostic, diagnosticReport } from '../extension/detection.mjs';
-import { settingsFile } from './preferences.mjs';
+import { readPreferences, settingsFile } from './preferences.mjs';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 export const roles = Object.freeze(['read-only','standard','custom']);
@@ -17,6 +17,7 @@ let onRevocation = () => {};
 export function handleGrantRevocation(handler) { onRevocation = handler; }
 const maxSessions = 100;
 const tabLeaseMs = 75_000;
+const browserSessionMinutes = 12 * 60;
 const scopeError = () => new ApiError('MCP_PERMISSION_DENIED','This client lacks permission for the requested operation',403);
 
 function db(run) {
@@ -99,8 +100,8 @@ export function siteOrigin(value) {
   return parsed.origin;
 }
 
-function publicGrant({id,clientId,clientName,origin,status,expiresAt}) {
-  return {id,clientId,clientName,origin,status,expiresAt:new Date(expiresAt).toISOString()};
+function publicGrant({id,clientId,clientName,origin,status,expiresAt,sessionMode}) {
+  return {id,clientId,clientName,origin,status,expiresAt:new Date(expiresAt).toISOString(),...(sessionMode && {sessionMode})};
 }
 
 function sweep(now = Date.now()) {
@@ -151,14 +152,16 @@ export function sessionStatus(client,value) {
   const grant = matching.find(entry => entry.status === 'approved') ?? matching.at(-1);
   if (!grant) return {origin,status:'unavailable'};
   return {origin,status:grant.status,authorizationId:grant.id,expiresAt:publicGrant(grant).expiresAt,
-    sessionShared:grant.tab?.sessionShared ?? false,singleTask:grant.singleTask ?? false,used:grant.used ?? false};
+    sessionShared:grant.tab?.sessionShared ?? false,singleTask:grant.singleTask ?? false,used:grant.used ?? false,
+    ...(grant.sessionMode && {sessionMode:grant.sessionMode})};
 }
 
-export function approveGrant({id,tab,minutes = 5,shareSession = false,singleTask = false} = {}) {
+export function approveGrant({id,tab,minutes = 5,sessionMode = 'timed',shareSession = false,singleTask = false} = {}) {
   const grant = getGrant(id);
   if (grant.status !== 'pending') throw new ApiError('MCP_AUTHORIZATION_INACTIVE','Request is no longer pending',409);
   const valid = tab && tab.restricted !== true && Array.isArray(tab.streams) && tab.streams.length <= 40;
-  if (!valid || siteOrigin(tab.url) !== grant.origin || ![1,5,15].includes(minutes) ||
+  if (!valid || siteOrigin(tab.url) !== grant.origin || !['timed','browser'].includes(sessionMode) ||
+      !Number.isInteger(minutes) || minutes < 1 || minutes > browserSessionMinutes ||
       typeof shareSession !== 'boolean' || typeof singleTask !== 'boolean') {
     throw new ApiError('MCP_INVALID_TAB','Open the requested site and select an allowed authorization duration');
   }
@@ -172,7 +175,7 @@ export function approveGrant({id,tab,minutes = 5,shareSession = false,singleTask
     if (!url || url.origin !== grant.origin || url.search || url.hash || !mediaKinds.has(item.kind) ||
         url.username || url.password || item.restricted || item.drm) continue;
     const cookiesFor = shareSession && !['m3u8','mpd'].includes(item.kind) ? approvedCookies(item.cookies) : () => [];
-    streams.set(url.href,{candidateId:randomUUID(),url:url.href,kind:item.kind,cookiesFor,
+    streams.set(url.href,{candidateId:randomUUID(),url:url.href,kind:item.kind,cookiesFor,preview:item.preview === true,
       ...(Number.isSafeInteger(item.size) && item.size > 0 && !['m3u8','mpd'].includes(item.kind) && {size:item.size}),
       ...(Number.isFinite(item.duration) && item.duration > 0 && {duration:item.duration}),
       ...(Number.isInteger(item.height) && item.height > 0 && {height:item.height})});
@@ -186,7 +189,8 @@ export function approveGrant({id,tab,minutes = 5,shareSession = false,singleTask
       selection:{status:streams.size > 1 ? 'ambiguous' : 'selected'}})};
   grant.status = 'approved';
   grant.singleTask = singleTask;
-  grant.expiresAt = Date.now() + minutes * 60_000;
+  grant.sessionMode = sessionMode;
+  grant.expiresAt = Date.now() + (sessionMode === 'browser' ? browserSessionMinutes : minutes) * 60_000;
   grant.leaseUntil = Date.now() + tabLeaseMs;
   return publicGrant(grant);
 }
@@ -252,24 +256,34 @@ export function recordActivity({client,tool,result,origin,batch}) {
 
 export function activity(clear = false) {
   const settings = auditSettings();
-  const items = db(connection => {
+  return db(connection => {
     if (clear) connection.exec('DELETE FROM mcp_audit');
-    return connection.prepare('SELECT time,client,tool,result,origin,batch FROM mcp_audit ORDER BY rowid DESC LIMIT 200').all();
+    const items = connection.prepare('SELECT time,client,tool,result,origin,batch FROM mcp_audit ORDER BY rowid DESC LIMIT 200').all();
+    const latest = connection.prepare('SELECT client, MAX(time) AS time FROM mcp_audit GROUP BY client').all();
+    const lastRecordedAt = Object.fromEntries(latest.map(({client,time}) => [client,time]));
+    return {settings,items,lastRecordedAt};
   });
-  return {settings,items};
 }
 
 
 const siteDefaults = Object.freeze({probe:true,download:false,session:true,quality:1080,format:'mp4',audioFormat:'m4a',
-  subtitles:false,connections:8,concurrency:1});
+  subtitles:false,connections:8,concurrency:1,maxBatchItems:8,minDurationSec:0,excludePreviews:false});
 export const preferenceProperties = {
   probe:{type:'boolean'},download:{type:'boolean'},session:{type:'boolean'},quality:{type:'integer',minimum:144,maximum:4320},
   format:{enum:['mp4','mkv']},audioFormat:{enum:['m4a','mp3']},subtitles:{type:'boolean'},
-  connections:{enum:[4,8,12]},concurrency:{type:'integer',minimum:1,maximum:2}
+  connections:{enum:[4,8,12]},concurrency:{type:'integer',minimum:1,maximum:2},
+  maxBatchItems:{type:'integer',minimum:1,maximum:8},minDurationSec:{type:'integer',minimum:0,maximum:86_400},
+  excludePreviews:{type:'boolean'},
 };
 
 export function sitePreferences(value, settings) {
   const origin = siteOrigin(value);
+  const global = readPreferences('download');
+  const defaults = {...siteDefaults};
+  for (const key of ['quality','format','audioFormat','subtitles','connections']) {
+    if (global[key] !== undefined) defaults[key] = global[key];
+  }
+  if (global.concurrency !== undefined) defaults.concurrency = Math.min(2,global.concurrency);
   return db(connection => {
     connection.exec('CREATE TABLE IF NOT EXISTS mcp_site_policies (origin TEXT PRIMARY KEY, policy TEXT NOT NULL)');
     if (settings !== undefined) {
@@ -288,7 +302,7 @@ export function sitePreferences(value, settings) {
       }
     }
     const stored = connection.prepare('SELECT policy FROM mcp_site_policies WHERE origin=?').get(origin);
-    return {origin,settings:{...siteDefaults,...(stored && JSON.parse(stored.policy))}};
+    return {origin,settings:{...defaults,...(stored && JSON.parse(stored.policy))}};
   });
 }
 
