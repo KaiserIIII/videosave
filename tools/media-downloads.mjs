@@ -504,7 +504,7 @@ export function queueOriginal({ url, title, extension, connections, requestId } 
 }
 
 export function queue({ items, maxSec, prefetch, cookie, headers, concurrency, connections, delivery = 'local', requestId, useBrowserCookies } = {},
-  originalExtension, principal) {
+  originalExtension, principal, authorization) {
   if (delivery !== 'local' && delivery !== 'browser') throw new ApiError('INVALID_DELIVERY', '无效的保存方式');
   if (useBrowserCookies !== undefined && useBrowserCookies !== false) {
     throw new ApiError('BROWSER_SESSION_UNAVAILABLE', '下载使用独立会话');
@@ -522,11 +522,12 @@ export function queue({ items, maxSec, prefetch, cookie, headers, concurrency, c
   }
   const limit = durationLimit(maxSec);
   return enqueue({targets, limit, prefetch:prefetch ?? !limit, cookies:parseCookies(cookie), concurrency, connections,
-    delivery, originalExtension, requestId, principal, outDir:defaults.outDir, headers:parseMediaHeaders(headers)});
+    delivery, originalExtension, requestId, principal, authorization, outDir:defaults.outDir, headers:parseMediaHeaders(headers)});
 }
 
 export function retryBatch({id} = {}) {
   const batch = lookup(id);
+  if (batch.principal) throw new ApiError('MCP_REAPPROVAL_REQUIRED', 'Start a new download from an approved tab', 409);
   if (batch.delivery !== 'local') throw new ApiError('BROWSER_RETRY_REQUIRED', 'Retry this download from the extension', 409);
   if (!isTerminal(batch.status)) throw new ApiError('BATCH_ACTIVE', 'Wait for the batch to stop or finish', 409);
   if (batch.retry) return batch.retry;
@@ -545,6 +546,7 @@ function enqueue(request) {
   const {targets, limit, prefetch, cookies, concurrency, connections, delivery, originalExtension, requestId, outDir} = request;
   const hashInputs = [targets, limit, prefetch, cookies, concurrency, connections, delivery, originalExtension, requestId, outDir];
   if (request.principal) hashInputs.push({principal:request.principal});
+  if (request.authorization) hashInputs.push(request.authorization.id);
   if (Object.keys(request.headers).length) hashInputs.push(request.headers);
   const key = createHash('sha256').update(JSON.stringify(hashInputs)).digest('hex');
   const existing = batches.get(batchKeys.get(key));
@@ -597,7 +599,7 @@ function enqueue(request) {
     }
     batch.status = batch.controller.signal.aborted || signal.aborted && batch.items.some(item => item.status === 'cancelled')
       ? 'cancelled' : completedStatus(batch.items);
-    if (delivery !== 'local' || batch.items.every(item => item.status === 'done')) delete batch.request;
+    if (request.authorization || delivery !== 'local' || batch.items.every(item => item.status === 'done')) delete batch.request;
     if (batchKeys.get(key) === id) batchKeys.delete(key);
     if (delivery === 'local') storeBatch(historyRecord(batch));
     publish(batch, signal.aborted ? '批次已取消' : '批次已结束');
@@ -723,8 +725,9 @@ async function runItem(batch, item, target, limit, cookies, signal) {
       resolvedTitleSource = stream.titleSource;
     }
   }
-  const scopedCookies = source.origin === input.origin ? cookies : [];
-  const headers = {...capturedHeaders(source.href), ...batch.request.headers};
+  const authorization = batch.request.authorization;
+  const scopedCookies = !authorization && source.origin === input.origin ? cookies : [];
+  const headers = authorization ? {} : {...capturedHeaders(source.href), ...batch.request.headers};
   const expiresAt = streamExpiry(source);
   if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
     throw new ApiError('STREAM_EXPIRED', '媒体地址已过期，请重新探测原页面', 422, {expiresAt});
@@ -767,7 +770,12 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     };
     sourceKind ||= classify(source);
     let staged;
-    if (platform) {
+    if (authorization) {
+      staged = await prefetchRanges(source,scopedCookies,staging,signal,downloadProgress,{
+        connections:batch.connections,stageFull:true,exactSource:true,cookiesFor:authorization.cookiesFor,
+      });
+      if (!staged) throw new ApiError('MCP_MEDIA_UNAVAILABLE','The approved URL did not return a complete direct media file',422);
+    } else if (platform) {
       staged = await stagePlatform(platform,target,staging,batch.connections,signal,downloadProgress,headers);
     } else if (batch.request.prefetch) {
       if (sourceKind !== 'm3u8' && sourceKind !== 'mpd') {
@@ -783,7 +791,7 @@ async function runItem(batch, item, target, limit, cookies, signal) {
       }
       if (!staged) item.prefetchFallback ??= {reason:sourceKind === 'mpd' ? 'unsupported-dash-playlist' : 'direct-prefetch-unavailable'};
     }
-    if (sourceKind === 'mpd' || sourceKind === 'm3u8' && !batch.request.prefetch) {
+    if (!authorization && (sourceKind === 'mpd' || sourceKind === 'm3u8' && !batch.request.prefetch)) {
       await checkManifestProtection(source,scopedCookies,signal,{kind:sourceKind,quality:target.quality,headers});
     }
     if (platform) item.title ||= target.title;
@@ -811,6 +819,7 @@ async function runItem(batch, item, target, limit, cookies, signal) {
     let media = staged || source;
     let info = await probeStream(media, scopedCookies, signal, true, undefined, headers);
     if (staged?.endsWith('.bin') && !platform && !info.tracks?.length) {
+      if (authorization) throw new ApiError('MCP_MEDIA_UNSUPPORTED','The approved response did not contain supported direct media',422);
       media = source;
       item.prefetch = false;
       item.prefetchFallback = {reason:'staged-media-unrecognized'};

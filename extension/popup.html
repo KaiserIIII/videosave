@@ -123,6 +123,7 @@
             <h3 data-i18n>浏览器页面授权</h3>
             <p class="details" data-i18n>分享当前页的同源媒体候选。授权在标签页导航、关闭或到期时撤销。</p>
             <label><span data-i18n>授权时长</span><select id="mcp-duration"><option value="1">1 min</option><option value="5" selected>5 min</option><option value="15">15 min</option></select></label>
+            <label class="check-row"><input type="checkbox" id="mcp-share-session" autocomplete="off"><span data-i18n>本次授权同时使用当前站点的登录会话</span></label>
             <ul class="mcp-list" id="mcp-grants"></ul>
           </section>
           <section class="mcp-section">
@@ -131,6 +132,7 @@
             <div id="mcp-policy" hidden>
               <label class="check-row"><input type="checkbox" data-mcp-policy="probe"><span data-i18n>允许 MCP 探测</span></label>
               <label class="check-row"><input type="checkbox" data-mcp-policy="download"><span data-i18n>允许 MCP 下载</span></label>
+              <label class="check-row"><input type="checkbox" data-mcp-policy="session"><span data-i18n>允许手动授权登录会话</span></label>
               <label><span data-i18n>画质上限</span><input type="number" min="144" max="4320" data-mcp-policy="quality"></label>
               <label><span data-i18n>视频格式</span><select data-mcp-policy="format"><option value="mp4">MP4</option><option value="mkv">MKV</option></select></label>
               <label><span data-i18n>音频格式</span><select data-mcp-policy="audioFormat"><option value="m4a">M4A</option><option value="mp3">MP3</option></select></label>

@@ -469,7 +469,8 @@ export function scanDocument(includeContext = false, includeText = false) {
     : visibleBlocker('#captcha-form, form[action*="captcha"]') ? 'captcha'
     : !videos.length && visibleBlocker('iframe[src*="challenges.cloudflare.com"], .cf-turnstile') ? 'cf-turnstile' : null;
   return { pageTitle:document.title, pageMetadata, pageContext, playerCount:videos.length, candidates, pages,
-    documentUrl:location.href, blocker, routeStartedAt:globalThis.videoSaveRouteStart && performance.timeOrigin + globalThis.videoSaveRouteStart,
+    documentUrl:location.href, documentTimeOrigin:performance.timeOrigin, blocker,
+    routeStartedAt:globalThis.videoSaveRouteStart && performance.timeOrigin + globalThis.videoSaveRouteStart,
     ...(detailPages && {detailPages:[...detailPages.values()]}), opaquePlayer, excludedMedia:[...excludedMedia],
     encrypted:videos.some(video => video.mediaKeys),
     publicConfigs, unloaded, unsupported, iframeCount:document.querySelectorAll('iframe, frame').length,

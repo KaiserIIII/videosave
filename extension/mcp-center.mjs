@@ -1,25 +1,69 @@
 import { browserApi } from './browser.mjs';
 import { companion } from './downloads.mjs';
 
-const keyFor = id => 'mcp-tab:' + id;
+const grantPrefix = 'mcp-grant:';
+const grantAlarm = 'mcp-tab-authorizations';
 const cleanUrl = value => {
   const url = URL.parse(value ?? '');
   return url && ['http:','https:'].includes(url.protocol) && !url.username && !url.password ? url : null;
 };
 
+async function getTabCookies(tabId, candidates) {
+  const stores = await browserApi.cookies.getAllCookieStores();
+  const store = stores.find(entry => entry.tabIds.includes(tabId));
+  if (!store) throw new Error('The current tab’s cookie store is unavailable.');
+  const cookies = new Map();
+  await Promise.all(candidates.filter(stream => !['m3u8','mpd'].includes(stream.kind)).map(async stream => {
+    const hostname = new URL(stream.url).hostname;
+    const entries = await browserApi.cookies.getAll({url:stream.url,storeId:store.id});
+    cookies.set(stream.url,entries.filter(item => item.domain.replace(/^\./,'') === hostname).slice(0,20));
+  }));
+  return cookies;
+}
+
+async function cookieState(tabId, candidates) {
+  const cookies = await getTabCookies(tabId,candidates);
+  const bytes = new TextEncoder().encode(JSON.stringify([...cookies].sort(([left],[right]) => left.localeCompare(right))));
+  const digest = await crypto.subtle.digest('SHA-256',bytes);
+  return {cookies,digest:Array.from(new Uint8Array(digest)).join(',')};
+}
+
+async function tabDocument(tabId) {
+  const [result] = await browserApi.scripting.executeScript({
+    target:{tabId},func:() => ({url:location.href,timeOrigin:performance.timeOrigin}),
+  });
+  return result?.result && {...result.result,id:result.documentId ?? null};
+}
+
+function sameDocument(left,right) {
+  return left && right && left.url === right.url && left.timeOrigin === right.timeOrigin && left.id === right.id;
+}
+
 export function startTabGrantCleanup() {
-  const revoke = async tabId => {
-    const key = keyFor(tabId);
-    const [session,local] = await Promise.all([browserApi.storage.session.get(key),browserApi.storage.local.get('connection')]);
-    const ids = session[key] ?? [];
-    if (!ids.length) return;
-    await browserApi.storage.session.remove(key);
-    await Promise.allSettled(ids.map(id => companion(local.connection,'/api/ai/revoke',{id})));
-  };
-  const invalidate = id => { void revoke(id).catch(() => {}); };
+  async function reconcile(tabId, forceRevoke = false) {
+    const [session,local] = await Promise.all([browserApi.storage.session.get(null),browserApi.storage.local.get('connection')]);
+    const grants = Object.entries(session).filter(([key,value]) => key.startsWith(grantPrefix) && (tabId === undefined || tabId === value.tabId));
+    await Promise.allSettled(grants.map(async ([key,{tabId,document,expiresAt,sessionScope}]) => {
+      const id = key.slice(grantPrefix.length);
+      if (expiresAt <= Date.now()) return browserApi.storage.session.remove(key);
+      const current = forceRevoke ? null : await tabDocument(tabId).catch(() => null);
+      const valid = sameDocument(current,document) && (!sessionScope ||
+        (await cookieState(tabId,sessionScope.candidates).catch(() => null))?.digest === sessionScope.digest);
+      try {
+        const grant = await companion(local.connection,valid ? '/api/ai/renew' : '/api/ai/revoke',{id});
+        if (grant.status !== 'approved') await browserApi.storage.session.remove(key);
+      } catch (error) {
+        if (error.status === 404) await browserApi.storage.session.remove(key);
+      }
+    }));
+  }
+  const invalidate = id => { void reconcile(id,true).catch(() => {}); };
   browserApi.tabs.onRemoved.addListener(invalidate);
   browserApi.tabs.onUpdated.addListener((id,change) => {
     if (change.url || change.status === 'loading') invalidate(id);
+  });
+  browserApi.alarms.onAlarm.addListener(event => {
+    if (event.name === grantAlarm) void reconcile().catch(() => {});
   });
 }
 
@@ -75,23 +119,39 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
   async function approve(grant) {
     const tab = getTab();
     if (!tab?.id) throw new Error(label('请打开申请的网站。','Open the requested site.'));
+    const shareSession = byId('mcp-share-session').checked;
+    if (shareSession && cleanUrl(tab.url)?.origin === grant.origin) {
+      const allowed = await browserApi.permissions.request({permissions:['cookies']});
+      if (!allowed) throw new Error(label('浏览器未授予 Cookie 权限。','The browser did not grant cookie permission.'));
+    }
     const current = await browserApi.tabs.get(tab.id);
+    const document = await tabDocument(tab.id);
     const page = cleanUrl(current.url);
     const snapshot = getSnapshot();
-    if (page?.origin !== grant.origin || snapshot.url !== current.url || snapshot.restricted) {
+    if (page?.origin !== grant.origin || !sameDocument(snapshot.document,document) || document?.url !== current.url || snapshot.restricted) {
       throw new Error(label('请打开申请的网站，完成正常播放并扫描后再批准。','Open the requested site, play the media normally, and scan before approving.'));
     }
     const streams = snapshot.streams.flatMap(stream => [stream,...(stream.alternates ?? [])]).filter(stream => {
       const source = cleanUrl(stream.url);
       return source?.origin === page.origin && !source.search && !source.hash && !stream.drm && !stream.restricted;
-    }).slice(0,40).map(({url,kind,duration,height}) => ({url,kind,duration,height}));
-    const key = keyFor(tab.id);
-    const previous = (await browserApi.storage.session.get(key))[key] ?? [];
-    await browserApi.storage.session.set({[key]:[...new Set([...previous.slice(-49),grant.id])]});
-    await call('approve',{id:grant.id,minutes:Number(byId('mcp-duration').value),
+    }).slice(0,40).map(({url,kind,duration,height,observed,frameId}) => ({url,kind,duration,height,observed,frameId}));
+    const sessionCandidates = streams.filter(stream => stream.observed && stream.frameId === 0)
+      .map(({url,kind}) => ({url,kind}));
+    const state = shareSession ? await cookieState(tab.id,sessionCandidates) : null;
+    const sessionScope = state && {digest:state.digest,candidates:sessionCandidates};
+    if (state) for (const stream of streams) stream.cookies = state.cookies.get(stream.url);
+    for (const stream of streams) {
+      delete stream.observed;
+      delete stream.frameId;
+    }
+    byId('mcp-share-session').checked = false;
+    const minutes = Number(byId('mcp-duration').value);
+    const key = grantPrefix + grant.id;
+    await browserApi.storage.session.set({[key]:{tabId:tab.id,document,sessionScope,expiresAt:Date.now()+minutes*60_000+6500}});
+    if (!await browserApi.alarms.get(grantAlarm)) await browserApi.alarms.create(grantAlarm,{periodInMinutes:0.5});
+    await call('approve',{id:grant.id,minutes,shareSession,
       tab:{url:page.origin,title:snapshot.title,playing:snapshot.playing,streams}});
-    const after = await browserApi.tabs.get(tab.id).catch(() => null);
-    if (after?.url !== current.url) {
+    if (!sameDocument(await tabDocument(tab.id).catch(() => null),document)) {
       await call('revoke',{id:grant.id});
       throw new Error(label('页面已变化，请重新申请。','The page changed. Request authorization again.'));
     }

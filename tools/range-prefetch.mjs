@@ -7,6 +7,7 @@ import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { classify, isPlaylist } from '../extension/media.mjs';
+import { ApiError } from './media-source.mjs';
 
 const MiB = 1024 * 1024;
 const minimumParallelSize = 8 * MiB;
@@ -14,6 +15,17 @@ const maxConnections = 8;
 const strongEtag = /^"[\x21\x23-\x7e\x80-\xff]*"$/;
 const transientStatuses = new Set([408, 500, 502, 503, 504]);
 const redirects = new Set([301, 302, 303, 307, 308]);
+
+function enforceExactResponse(response) {
+  if (redirects.has(response.status)) {
+    response.body.destroy();
+    throw new ApiError('MCP_MEDIA_REDIRECT','The approved media URL redirected. Open the destination in the browser and request approval again.',403);
+  }
+  if ([401,402,403,429,451].includes(response.status) || response.headers.get('cf-mitigated') === 'challenge') {
+    response.body.destroy();
+    throw new ApiError('MCP_MEDIA_ACCESS_RESTRICTED','The media server denied this request. Confirm access in the browser.',403);
+  }
+}
 
 function requestFile(url, headers, signal) {
   const client = url.protocol === 'https:' ? https : http;
@@ -64,10 +76,14 @@ async function rangeCheckpoint(root, target, size, etag, chunkSize) {
 
 export async function prefetchRanges(source, cookies, staging, signal, onProgress, {
   connections = maxConnections, stageFull = false, expectedSize, onKind, recovery, headers:mediaHeaders,
+  exactSource = false, cookiesFor,
 } = {}) {
   if (expectedSize !== undefined && expectedSize < minimumParallelSize) return null;
   const cookie = cookies.map(({ name, value }) => name + '=' + value).join('; ');
-  const headersFor = url => ({...mediaHeaders,'accept-encoding':'identity', ...(cookie && url.origin === source.origin && {cookie})});
+  const headersFor = url => {
+    const scoped = cookiesFor ? cookiesFor(url).map(({name,value}) => name + '=' + value).join('; ') : cookie;
+    return {...mediaHeaders,'accept-encoding':'identity', ...(scoped && url.origin === source.origin && {cookie:scoped})};
+  };
   const probe = new AbortController();
   const probeSignal = AbortSignal.any([signal, probe.signal]);
   let deadline = setTimeout(() => probe.abort(), 2000);
@@ -78,6 +94,7 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
     let response;
     for (let hop = 0; hop <= 4; hop++) {
       response = await requestFile(target,{...headersFor(target),range:'bytes=0-0'},probeSignal);
+      if (exactSource) enforceExactResponse(response);
       if (!redirects.has(response.status)) break;
       response.body.destroy();
       const location = response.headers.get('location');
@@ -91,7 +108,6 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
       response.body.destroy();
       return null;
     }
-    const headers = headersFor(target);
     const size = Number(/^bytes 0-0\/(\d+)$/.exec(response.headers.get('content-range'))?.[1]);
     const etag = response.headers.get('etag');
     if (expectedSize !== undefined && size !== expectedSize) {
@@ -101,7 +117,8 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
     if (!Number.isSafeInteger(size) || size < minimumParallelSize || !strongEtag.test(etag) || !validRange(response, 0, 0, size, etag)) {
       if (stageFull && response.status === 206 && Number.isSafeInteger(size) && size > 0) {
         response.body.destroy();
-        response = await requestFile(target,headers,probeSignal);
+        response = await requestFile(target,headersFor(target),probeSignal);
+        if (exactSource) enforceExactResponse(response);
       }
       const encoding = response.headers.get('content-encoding');
       if (!stageFull || response.status !== 200 || !response.body || encoding && encoding !== 'identity') {
@@ -174,9 +191,10 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
             const rangeSignal = AbortSignal.any([transferSignal, stalled.signal]);
             let part;
             try {
-              part = await requestFile(target,{...headers,range:`bytes=${position}-${end}`,'if-range':etag},rangeSignal)
+              part = await requestFile(target,{...headersFor(target),range:`bytes=${position}-${end}`,'if-range':etag},rangeSignal)
                 .catch(() => null);
               if (!part) continue;
+              if (exactSource) enforceExactResponse(part);
               if (!validRange(part, position, end, size, etag)) {
                 if (transientStatuses.has(part.status)) continue;
                 throw new Error('Unexpected range response');
@@ -214,9 +232,10 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
     transferSignal.throwIfAborted();
     for (const result of results) if (result.status === 'rejected') throw result.reason;
     return destination;
-  } catch {
+  } catch (error) {
     if (created) await rm(file, {force:true, maxRetries:5});
     signal.throwIfAborted();
+    if (exactSource && error instanceof ApiError) throw error;
     return null;
   } finally {
     clearTimeout(deadline);

@@ -68,6 +68,7 @@ let detection = {code:'no-player'};
 let scanQueued = false;
 let watchingTab;
 let scannedUrl;
+let scannedDocument;
 const manifestCache = new Map();
 const diagnosticHints = {
   'multiple-candidates':'检测到多个候选，请确认要下载的视频。',
@@ -606,7 +607,9 @@ async function refresh(manual = true) {
     const scan = allFrames => browserApi.scripting.executeScript({target:{tabId:tab.id, allFrames},func:scanDocument,args:[true]});
     const frames = (await scan(true).catch(() => scan(false).catch(() => []))).filter(frame => frame.result);
     const observations = frames.map(frame => frame.result);
-    const top = frames.find(frame => frame.frameId === 0)?.result;
+    const topFrame = frames.find(frame => frame.frameId === 0);
+    const top = topFrame?.result;
+    scannedDocument = top && {url:top.documentUrl,timeOrigin:top.documentTimeOrigin,id:topFrame.documentId ?? null};
     const previousPageTitle = pageTitle;
     pageTitle = top?.pageTitle?.trim() || tab.title?.trim() || '';
     pageHeading = '当前标签页';
@@ -818,7 +821,7 @@ function saveJson(filename, report) {
 }
 bindMcpCenter({root:$('mcp-center'),translate:(zh,en) => language === 'en' ? en : zh,
   getConnection:() => connection,getTab:() => tab,saveJson,
-  getSnapshot:() => ({url:scannedUrl,title:pageTitle,restricted:Boolean(detection.blockers?.length),
+  getSnapshot:() => ({document:scanning ? null : scannedDocument,title:pageTitle,restricted:Boolean(detection.blockers?.length),
     playing:streams.some(stream => stream.playing),streams:scanning ? [] : streams})});
 $('mcp-center').hidden = !nativeDownloads;
 

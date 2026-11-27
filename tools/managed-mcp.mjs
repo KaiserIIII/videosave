@@ -48,18 +48,25 @@ function getContext(client,args) {
 }
 
 function enqueue(client,args) {
-  const {streams,settings,authorizationId} = getContext(client,args);
+  const {streams,settings,authorizationId,tab} = getContext(client,args);
   if (!settings.download) throw new ApiError('MCP_SITE_DENIED','Enable downloads for this site in VideoSave',403);
-  const active = downloads.listBatches({limit:100},client.id).items.filter(batch => batch.status === 'running').length;
+  const active = downloads.listBatches({limit:100},client.id).items.filter(batch => ['running','cancelling'].includes(batch.status)).length;
   if (active >= 2) throw new ApiError('MCP_BATCH_LIMIT','This client already has two active batches',429);
   const items = args.items.map(item => {
     const source = streams.find(stream => stream.candidateId === item.candidateId);
     if (!source) throw new ApiError('MCP_SOURCE_NOT_APPROVED','Choose a candidate from the approved tab',403);
-    const sourceKind = ['m3u8','mpd'].includes(source.kind) ? source.kind : undefined;
-    return {kind:'stream',url:source.url,sourceKind,format:item.format ?? settings.format,
+    if (['m3u8','mpd'].includes(source.kind)) {
+      throw new ApiError('MCP_MEDIA_UNSUPPORTED','Managed downloads require a direct media source',422);
+    }
+    return {kind:'stream',url:source.url,title:tab.title || undefined,format:item.format ?? settings.format,
       quality:Math.min(item.quality ?? settings.quality,settings.quality),audioFormat:settings.audioFormat,subtitles:settings.subtitles};
   });
-  const batch = downloads.queue({items,connections:settings.connections,concurrency:settings.concurrency},undefined,client.id);
+  const batch = downloads.queue({items,connections:settings.connections,concurrency:settings.concurrency},undefined,client.id,
+    {id:authorizationId,cookiesFor(url) {
+      const current = activeTab(client,authorizationId).streams.find(stream => stream.url === url.href);
+      if (!current) throw new ApiError('MCP_SOURCE_NOT_APPROVED','Choose a candidate from the approved tab',403);
+      return current.cookiesFor(url);
+    }});
   if (!batches.has(authorizationId)) batches.set(authorizationId,new Set());
   batches.get(authorizationId).add(batch.id);
   return batch;
@@ -69,13 +76,13 @@ async function invalidateManagedGrant(id) {
   const assigned = batches.get(id);
   if (!assigned) return;
   batches.delete(id);
-  for (const batch of assigned) {
+  await Promise.allSettled([...assigned].map(async batch => {
     try {
       if (downloads.progress(batch).status === 'running') await downloads.cancel(batch);
     } catch (error) {
       if (error.code !== 'BATCH_NOT_FOUND') throw error;
     }
-  }
+  }));
 }
 
 handleGrantRevocation(id => { void invalidateManagedGrant(id).catch(() => {}); });
@@ -100,7 +107,9 @@ async function perform(client,name,args,signal) {
     }
     case 'probe_active_tab': {
       const {authorizationId,tab,streams} = getContext(client,args);
-      return {authorizationId,tab,streams:streams.map(({candidateId,kind,duration,height}) => ({candidateId,kind,duration,height})),
+      return {authorizationId,tab,streams:streams.map(({candidateId,kind,duration,height}) => ({
+        candidateId,kind,duration,height,downloadable:!['m3u8','mpd'].includes(kind),
+      })),
         diagnostic:{code:streams.length ? 'media-found' : 'no-approved-media'}};
     }
     case 'get_site_preferences': return sitePreferences(args.origin);

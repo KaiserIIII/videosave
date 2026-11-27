@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import * as downloads from './media-downloads.mjs';
 import { configureMediaProxy } from './media-proxy.mjs';
 import { localPairingCode } from './preferences.mjs';
-import { activity, approveGrant, auditSettings, authenticateClient, listClients, listGrants, revokeGrant, saveClient, sitePreferences } from './mcp-control.mjs';
+import { activity, approveGrant, auditSettings, authenticateClient, listClients, listGrants, renewGrant, revokeGrant, saveClient, sitePreferences } from './mcp-control.mjs';
 import { invokeManaged, managedTools } from './managed-mcp.mjs';
 
 configureMediaProxy();
@@ -141,6 +141,7 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
       case 'POST /api/ai/clients': return reply(res,200,saveClient(await body(req)));
       case 'GET /api/ai/authorizations': return reply(res,200,listGrants());
       case 'POST /api/ai/approve': return reply(res,200,approveGrant(await body(req)));
+      case 'POST /api/ai/renew': return reply(res,200,renewGrant((await body(req)).id));
       case 'POST /api/ai/revoke': return reply(res,200,revokeGrant((await body(req)).id));
       case 'GET /api/ai/site': return reply(res,200,sitePreferences(searchParams.get('origin')));
       case 'POST /api/ai/site': {

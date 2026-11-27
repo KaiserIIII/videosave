@@ -24,4 +24,6 @@ The extension listens to request metadata through its existing browser permissio
 
 Windows workers use the requested connection count as their per-transfer ceiling. Range prefetch verifies ETags and offsets. HLS prefetch retries transient segment failures and bounds duplicate requests from spare workers. Local queue recovery preserves completed outputs and revalidates checkpoint inputs before resuming. FFprobe verifies output tracks and duration where available.
 
+The managed MCP tools use a profile-scoped credential on the paired loopback server. The extension confirms the identity of the approved document and periodically renews the grant. Optional login credentials are matched to the approved direct resource for each HTTP request. Managed jobs reject redirects, stage the complete source with the Range engine, and pass a local file to FFmpeg. SQLite stores policy, audit metadata, and batch ownership.
+
 See [compatibility evidence](compatibility-report.zh-CN.md), [MCP operations](mcp.md), [installation](install.md), and the [privacy policy](privacy.md).

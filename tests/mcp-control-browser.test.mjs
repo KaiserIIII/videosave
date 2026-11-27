@@ -10,7 +10,7 @@ import test from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { connectCdp, withEdge } from '../tools/edge-session.mjs';
 
-test('Edge approves an MCP tab grant and saves a verified file through stdio', {timeout:90_000}, async () => {
+test('Edge shares a login only after approval and saves a verified file through MCP', {timeout:90_000}, async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(),'videosave-mcp-edge-'));
   const signal = AbortSignal.timeout(85_000);
   const token = 'test-only-video-save-pairing';
@@ -24,11 +24,19 @@ test('Edge approves an MCP tab grant and saves a verified file through stdio', {
     return createInterface({input:child.stdout})[Symbol.asyncIterator]();
   };
   const nativeCookies = [];
+  let mediaRedirect;
+  let receivedRedirect = 0;
+  const destination = createServer((_req,res) => {
+    receivedRedirect++;
+    res.writeHead(200,{'content-type':'video/mp4'}).end(bytes);
+  });
   let mediaUrl;
   let bytes;
   const origin = createServer((req,res) => {
     if (req.url === '/film.mp4') {
       if (req.headers['user-agent']?.startsWith('VideoSave') || !req.headers['sec-fetch-mode']) nativeCookies.push(req.headers.cookie);
+      if (req.headers.cookie !== login) return res.writeHead(401).end('Sign in');
+      if (mediaRedirect) return res.writeHead(302,{location:mediaRedirect}).end();
       return res.writeHead(200,{'content-type':'video/mp4','content-length':bytes.length}).end(bytes);
     }
     if (req.url === '/login') return res.writeHead(302,{'set-cookie':login + '; Path=/; HttpOnly; SameSite=Strict',location:'/watch'}).end();
@@ -38,13 +46,14 @@ test('Edge approves an MCP tab grant and saves a verified file through stdio', {
     if (req.url === '/watch') return res.writeHead(401).end('Sign in');
     return res.writeHead(404).end();
   });
-  async function until(fn) {
-    while (!signal.aborted) {
+  async function until(fn, describe = () => 'waiting for browser state') {
+    const deadline = Date.now() + 8000;
+    while (!signal.aborted && Date.now() < deadline) {
       const result = await fn();
       if (result) return result;
       await sleep(160,null,{signal});
     }
-    signal.throwIfAborted();
+    throw new Error(await describe());
   }
   try {
     const film = path.join(dir,'film.mp4');
@@ -107,13 +116,32 @@ test('Edge approves an MCP tab grant and saves a verified file through stdio', {
         await until(async () => (await admin('site?origin=' + encodeURIComponent(mediaUrl))).settings.download);
         await until(() => popup.evaluate('!document.querySelector("#mcp-save-policy").disabled'));
         await popup.evaluate('document.querySelector("#mcp-grants button").click(); true');
-        await until(async () => (await call('get_authorization_status',{id:grant.id})).status === 'approved');
+        await until(async () => (await call('get_authorization_status',{id:grant.id})).status === 'approved',
+          () => popup.evaluate('document.querySelector("#mcp-message").textContent || "waiting for approval"'));
 
         const result = await call('probe_active_tab',{authorizationId:grant.id});
         assert.equal(result.tab.title,'VideoSave QA film');
         assert.equal(result.streams.length,1);
+        assert.equal(result.tab.sessionShared,false);
         assert.ok(!JSON.stringify(result).includes(login));
-        const batch = await call('start_download',{authorizationId:grant.id,items:[{candidateId:result.streams[0].candidateId}]});
+        const deniedBatch = await call('start_download',{authorizationId:grant.id,items:[{candidateId:result.streams[0].candidateId}]});
+        const denied = await call('wait_for_download',{id:deniedBatch.id,timeoutMs:20_000});
+        assert.equal(denied.items[0].errorCode,'MCP_MEDIA_ACCESS_RESTRICTED');
+        assert.deepEqual([...new Set(nativeCookies)],[undefined]);
+
+        const grantWithLogin = await call('request_site_authorization',{origin:mediaUrl});
+        await popup.evaluate('document.querySelector("#mcp-refresh").click(); true');
+        const approveButton = 'Array.from(document.querySelectorAll("#mcp-grants button")).find(button => /授权当前页|Approve/.test(button.textContent))';
+        await until(() => popup.evaluate('Boolean(' + approveButton + ')'));
+        await popup.send('Runtime.evaluate',{expression:'document.querySelector("#mcp-share-session").click(); (' + approveButton + ').click();',
+          userGesture:true,awaitPromise:true});
+        await until(async () => (await call('get_authorization_status',{id:grantWithLogin.id})).status === 'approved',
+          () => popup.evaluate('document.querySelector("#mcp-message").textContent || "waiting for browser cookie permission"'));
+        const shared = await call('probe_active_tab',{authorizationId:grantWithLogin.id});
+        assert.equal(shared.tab.sessionShared,true);
+        assert.ok(!JSON.stringify(shared).includes(login));
+
+        const batch = await call('start_download',{authorizationId:grantWithLogin.id,items:[{candidateId:shared.streams[0].candidateId}]});
         const saved = await call('wait_for_download',{id:batch.id,timeoutMs:20_000});
         assert.equal(saved.status,'done',JSON.stringify(saved));
         const verified = await call('verify_download',{id:batch.id});
@@ -123,7 +151,7 @@ test('Edge approves an MCP tab grant and saves a verified file through stdio', {
         assert.deepEqual(inspect.streams.map(row => row.codec_type).sort(),['audio','video']);
         assert.ok(Math.abs(Number(inspect.format.duration)-2)<0.15);
         assert.ok(nativeCookies.length > 0, 'companion fetched the media independently');
-        assert.deepEqual([...new Set(nativeCookies)],[undefined]);
+        assert.deepEqual([...new Set(nativeCookies)],[undefined,login]);
         assert.ok(!(JSON.stringify(await admin('activity'))).includes(login));
         if (process.env.VIDEOSAVE_MCP_SCREENSHOT) {
           await popup.send('Emulation.setDeviceMetricsOverride',{width:472,height:560,deviceScaleFactor:1,mobile:false});
@@ -131,9 +159,18 @@ test('Edge approves an MCP tab grant and saves a verified file through stdio', {
           const image = await popup.send('Page.captureScreenshot',{format:'png'});
           await writeFile(process.env.VIDEOSAVE_MCP_SCREENSHOT,Buffer.from(image.data,'base64'));
         }
-        await page.send('Page.navigate',{url:mediaUrl + '/other'});
-        await until(async () => (await call('get_authorization_status',{id:grant.id})).status === 'revoked');
-        assert.equal((await call('probe_active_tab',{authorizationId:grant.id})).code,'MCP_TAB_REQUIRED');
+        destination.listen(0,'127.0.0.1');
+        await once(destination,'listening');
+        mediaRedirect = 'http://127.0.0.1:' + destination.address().port + '/film.mp4';
+        const redirectedBatch = await call('start_download',{authorizationId:grantWithLogin.id,items:[{candidateId:shared.streams[0].candidateId}]});
+        const redirected = await call('wait_for_download',{id:redirectedBatch.id,timeoutMs:20_000});
+        assert.equal(redirected.items[0].errorCode,'MCP_MEDIA_REDIRECT');
+        assert.equal(receivedRedirect,0);
+        mediaRedirect = undefined;
+        await page.send('Page.reload');
+        await until(async () => (await call('get_authorization_status',{id:grantWithLogin.id})).status === 'revoked',
+          () => 'waiting for revocation after reloading the same URL');
+        assert.equal((await call('probe_active_tab',{authorizationId:grantWithLogin.id})).code,'MCP_TAB_REQUIRED');
       } finally {
         popup?.close();
         page.close();
@@ -142,6 +179,8 @@ test('Edge approves an MCP tab grant and saves a verified file through stdio', {
       }
     },signal);
   } finally {
+    destination.close();
+    destination.closeAllConnections();
     origin.close();
     origin.closeAllConnections();
     for (const {child,closed} of children.reverse()) {

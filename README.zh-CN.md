@@ -6,7 +6,7 @@
 
 ![Microsoft Edge 中的 VideoSave 0.9 探测面板](docs/videosave-0.9-detection.png)
 
-扩展的「AI 与 MCP」支持按客户端授权、限时共享当前页、按站点限制下载和导出脱敏活动记录。 [托管客户端教程](docs/mcp.md#中文快速开始) · [控制中心截图](docs/videosave-mcp-control.png)
+扩展的「AI 与 MCP」支持按客户端授权、限时共享当前页、手动授权同源直链媒体使用当前登录会话，以及按站点限制下载。 [托管客户端教程](docs/mcp.md#中文快速开始) · [控制中心截图](docs/videosave-mcp-control.png)
 
 ## 安装
 

@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { ApiError } from './media-source.mjs';
+import { approvedCookies } from './approved-cookies.mjs';
 import { settingsFile } from './preferences.mjs';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
@@ -14,6 +15,7 @@ const sessions = new Map();
 let onRevocation = () => {};
 export function handleGrantRevocation(handler) { onRevocation = handler; }
 const maxSessions = 100;
+const tabLeaseMs = 75_000;
 const scopeError = () => new ApiError('MCP_PERMISSION_DENIED','This client lacks permission for the requested operation',403);
 
 function db(run) {
@@ -102,6 +104,7 @@ function publicGrant({id,clientId,clientName,origin,status,expiresAt}) {
 
 function sweep(now = Date.now()) {
   for (const [id,grant] of sessions) {
+    if (grant.status === 'approved' && grant.expiresAt > now && grant.leaseUntil <= now) revoke(grant);
     if (grant.expiresAt <= now) {
       if (grant.status === 'approved') onRevocation(id);
       grant.tab = null;
@@ -140,27 +143,42 @@ export function listGrants(client) {
   return {items:[...sessions.values()].filter(grant => !client || grant.clientId === client.id).reverse().map(publicGrant)};
 }
 
-export function approveGrant({id,tab,minutes = 5} = {}) {
+export function approveGrant({id,tab,minutes = 5,shareSession = false} = {}) {
   const grant = getGrant(id);
   if (grant.status !== 'pending') throw new ApiError('MCP_AUTHORIZATION_INACTIVE','Request is no longer pending',409);
   const valid = tab && tab.restricted !== true && Array.isArray(tab.streams) && tab.streams.length <= 40;
-  if (!valid || siteOrigin(tab.url) !== grant.origin || ![1,5,15].includes(minutes)) {
+  if (!valid || siteOrigin(tab.url) !== grant.origin || ![1,5,15].includes(minutes) || typeof shareSession !== 'boolean') {
     throw new ApiError('MCP_INVALID_TAB','Open the requested site and select an allowed authorization duration');
+  }
+  const {settings} = sitePreferences(grant.origin);
+  if (!settings.probe || shareSession && !settings.session) {
+    throw new ApiError('MCP_SITE_DENIED','The site policy rejects this authorization',403);
   }
   const streams = new Map();
   for (const item of tab.streams) {
     const url = typeof item?.url === 'string' && item.url.length <= 2048 ? URL.parse(item.url) : null;
     if (!url || url.origin !== grant.origin || url.search || url.hash || !mediaKinds.has(item.kind) ||
         url.username || url.password || item.restricted || item.drm) continue;
-    streams.set(url.href,{candidateId:randomUUID(),url:url.href,kind:item.kind,
+    const cookiesFor = shareSession && !['m3u8','mpd'].includes(item.kind) ? approvedCookies(item.cookies) : () => [];
+    streams.set(url.href,{candidateId:randomUUID(),url:url.href,kind:item.kind,cookiesFor,
       ...(Number.isFinite(item.duration) && item.duration > 0 && {duration:item.duration}),
       ...(Number.isInteger(item.height) && item.height > 0 && {height:item.height})});
   }
-  for (const previous of sessions.values()) if (previous.clientId === grant.clientId && previous.status === 'approved') revoke(previous);
+  for (const previous of sessions.values()) {
+    if (previous.clientId === grant.clientId && previous.origin === grant.origin && previous.status === 'approved') revoke(previous);
+  }
   grant.tab = {origin:grant.origin,title:typeof tab.title === 'string' ? tab.title.replace(/[\x00-\x1f\x7f]/g,' ').slice(0,160) : '',
-    playing:tab.playing === true,streams:[...streams.values()]};
+    playing:tab.playing === true,sessionShared:shareSession,streams:[...streams.values()]};
   grant.status = 'approved';
   grant.expiresAt = Date.now() + minutes * 60_000;
+  grant.leaseUntil = Date.now() + tabLeaseMs;
+  return publicGrant(grant);
+}
+
+export function renewGrant(id) {
+  const grant = getGrant(id);
+  if (grant.status !== 'approved') throw new ApiError('MCP_AUTHORIZATION_INACTIVE','Request is no longer approved',409);
+  grant.leaseUntil = Date.now() + tabLeaseMs;
   return publicGrant(grant);
 }
 
@@ -182,7 +200,9 @@ export function revokeGrant(id) {
 
 export function activeTab(client, id) {
   sweep();
-  const grant = id ? getGrant(id,client) : [...sessions.values()].find(grant => grant.clientId === client.id && grant.status === 'approved');
+  const approved = id ? [getGrant(id,client)] : [...sessions.values()].filter(grant => grant.clientId === client.id && grant.status === 'approved');
+  if (approved.length > 1) throw new ApiError('MCP_AUTHORIZATION_REQUIRED','Select an authorization ID from list_authorized_sites',409);
+  const [grant] = approved;
   if (!grant?.tab) throw new ApiError('MCP_TAB_REQUIRED','Approve a current tab in VideoSave to use its media context',409);
   const {streams,...tab} = grant.tab;
   return {authorizationId:grant.id,tab,streams};
@@ -219,10 +239,10 @@ export function activity(clear = false) {
 }
 
 
-const siteDefaults = Object.freeze({probe:true,download:false,quality:1080,format:'mp4',audioFormat:'m4a',
+const siteDefaults = Object.freeze({probe:true,download:false,session:true,quality:1080,format:'mp4',audioFormat:'m4a',
   subtitles:false,connections:8,concurrency:1});
 export const preferenceProperties = {
-  probe:{type:'boolean'},download:{type:'boolean'},quality:{type:'integer',minimum:144,maximum:4320},
+  probe:{type:'boolean'},download:{type:'boolean'},session:{type:'boolean'},quality:{type:'integer',minimum:144,maximum:4320},
   format:{enum:['mp4','mkv']},audioFormat:{enum:['m4a','mp3']},subtitles:{type:'boolean'},
   connections:{enum:[4,8,12]},concurrency:{type:'integer',minimum:1,maximum:2}
 };
@@ -237,9 +257,13 @@ export function sitePreferences(value, settings) {
       if (count >= 100 && !connection.prepare('SELECT 1 FROM mcp_site_policies WHERE origin=?').get(origin)) {
         throw new ApiError('MCP_SITE_LIMIT','At most 100 site policies can be stored',409);
       }
-      connection.prepare('INSERT OR REPLACE INTO mcp_site_policies VALUES (?,?)').run(origin,JSON.stringify(settings));
-      if (settings.probe === false || settings.download === false) {
-        for (const grant of sessions.values()) if (grant.origin === origin && grant.status === 'approved') revoke(grant);
+      const prior = connection.prepare('SELECT policy FROM mcp_site_policies WHERE origin=?').get(origin);
+      connection.prepare('INSERT OR REPLACE INTO mcp_site_policies VALUES (?,?)').run(origin,JSON.stringify({
+        ...(prior && JSON.parse(prior.policy)),...settings,
+      }));
+      for (const grant of sessions.values()) {
+        if (grant.origin === origin && grant.status === 'approved' &&
+            (settings.probe === false || settings.download === false || settings.session === false && grant.tab.sessionShared)) revoke(grant);
       }
     }
     const stored = connection.prepare('SELECT policy FROM mcp_site_policies WHERE origin=?').get(origin);
