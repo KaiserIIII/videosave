@@ -2,6 +2,8 @@
 
 [English](README.md) · [下载最新版](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT 许可证](LICENSE)
 
+[自动化验证](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [候选版更新](CHANGELOG.md#100-rc1) · [兼容性实测](docs/compatibility-report.zh-CN.md)
+
 扫描当前网页上的视频，确认画质和时长，再保存到浏览器的下载目录。视频快存免费开源。Windows 本机服务支持 DASH、更多 HLS 格式、格式转换以及供 AI 调用的 MCP 接口。
 
 ![Microsoft Edge 中的 VideoSave 0.9 探测面板](docs/videosave-0.9-detection.png)
@@ -9,6 +11,8 @@
 扩展的「AI 与 MCP」支持按客户端授权、限时共享当前页、手动授权同源直链媒体使用当前登录会话，以及按站点限制下载、暂停和恢复排队任务、筛选脱敏活动记录。 [托管客户端教程](docs/mcp.md#中文快速开始) · [控制中心截图](docs/videosave-mcp-control.png)
 
 高级模式和 Full Access 支持按站点保存长期授权，通过已打开的标签页更新媒体候选，并自动下载有明确推荐的正片。Maximum Compatibility 可延长观测窗口，在常规探测无结果时检查 iframe 和公开播放器 JSON。 [权限与探测选项](docs/mcp.md#高级授权和兼容性)
+
+候选版的托管 MCP 支持兼容的静态 DASH。启用关联媒体来源后，可下载正常播放中观察到的公网 HTTPS CDN 媒体。`get_engine_capabilities` 返回支持的传输路径，`get_task_report` 返回该客户端任务的实际引擎、耗时和结果。 [MCP 使用说明](docs/mcp.md)
 
 ## 安装
 

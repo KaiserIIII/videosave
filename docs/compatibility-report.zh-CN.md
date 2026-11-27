@@ -1,4 +1,21 @@
-# VideoSave 0.9.0 兼容性实测
+# VideoSave 兼容性实测
+
+## v1.0.0-rc.1 验证范围
+
+本轮对照基线为 v0.10.0 发布包，对应提交 `60dc36694087fd1d07f8f667c66baae1e24c944a`。在 Windows、Node.js 24.19.0 上重跑的独立 MCP 基线共执行 104 个场景，探测 95/95，正片判断 2/2，落盘验证 11/11，误报 0，首次探测中位 5,176 ms。托管 MCP 的授权与下载单独验证。
+
+| 路径 | 本轮实际验证 | 结果 |
+| --- | --- | --- |
+| Edge 托管 MCP，外部 CDN | 本地页面中的同源 iframe 播放 Mozilla CC0 公网 HTTPS MP4，授予站点关联来源后下载 | 1/1，FFprobe 通过 |
+| Edge、Chrome 托管 MCP，登录与签名媒体 | 隔离浏览器和本地会话，涵盖授权前后、退出登录、拒绝访问和未授权重定向 | 浏览器自动化通过，基于本地服务生成样片 |
+| 静态 DASH 引擎 | dash.js Envivio 和 Shaka Angel One 两份官方公网样片，分片并发 8 | 两次记录各 2/2，Angel One 保留五条音轨 |
+| 下载引擎对照 | 两种本地 HLS 网络条件，每个工具各三轮 | v0.10.0、v1.0 开发树、yt-dlp 均为 6/6，对应轨道哈希一致 |
+
+[DASH 记录](compatibility-data/v1-dash-public.json) · [DASH 初始化验证后复跑](compatibility-data/v1-dash-public-init-validation.json) · [HLS 竞品对照](competitive-review.zh-CN.md) · [安全审查和回归范围](v1-security.md)
+
+原生 DASH 暂缺动态和直播、复杂 Period、内嵌 TTML/WVTT、分层 SIDX 及跨任务分片续传。托管跨域传输需要可验证的公网直连，第三方 CDN 凭据和依赖代理的 CDN 路径未覆盖。多 CDN 清单对其他来源的每个资源要求有同一播放器的确切观察证据，公网样片尚未验证完整的跨域分片和故障切换。Streamlink 自动调度、通用实时传输和商店签名仍待交付。现有证据无法支持 200 种受控场景、30 个独立公网来源或总体领先竞品的结论。
+
+## v0.9.0 历史实测
 
 2026 年 11 月 27 日在 Windows、Node.js 24.19.0 上运行。对照版本为 v0.8.1（`f7d830a2501b9c6d673716ce3a421a9850534b07`）与 v0.9.0 候选版。全量候选版分两轮记录，第二轮包含 DASH 分片和延迟发现修正。场景由 [测试矩阵](../tests/compatibility-fixtures.mjs) 定义，涵盖自生成媒体、本地模拟播放器和七个合法公网样本。[逐场景记录](compatibility-data/)保留每轮候选文件名、通过情况、失败代码和可采集的用量指标。
 

@@ -76,9 +76,10 @@ async function rangeCheckpoint(root, target, size, etag, chunkSize) {
 
 export async function prefetchRanges(source, cookies, staging, signal, onProgress, {
   connections = maxConnections, stageFull = false, expectedSize, onKind, recovery, headers:mediaHeaders,
-  exactSource = false, cookiesFor,
+  exactSource = false, cookiesFor, transport,
 } = {}) {
   if (expectedSize !== undefined && expectedSize < minimumParallelSize) return null;
+  const request = transport?.request ?? requestFile;
   const cookie = cookies.map(({ name, value }) => name + '=' + value).join('; ');
   const headersFor = url => {
     const scoped = cookiesFor ? cookiesFor(url).map(({name,value}) => name + '=' + value).join('; ') : cookie;
@@ -93,7 +94,8 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
     let target = source;
     let response;
     for (let hop = 0; hop <= 4; hop++) {
-      response = await requestFile(target,{...headersFor(target),range:'bytes=0-0'},probeSignal);
+      response = await request(target,{...headersFor(target),range:'bytes=0-0'},probeSignal);
+      target = response.url ?? target;
       if (exactSource) enforceExactResponse(response);
       if (!redirects.has(response.status)) break;
       response.body.destroy();
@@ -117,7 +119,7 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
     if (!Number.isSafeInteger(size) || size < minimumParallelSize || !strongEtag.test(etag) || !validRange(response, 0, 0, size, etag)) {
       if (stageFull && response.status === 206 && Number.isSafeInteger(size) && size > 0) {
         response.body.destroy();
-        response = await requestFile(target,headersFor(target),probeSignal);
+        response = await request(target,headersFor(target),probeSignal);
         if (exactSource) enforceExactResponse(response);
       }
       const encoding = response.headers.get('content-encoding');
@@ -191,8 +193,11 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
             const rangeSignal = AbortSignal.any([transferSignal, stalled.signal]);
             let part;
             try {
-              part = await requestFile(target,{...headersFor(target),range:`bytes=${position}-${end}`,'if-range':etag},rangeSignal)
-                .catch(() => null);
+              part = await request(target,{...headersFor(target),range:`bytes=${position}-${end}`,'if-range':etag},rangeSignal)
+                .catch(error => {
+                  if (exactSource && error instanceof ApiError) throw error;
+                  return null;
+                });
               if (!part) continue;
               if (exactSource) enforceExactResponse(part);
               if (!validRange(part, position, end, size, etag)) {

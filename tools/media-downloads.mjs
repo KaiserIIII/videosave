@@ -11,14 +11,15 @@ import { assessCandidates, detectionDiagnostic } from '../extension/detection.mj
 import { audioFormats, canUseMediaTitle, classify, isPlaylist, longestFirst, platformVideo, primaryCandidates, selectPageStream } from '../extension/media.mjs';
 import { checkManifestProtection, hlsQualities, prefetchHls } from './hls-prefetch.mjs';
 import { prefetchRanges } from './range-prefetch.mjs';
+import { localDashRequest, prefetchDash } from './dash-prefetch.mjs';
 import { ApiError, FFMPEG, discover, inspectOutput, mediaInput, mediaUrl, parseCookies, parseMediaHeaders, probeStream, runMedia, streamExpiry } from './media-source.mjs';
 import { readPreferences, writePreferences } from './preferences.mjs';
 import { claimBatch, claimInterruptedCancellation, completedStatus, pendingItem, storeBatch, storedBatch, storedBatches } from './download-history.mjs';
 import { platformDownloadsEnabled, probePlatform, stagePlatform } from './platform-downloads.mjs';
-import { maximumProbePlan, preferredProbeStrategy, recordCompatibility } from './compatibility-policy.mjs';
+import { preferredProbeStrategy, probeModes, probePlan, recordCompatibility } from './compatibility-policy.mjs';
 
 export { ApiError, platformDownloadsEnabled };
-export const VERSION = manifest.version;
+export const VERSION = manifest.version_name ?? manifest.version;
 
 function defaultDownloads() {
   try {
@@ -110,11 +111,15 @@ export function errorDetails(error) {
 async function inspectPage(url, cookies, signal, {
   selectionOnly = false, waitMs = 20_000, retries = 2, includeText = false,
   clickPlay = false, captureXhrBody = true, includeFrames = true, mode = 'headless', singleWindow = false, harvestCodes = false,
-  maximum = false, learn = false,
+  compatibility = 'standard', learn = false,
 } = {}) {
   const started = performance.now();
-  const plan = maximum ? maximumProbePlan(waitMs,learn ? preferredProbeStrategy(url.origin) : undefined) :
-    Array.from({length:retries+1},(_,attempt) => ({waitMs:singleWindow ? waitMs : Math.round(waitMs * (1 + attempt / 2)),deep:false}));
+  const stagedProbe = ['maximum','adaptive'].includes(compatibility);
+  let preferred;
+  if (compatibility === 'adaptive' || stagedProbe && learn) {
+    try { preferred = preferredProbeStrategy(url.origin); } catch { /* Local history is optional for probing. */ }
+  }
+  const plan = probePlan(compatibility,{waitMs,retries,singleWindow,preferred});
   let result;
   let stage;
   let attempts = 0;
@@ -129,14 +134,14 @@ async function inspectPage(url, cookies, signal, {
       if (error instanceof ApiError) throw error;
       throw new ApiError('PAGE_FAILED', '隔离浏览器探测失败', 502);
     });
-    if (result.streams.length || result.reason === 'blocked' || !maximum && result.candidates.length && result.reason === 'no-player') break;
+    if (result.streams.length || result.reason === 'blocked' || !stagedProbe && result.candidates.length && result.reason === 'no-player') break;
   }
   const protectedUrls = new Set();
   const pending = selectionOnly ? [...new Set([...primaryCandidates(result.streams),
     ...result.streams.filter(stream => isPlaylist(stream.kind))])] : [...result.streams];
   const inspectMetadata = !selectionOnly || pending.length > 1;
   if (pending.length) {
-    const budget = AbortSignal.timeout(maximum ? 12_000 : 45_000);
+    const budget = AbortSignal.timeout(compatibility === 'fast' ? 2000 : compatibility === 'standard' ? 45_000 : 12_000);
     const metadataSignal = AbortSignal.any([signal,budget]);
     await Promise.all(Array.from({length:Math.min(4, pending.length)}, async () => {
       while (pending.length && !budget.aborted) {
@@ -204,11 +209,11 @@ async function inspectPage(url, cookies, signal, {
   const selection = selectPageStream(page.streams);
   if (selection.status === 'unavailable') selection.reason = reason;
   const qualities = page.streams.find(stream => stream.url === selection.url)?.qualities ?? [];
-  if (maximum && learn) {
+  if (learn) {
     try { recordCompatibility(url,{stage,success:page.streams.length > 0,elapsedMs:performance.now()-started,kind:page.streams[0]?.kind}); }
     catch { /* Learning must not stop an otherwise successful probe. */ }
   }
-  return {...page,...(maximum && {probeStrategy:{stage,attempts}}),...(harvestCodes && {codes:page.codes ?? []}),qualities,selection,diagnostic:detectionDiagnostic({
+  return {...page,...(compatibility !== 'standard' && {probeStrategy:{stage,attempts}}),...(harvestCodes && {codes:page.codes ?? []}),qualities,selection,diagnostic:detectionDiagnostic({
     ...page.diagnostic, streams:page.streams, blockers:page.blockers, selection, reason,
   })};
 }
@@ -220,8 +225,8 @@ export async function probe({
   profileDir,userAgent,
 } = {}, requestSignal) {
   const url = mediaUrl(value);
-  if (!['standard','maximum'].includes(compatibility) || typeof learnCompatibility !== 'boolean') {
-    throw new ApiError('INVALID_COMPATIBILITY','Choose standard or maximum compatibility');
+  if (!probeModes.includes(compatibility) || typeof learnCompatibility !== 'boolean') {
+    throw new ApiError('INVALID_COMPATIBILITY','Choose a supported probe mode');
   }
   const cookies = parseCookies(cookie);
   if (!Number.isInteger(waitMs) || waitMs < 100 || waitMs > 30_000) {
@@ -257,7 +262,7 @@ export async function probe({
     const maximum = compatibility === 'maximum';
     return inspectPage(url, cookies, signal, {waitMs:waitForMediaMs ?? (maximum && waitMs === 20_000 ? 30_000 : waitMs),
       retries,includeText,clickPlay,captureXhrBody,includeFrames,mode,harvestCodes,singleWindow:waitForMediaMs !== undefined,
-      maximum,learn:learnCompatibility});
+      compatibility,learn:learnCompatibility});
   });
 }
 
@@ -771,7 +776,12 @@ function enqueue(request) {
       return;
     }
     const item = batch.items[index];
-    await runItem(batch,item,{...target},limit,cookies,signal);
+    const startedAt = performance.now();
+    try {
+      await runItem(batch,item,{...target},limit,cookies,signal);
+    } finally {
+      item.elapsedMs = Math.round(performance.now() - startedAt);
+    }
     savedItems?.set(itemKeys[index],{batch,item});
   }, batch)
     .catch(error => {
@@ -865,7 +875,7 @@ async function holdBrowserFiles(batch, item, staging, outputs, signal) {
   item.outputs = files.map(({ name }, index) => ({ name, href: `/api/batch/${batch.id}/files/${item.idx}/${index}` }));
 }
 
-function outputTracks(target, tracks) {
+function outputTracks(target, tracks, preserveAudioTracks = false) {
   const videos = tracks?.filter(track => track.codec_type === 'video' && !track.disposition?.attached_pic)
     .sort((a, b) => (b.height || 0) - (a.height || 0) || (Number(b.bit_rate) || 0) - (Number(a.bit_rate) || 0));
   const within = videos?.find(track => track.height && (!target.quality || track.height <= target.quality));
@@ -886,8 +896,11 @@ function outputTracks(target, tracks) {
   if (transcodeVideo) videoArgs.push('-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p');
   if (scaled) videoArgs.push('-vf', 'scale=-2:' + (target.quality - target.quality % 2));
   const audioMap = audio ? '0:' + audio.index : '0:a:0';
-  const combinedAudio = !tracks || audio ? ['-map', audioMap + '?', '-c:a',
-    target.format === 'mp4' && audio && audio.codec_name !== 'aac' ? 'aac' : 'copy'] : [];
+  const combinedAudio = preserveAudioTracks && audioTracks?.length
+    ? audioTracks.flatMap((track,index) => ['-map','0:' + track.index,'-c:a:' + index,
+      target.format === 'mp4' && track.codec_name !== 'aac' ? 'aac' : 'copy'])
+    : !tracks || audio ? ['-map', audioMap + '?', '-c:a',
+      target.format === 'mp4' && audio && audio.codec_name !== 'aac' ? 'aac' : 'copy'] : [];
   const textSubtitles = new Set(['mov_text', 'subrip', 'ass', 'ssa', 'webvtt', 'text']);
   const subtitles = target.subtitles && tracks ? tracks.filter(track => track.codec_type === 'subtitle' &&
     (target.format === 'mkv' || textSubtitles.has(track.codec_name))) : [];
@@ -971,7 +984,7 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, {onHls,r
   sourceKind ||= classify(source);
   if (sourceKind === 'm3u8') onHls?.(source.origin);
   const scopedCookies = !authorization && source.origin === input.origin ? cookies : [];
-  const headers = authorization ? authorization.headersFor(source) : {...capturedHeaders(source.href), ...(!refreshOrigin && batch.request.headers)};
+  const headers = authorization ? {} : {...capturedHeaders(source.href), ...(!refreshOrigin && batch.request.headers)};
   const expiresAt = streamExpiry(source);
   if (expiresAt && Date.parse(expiresAt) <= Date.now()) {
     throw new ApiError('STREAM_EXPIRED', '媒体地址已过期，请重新探测原页面', 422, {expiresAt});
@@ -1017,23 +1030,36 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, {onHls,r
     };
     let staged;
     if (authorization) {
-      staged = sourceKind === 'm3u8'
-        ? await prefetchHls(source,[],staging,signal,downloadProgress,{
-          quality:target.quality,sourceKind,connections:batch.connections,restrictedOrigin:true,signedEntry:true,headers,
-        })
-        : await prefetchRanges(source,scopedCookies,staging,signal,downloadProgress,{
-          connections:batch.connections,stageFull:true,exactSource:true,cookiesFor:authorization.cookiesFor,headers,
+      const transport = authorization.transportFor(source);
+      if (sourceKind === 'mpd') {
+        item.engine = 'dash-static';
+        staged = await prefetchDash(source,staging,signal,downloadProgress,{
+          quality:target.quality,connections:batch.connections,subtitles:target.subtitles,fetchResource:transport.fetchResource,
         });
+      } else if (sourceKind === 'm3u8') {
+        item.engine = 'hls';
+        staged = await prefetchHls(source,[],staging,signal,downloadProgress,{
+          quality:target.quality,sourceKind,connections:batch.connections,restrictedOrigin:true,transport,
+        });
+      } else {
+        item.engine = 'http';
+        staged = await prefetchRanges(source,[],staging,signal,downloadProgress,{
+          connections:batch.connections,stageFull:true,exactSource:true,transport,
+        });
+      }
       if (!staged) throw new ApiError('MCP_MEDIA_UNAVAILABLE','The approved source did not return complete eligible media',422);
     } else if (platform) {
+      item.engine = 'yt-dlp';
       staged = await stagePlatform(platform,target,staging,batch.connections,signal,downloadProgress,headers);
     } else if (batch.request.prefetch) {
       if (sourceKind !== 'm3u8' && sourceKind !== 'mpd') {
+        item.engine = 'http';
         staged = await prefetchRanges(source,scopedCookies,staging,signal,downloadProgress,{
           connections:batch.connections,stageFull:!batch.originalExtension,onKind:kind => { sourceKind = kind; }, recovery,headers,
         });
       }
       if (!staged && sourceKind === 'm3u8') {
+        item.engine = 'hls';
         onHls?.(source.origin);
         staged = await prefetchHls(source,scopedCookies,staging,signal,downloadProgress,{
           quality:target.quality,sourceKind,connections:batch.connections,recovery,headers,
@@ -1041,9 +1067,22 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, {onHls,r
           onSegmentsStored: batch.request.keepSegments ? directory => { segmentDirectory = directory; } : undefined,
         });
       }
+      if (!staged && sourceKind === 'mpd') {
+        item.engine = 'dash-static';
+        try {
+          staged = await prefetchDash(source,staging,signal,downloadProgress,{
+            quality:target.quality,connections:batch.connections,subtitles:target.subtitles,
+            fetchResource:localDashRequest(source,scopedCookies,headers),
+          });
+        } catch (error) {
+          if (error.code !== 'DASH_UNSUPPORTED' || !error.detail?.legacyCompatible || source.search || scopedCookies.length ||
+              Object.keys(headers).some(name => name !== 'User-Agent')) throw error;
+          item.prefetchFallback = {reason:'unsupported-dash-playlist'};
+        }
+      }
       if (!staged) item.prefetchFallback ??= {reason:sourceKind === 'mpd' ? 'unsupported-dash-playlist' : 'direct-prefetch-unavailable'};
     }
-    if (!authorization && (sourceKind === 'mpd' || sourceKind === 'm3u8' && !batch.request.prefetch)) {
+    if (!authorization && !batch.request.prefetch && isPlaylist(sourceKind)) {
       await checkManifestProtection(source,scopedCookies,signal,{kind:sourceKind,quality:target.quality,headers});
     }
     if (platform) item.title ||= target.title;
@@ -1058,6 +1097,7 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, {onHls,r
         held = true;
       } else {
         item.native = true;
+        item.engine = 'browser';
       }
       item.status = 'done';
       item.percent = 100;
@@ -1069,10 +1109,12 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, {onHls,r
       publish(batch, `[${item.idx + 1}] 媒体预取未完成（${item.prefetchFallback.reason}），改用 FFmpeg 读取原地址`);
     }
     let media = staged || source;
+    if (!staged) item.engine = 'ffmpeg';
     let info = await probeStream(media, scopedCookies, signal, true, undefined, headers);
     if (staged?.endsWith('.bin') && !platform && !info.tracks?.length) {
       if (authorization) throw new ApiError('MCP_MEDIA_UNSUPPORTED','The approved response did not contain supported direct media',422);
       media = source;
+      item.engine = 'ffmpeg';
       item.prefetch = false;
       item.prefetchFallback = {reason:'staged-media-unrecognized'};
       publish(batch, '改用原地址读取媒体格式');
@@ -1086,7 +1128,8 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, {onHls,r
     if (mediaTitle && (!item.title || (target.kind === 'page' && !target.title && canUseMediaTitle(resolvedTitleSource) && !platform))) {
       item.title = mediaTitle;
     }
-    const { video, scaled, videoArgs, combinedAudio, audioArgs, subtitleArgs } = outputTracks(target, tracks);
+    const { video, scaled, videoArgs, combinedAudio, audioArgs, subtitleArgs } =
+      outputTracks(target,tracks,Boolean(staged && sourceKind === 'mpd'));
     const actualHeight = scaled ? target.quality - target.quality % 2 : video?.height ?? height;
     const actualWidth = scaled ? Math.round(video.width * actualHeight / video.height / 2) * 2 : video?.width ?? width;
     item.info = { duration, width: actualWidth, height: actualHeight };

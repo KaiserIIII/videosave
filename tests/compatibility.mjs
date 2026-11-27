@@ -21,7 +21,8 @@ const requested = [
   ...(process.argv.includes('--public-only') ? [] : compatibilityCases),
   ...(live ? publicCases : []),
 ].filter(item => (!isMcp || item.mcp !== false) && (!option('only') || new RegExp(option('only')).test(item.id)));
-const version = JSON.parse(await readFile(path.join(source,'extension','manifest.json'),'utf8')).version;
+const manifest = JSON.parse(await readFile(path.join(source,'extension','manifest.json'),'utf8'));
+const version = manifest.version_name ?? manifest.version;
 if (!executable(engine)) throw Error('Browser executable unavailable: ' + engine);
 if (isMcp && engine === 'firefox') throw Error('MCP probes use Chromium. Test Firefox using --browser=firefox.');
 if (!requested.length) throw Error('No matching compatibility scenarios');

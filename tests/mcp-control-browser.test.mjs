@@ -13,6 +13,9 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { connectCdp, withChromium, withEdge } from '../tools/edge-session.mjs';
 import { executable } from './compatibility-browsers.mjs';
 
+// Mozilla's CC0 sample is reserved for opt-in public network acceptance runs.
+const publicCdnSample = 'https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4';
+
 test('Edge shares a login only after approval and saves a verified file through MCP', {timeout:90_000},
   context => verifyBrowserAuthorization(context, 'edge', withEdge));
 
@@ -66,6 +69,9 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
       return res.writeHead(200,{'content-type':'text/html'}).end('<title>VideoSave QA film</title><video width="640" controls muted autoplay preload="auto" src="/film.mp4"></video>');
     }
     if (req.url === '/empty') return res.writeHead(200,{'content-type':'text/html'}).end('<title>Waiting for player</title>');
+    if (req.url === '/cdn') return res.writeHead(200,{'content-type':'text/html'}).end('<title>Public CDN QA</title><iframe src="/cdn-frame"></iframe>');
+    if (req.url === '/cdn-frame') return res.writeHead(200,{'content-type':'text/html'}).end(
+      `<video width="240" controls muted autoplay playsinline src="${publicCdnSample}"></video>`);
     if (req.url === '/watch') return res.writeHead(401).end('Sign in');
     return res.writeHead(404).end();
   });
@@ -323,6 +329,26 @@ async function verifyBrowserAuthorization(context, browserName, launchBrowser) {
           await browser.send('Storage.clearCookies');
           await until(async () => (await call('get_authorization_status',{id:empty.id})).status === 'revoked',
             () => 'waiting for revocation after logout before media is observed');
+
+          if (process.env.VIDEOSAVE_TEST_PUBLIC_CDN === '1') {
+            await admin('access',{id:profile.id,action:'trust',origins:[mediaUrl],allowDownload:true,allowRelatedMedia:true,confirm:true});
+            await page.send('Page.navigate',{url:mediaUrl+'/cdn'});
+            await until(() => page.evaluate('Boolean(document.querySelector("iframe")?.contentDocument?.querySelector("video")?.currentTime > 0)')
+              .catch(() => false),() => 'waiting for public cross-origin playback in the iframe');
+            const cdnGrant = await call('request_site_authorization',{origin:mediaUrl});
+            assert.equal(cdnGrant.allowRelatedMedia,true);
+            await popup.evaluate('chrome.runtime.sendMessage({type:"videosave-standing-mcp"}).catch(() => {})');
+            await until(async () => (await call('get_authorization_status',{id:cdnGrant.id})).status === 'approved');
+            const result = await call('probe_active_tab',{authorizationId:cdnGrant.id,compatibility:'maximum'});
+            assert.equal(result.streams.length,1,JSON.stringify(result));
+            assert.ok(!JSON.stringify(result).includes(publicCdnSample));
+            const queued = await call('start_download',{authorizationId:cdnGrant.id,items:[{candidateId:result.streams[0].candidateId}]});
+            const saved = await call('wait_for_download',{id:queued.id,timeoutMs:20_000});
+            assert.equal(saved.status,'done',JSON.stringify(saved));
+            const verified = await call('verify_download',{id:queued.id});
+            assert.equal(verified.items[0].verification[0].status,'verified');
+            context.diagnostic('Public CDN MP4 observed in embedded player and saved and verified through managed MCP');
+          }
         }
       } finally {
         popup?.close();

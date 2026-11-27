@@ -13,6 +13,7 @@ process.env.OUT_DIR = path.join(directory,'out');
 const {approveGrant, revokeGrant, saveClient, sitePreferences, updateClientAccess} = await import('../tools/mcp-control.mjs');
 const {invokeManaged, managedTools} = await import('../tools/managed-mcp.mjs');
 const {shutdown} = await import('../tools/media-downloads.mjs');
+const {FFMPEG, probeStream} = await import('../tools/media-source.mjs');
 after(async () => {
   shutdown();
   await rm(directory,{recursive:true,force:true,maxRetries:5,retryDelay:100});
@@ -79,9 +80,42 @@ test('full access can select a clear candidate and change download settings with
   await assert.rejects(call(client,'update_download_preferences',{authorizationId,settings:{download:true}}),
     {code:'MCP_INVALID_ARGUMENTS'});
   const network = await call(client,'get_network_status');
+  assert.deepEqual((await call(client,'get_engine_capabilities')).transfer,['http','hls','dash-static']);
   assert.equal(typeof network.restartRequired,'boolean');
   assert.equal(network.proxyUrl,undefined);
   await assert.rejects(call(clientProfile(),'get_network_status'),{code:'MCP_PERMISSION_DENIED'});
+});
+
+test('managed DASH retains multiple audio tracks through the final MP4 output', {timeout:18000}, async t => {
+  const work = await mkdtemp(path.join(directory,'dash-multiaudio-'));
+  execFileSync(FFMPEG,['-v','error','-nostdin','-y','-f','lavfi','-i','testsrc2=s=160x144:r=10',
+    '-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-f','lavfi','-i','sine=frequency=660:sample_rate=48000',
+    '-map','0:v','-map','1:a','-map','2:a','-metadata:s:a:0','language=eng','-metadata:s:a:1','language=deu',
+    '-t','2','-c:v','libx264','-g','10','-sc_threshold','0','-c:a','aac','-f','dash','-seg_duration','1',
+    '-adaptation_sets','id=0,streams=0 id=1,streams=1 id=2,streams=2','film.mpd'],
+  {cwd:work,timeout:10000,windowsHide:true});
+  const origin = await fixture(t,async (req,res) => {
+    const full = /^(\/film\.mpd|\/(?:init|chunk)-stream[0-2](?:-\d{5})?\.m4s)$/.exec(req.url)?.[1];
+    if (!full) return res.writeHead(404).end();
+    const bytes = await readFile(path.join(work,full.slice(1))).catch(() => undefined);
+    if (!bytes) return res.writeHead(404).end();
+    res.writeHead(200,{'content-length':bytes.length}).end(bytes);
+  });
+  const client = clientProfile();
+  const {id:authorizationId} = await call(client,'request_site_authorization',{origin});
+  approveGrant({id:authorizationId,tab:{url:origin,title:'Multilingual fixture',
+    streams:[{url:origin + '/film.mpd',kind:'mpd'}]}});
+  const {streams:[candidate]} = await call(client,'probe_active_tab',{authorizationId});
+  assert.equal(candidate.downloadable,true);
+  const {id} = await call(client,'start_download',{authorizationId,items:[{candidateId:candidate.candidateId}]});
+  const result = await call(client,'wait_for_download',{id,timeoutMs:12000});
+  assert.equal(result.status,'done',JSON.stringify(result.items));
+  const report = await call(client,'get_task_report',{id});
+  assert.equal(report.items[0].engine,'dash-static');
+  assert.ok(report.items[0].elapsedMs > 0);
+  await assert.rejects(call(clientProfile(),'get_task_report',{id}),{code:'BATCH_NOT_FOUND'});
+  const info = await probeStream(result.items[0].file,[],AbortSignal.timeout(4000),true);
+  assert.deepEqual(info.tracks.map(track => track.codec_type),['video','audio','audio']);
 });
 
 test('automatic downloads require their own per-client consent even when the site allows manual downloads', async () => {

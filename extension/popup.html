@@ -139,6 +139,7 @@
               <label><span data-i18n>有效天数</span><input type="number" id="mcp-trust-days" value="30" min="1" max="90"></label>
               <label class="check-row"><input type="checkbox" id="mcp-trust-session"><span data-i18n>在长期授权站点使用登录会话</span></label>
               <label class="check-row"><input type="checkbox" id="mcp-trust-download"><span data-i18n>允许从长期授权站点下载</span></label>
+              <label class="check-row"><input type="checkbox" id="mcp-trust-related"><span data-i18n>允许播放时观察到的关联 CDN</span></label>
               <label class="check-row"><input type="checkbox" id="mcp-privacy"><span data-i18n>隐私模式</span></label>
               <button type="button" id="mcp-save-trust" data-i18n>保存长期授权</button>
             </details>
@@ -151,6 +152,7 @@
               <option value="60">1 h</option><option value="browser" data-i18n>当前浏览器会话（最长 12 小时）</option>
             </select></label>
             <label class="check-row"><input type="checkbox" id="mcp-share-session" autocomplete="off"><span data-i18n>本次授权同时使用当前站点的登录会话</span></label>
+            <label class="check-row"><input type="checkbox" id="mcp-share-related" autocomplete="off"><span data-i18n>允许播放时观察到的关联 CDN</span></label>
             <label class="check-row"><input type="checkbox" id="mcp-single-task" autocomplete="off"><span data-i18n>仅允许一个下载批次</span></label>
             <details class="settings-block">
               <summary data-i18n>手动提供本站 Cookie</summary>

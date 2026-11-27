@@ -68,15 +68,18 @@ function assertManagedOrigin(url, origin, approvedEntry = false) {
   }
 }
 
-async function request(url, origin, cookies, signal, range, headers, restrictedOrigin = false, approvedEntry = false) {
-  if (restrictedOrigin) assertManagedOrigin(url,origin,approvedEntry);
+async function request(url, origin, cookies, signal, range, headers, restrictedOrigin = false, approvedEntry = false, transport) {
+  if (restrictedOrigin && !transport) assertManagedOrigin(url,origin,approvedEntry);
   for (let hop = 0; hop < 5; hop++) {
     const host = url.host;
     const until = rateLimits.get(host);
     if (until > Date.now()) throw rateLimited(Math.ceil((until - Date.now()) / 1000));
     if (until !== undefined) rateLimits.delete(host);
     const ranged = range && (!range.url || range.url === url.href);
-    const response = await fetch(url, {
+    const response = await (transport ? transport.fetchResource(url,{signal,range:ranged ? range : undefined}).then(result => {
+      url = result.url;
+      return result.response;
+    }) : fetch(url, {
       redirect: 'manual',
       headers: {
         ...headers,
@@ -85,7 +88,8 @@ async function request(url, origin, cookies, signal, range, headers, restrictedO
         ...(ranged && {range:`bytes=${range.start}-${range.end}`, ...(range.etag && {'if-range':range.etag})}),
       },
       signal,
-    }).catch(error => {
+    })).catch(error => {
+      if (error instanceof ApiError) throw error;
       throw Object.assign(new Error('HLS connection interrupted', {cause:error}), {retryable:true});
     });
     if (response.headers.get('cf-mitigated') === 'challenge') {
@@ -187,7 +191,7 @@ async function checkStagingSpace(directory, rendition, playlist) {
   }
 }
 
-async function downloadSegment(url, destination, origin, cookies, signal, onBytes, slice, headers, restrictedOrigin, attempts = 3) {
+async function downloadSegment(url, destination, origin, cookies, signal, onBytes, slice, headers, restrictedOrigin, transport, attempts = 3) {
   let offset = 0;
   let resume;
   for (let attempt = 0; ; attempt++) {
@@ -202,7 +206,7 @@ async function downloadSegment(url, destination, origin, cookies, signal, onByte
       const range = resume && offset > 0 && offset < resume.size
         ? {url:resume.url, start:(slice?.start ?? 0) + offset, end:slice?.end ?? resume.size - 1, etag:resume.etag}
         : slice;
-      const {url: finalUrl, response} = await request(url, origin, cookies, requestSignal, range, headers, restrictedOrigin);
+      const {url: finalUrl, response} = await request(url, origin, cookies, requestSignal, range, headers, restrictedOrigin,false,transport);
       clearTimeout(timeout);
       reader = response.body.getReader();
       const encoding = response.headers.get('content-encoding')?.toLowerCase() ?? 'identity';
@@ -273,7 +277,7 @@ async function downloadSegment(url, destination, origin, cookies, signal, onByte
 
 export async function prefetchHls(source, cookies, staging, signal, onProgress, {
   quality, sourceKind, connections = segmentWorkers, recovery, headers, onFallback, onSegmentsStored,
-  restrictedOrigin = false, signedEntry = false,
+  restrictedOrigin = false, signedEntry = false, transport,
 } = {}) {
   if (sourceKind !== 'm3u8' && !/\.m3u8$/i.test(source.pathname)) return null;
   const cookieHeader = cookies.map(({ name, value }) => name + '=' + value).join('; ');
@@ -287,7 +291,7 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
         const deadline = AbortSignal.timeout(5000);
         try {
           const resource = await request(url, source.origin, cookieHeader, AbortSignal.any([transferSignal, deadline]),
-            undefined,headers,restrictedOrigin,approvedEntry);
+            undefined,headers,restrictedOrigin,approvedEntry,transport);
           return {url:resource.url, content:await readBody(resource.response.body)};
         } catch (error) {
           transferSignal.throwIfAborted();
@@ -325,7 +329,10 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
     const segments = video.segments.concat(audio?.segments || []);
     const keys = [...(video.keys ?? []),...(audio?.keys ?? [])];
     if (restrictedOrigin) {
-      for (const resource of [...segments,...keys]) assertManagedOrigin(resource.url,source.origin);
+      for (const resource of [...segments,...keys]) {
+        if (transport) transport.assertUrl(resource.url);
+        else assertManagedOrigin(resource.url,source.origin);
+      }
     }
     await mkdir(directory);
     directoryCreated = true;
@@ -359,7 +366,7 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
       const expectedSize = segments.at(-1).range.end + 1;
       const scopedCookies = firstPart.url.origin === source.origin ? cookies : [];
       const file = await prefetchRanges(firstPart.url, scopedCookies, directory, transferSignal, onProgress,
-        {connections,expectedSize,recovery,headers,exactSource:restrictedOrigin});
+        {connections,expectedSize,recovery,headers,exactSource:restrictedOrigin,transport});
       if (file) return file;
     }
     // A ranged representation needs validators shared across all parts of that representation.
@@ -432,7 +439,7 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
       // Race one request at a time and keep both response bodies separate.
       backupInFlight = true;
       candidate.backup = downloadSegment(candidate.url, candidate.destination + '.backup', source.origin, cookieHeader,
-        candidate.backupSignal, candidate.report, candidate.range, headers, restrictedOrigin, 1).then(() => {
+        candidate.backupSignal, candidate.report, candidate.range, headers, restrictedOrigin, transport, 1).then(() => {
         candidate.primary.abort();
         return true;
       }, () => false).finally(() => {
@@ -483,7 +490,7 @@ export async function prefetchHls(source, cookies, staging, signal, onProgress, 
             segment.bytes = offset;
             segment.total = total;
             report(offset);
-          }, range, headers, restrictedOrigin);
+          }, range, headers, restrictedOrigin, transport);
       } catch (error) {
         if (!await segment.backup) throw error;
         transferSignal.throwIfAborted();

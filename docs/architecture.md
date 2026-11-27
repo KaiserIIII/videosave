@@ -12,7 +12,7 @@ flowchart LR
   Popup --> Browser[Browser downloads]
   Popup --> API
   API --> Queue[Companion queue and SQLite checkpoints]
-  Queue --> Transfer[HTTP Range, HLS, FFmpeg and optional yt-dlp]
+  Queue --> Transfer[HTTP Range, HLS, static DASH, FFmpeg and optional yt-dlp]
   Transfer --> Verify[Output validation and final save]
 ```
 
@@ -24,10 +24,10 @@ The extension listens to request metadata through its existing browser permissio
 
 Windows workers use the requested connection count as their per-transfer ceiling. Range prefetch verifies ETags and offsets. HLS prefetch retries transient segment failures and bounds duplicate requests from spare workers. Local queue recovery preserves completed outputs and revalidates checkpoint inputs before resuming. FFprobe verifies output tracks and duration where available.
 
-The managed MCP tools use a profile-scoped credential on the paired loopback server. The extension confirms the identity of the approved document and periodically renews the grant. Optional login credentials are matched to the approved direct resource for each HTTP request. Managed jobs reject redirects and stage direct media or eligible public same-origin HLS before passing a local file to FFmpeg. SQLite stores policy, audit metadata, and batch ownership.
+The managed MCP tools use a profile-scoped credential on the paired loopback server. The extension confirms the identity of the approved document and periodically renews the grant. Optional login credentials apply to the exact approved same-origin direct resource. The owner can authorize related CDN playback. The companion validates target URLs and resolves public CDN addresses at connection time. Redirects require exact playback evidence. Managed jobs stage direct media, eligible HLS, or static DASH before passing a local file to FFmpeg. SQLite stores policy, audit metadata, and batch ownership.
 
 Standing approvals are attached to a client and exact origin. Their download permission also applies when the site owner has enabled manual downloads. The browser binds live grants to a document and tracks shared cookies by exact hostname and browser store. A stable local fingerprint covers cookie changes before media appears. Candidate refresh preserves IDs for unchanged sources. New signed URLs receive new IDs once observed. Private clients keep new managed batch state in memory.
 
-The standalone Maximum Compatibility plan divides the observation budget among discovery stages. Its second stage inspects embedded frames and public JSON if the first misses. The optional local rule store keeps strategy preferences and aggregated probe outcomes by origin. Launching the next stage depends on the evidence and the remaining observation budget.
+The standalone Maximum Compatibility plan divides the observation budget among discovery stages. Its second stage inspects embedded frames and public JSON if the first misses. Adaptive can start with a recent successful strategy. The optional local rule store keeps strategy preferences and aggregated probe outcomes by origin. Recommendation thresholds account for unsuccessful samples and learned recommendations expire after an inactive month. Imported preferences are explicit overrides.
 
 See [compatibility evidence](compatibility-report.zh-CN.md), [MCP operations](mcp.md), [installation](install.md), and the [privacy policy](privacy.md).

@@ -1,7 +1,7 @@
 import { assessCandidates, detectionDiagnostic, diagnosticReport } from './detection.mjs';
 import { observeMediaChanges, inspectPublicManifest, inspectPublicPlayerJson, publicPlayerJsonUrl } from './live-detection.mjs';
 import { browserApi, downloadsPage, downloadSettingsPage, isAndroid, nativeDownloads } from './browser.mjs';
-import { canUseMediaTitle, classify, isPlaylist, pageStreams, platformVideo, scanDocument, selectPageStream, sourceTitle } from './media.mjs';
+import { canUseMediaTitle, classify, isPlaylist, observedMediaResources, pageStreams, platformVideo, scanDocument, selectPageStream, sourceTitle } from './media.mjs';
 import { bindMcpCenter } from './mcp-center.mjs';
 import { queryMp4Metadata } from './media-metadata.mjs';
 import { activeStates, companion, endpointDefault, usesCompanion } from './downloads.mjs';
@@ -89,6 +89,7 @@ const diagnosticHints = {
   drm:'播放器启用了 DRM',
 };
 let streams = [];
+let relatedResources = [];
 let lastStreams;
 let lastJobs;
 let downloadJobs = [];
@@ -635,6 +636,7 @@ async function refresh(manual = true) {
     if (top?.encrypted) blockers.add('drm');
     const available = !blockers.size;
     const requests = matchedRequests.filter(row => !row.playerJson);
+    relatedResources = available ? observedMediaResources(frames.filter(frame => frame.result),requests) : [];
     if (available && top && nativeDownloads) {
       const origin = URL.parse(top.documentUrl)?.origin;
       const jsonUrls = new Set([...(top.publicJsonRequests ?? []),...matchedRequests.filter(row => row.playerJson).map(row => row.url)]);
@@ -847,7 +849,7 @@ function saveJson(filename, report) {
 bindMcpCenter({root:$('mcp-center'),translate:(zh,en) => language === 'en' ? en : zh,
   getConnection:() => connection,getTab:() => tab,saveJson,
   getSnapshot:() => ({document:scanning ? null : scannedDocument,title:pageTitle,restricted:Boolean(detection.blockers?.length),diagnostic:detection,
-    playing:streams.some(stream => stream.playing),streams:scanning ? [] : streams})});
+    playing:streams.some(stream => stream.playing),streams:scanning ? [] : streams,resources:scanning ? [] : relatedResources})});
 $('mcp-center').hidden = !nativeDownloads;
 
 $('export-diagnostic').addEventListener('click', () => saveJson('videosave-diagnostic.json',

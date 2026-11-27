@@ -101,6 +101,82 @@ test('standing tab snapshots preserve unchanged candidate IDs and retire replace
   assert.throws(() => updateGrantSnapshot({id,tab:{url:'https://elsewhere.example',streams:[]}}),{code:'MCP_INVALID_TAB'});
 });
 
+test('standing CDN access requires owner opt-in and browser-observed player evidence', () => {
+  const client = saveClient({name:'CDN QA',preset:'full-access',confirm:true});
+  const origin = 'https://watch.example';
+  const cdn = 'https://cdn.example';
+  const observed = {url:cdn+'/film.mp4?sig=cdntoken',kind:'mp4',observed:true,
+    playerOrigin:origin,playerAssociated:true,requestHeaders:{Origin:origin,Referer:origin+'/watch',
+      Cookie:'page-secret=1',Authorization:'Bearer page-secret'}};
+  const streams = [observed,{...observed,url:cdn+'/other.mp4',playerAssociated:false},
+    {...observed,url:cdn+'/declared.mp4',observed:false},
+    {...observed,url:'http://insecure.example/media.mp4'}];
+  const approve = allowRelatedMedia => {
+    updateClientAccess({id:client.id,action:'trust',origins:[origin],allowRelatedMedia,confirm:true});
+    const pending = requestGrant(client,origin);
+    approveGrant({id:pending.id,automatic:true,tab:{url:origin,streams}});
+    return activeTab(client,pending.id).streams;
+  };
+  assert.equal(approve(false).length,0);
+  const [source,...other] = approve(true);
+  assert.deepEqual(other,[]);
+  assert.equal(source.url,observed.url);
+  assert.deepEqual(source.headers,{Origin:origin,Referer:origin+'/watch'});
+  assert.deepEqual(source.cookiesFor(new URL(source.url)),[]);
+  assert.equal(source.relatedMedia,true);
+});
+
+test('managed resource scope accepts signed descendants and requires exact evidence for secondary origins and redirects', async () => {
+  const {scopeManagedMedia} = await import('../tools/managed-media.mjs');
+  const entry = new URL('https://cdn.example/main.m3u8?sig=main');
+  const observed = new URL('https://backup.example/clip.m4s?sig=observed');
+  const scoped = scopeManagedMedia(entry,'https://page.example',true,[observed.href]);
+  scoped.assertUrl(new URL('https://cdn.example/segment.m4s?sig=child'));
+  scoped.assertUrl(observed);
+  scoped.assertUrl(observed,{redirect:true});
+  assert.throws(() => scoped.assertUrl(new URL('https://cdn.example/other.m3u8'),{redirect:true}),{code:'MCP_MEDIA_REDIRECT'});
+  assert.throws(() => scoped.assertUrl(new URL('https://backup.example/private.m4s')),{code:'MCP_MEDIA_SCOPE'});
+  assert.throws(() => scoped.assertUrl(new URL('https://user:pass@cdn.example/clip.m4s')),{code:'MCP_MEDIA_SCOPE'});
+  assert.throws(() => scoped.assertUrl(new URL('https://127.0.0.1/clip.m4s')),{code:'MCP_MEDIA_SCOPE'});
+});
+
+test('related playback resources stay private and are replaced when the approved snapshot changes', () => {
+  const client = saveClient({name:'Related fragments QA',preset:'full-access',confirm:true});
+  const origin = 'https://frames.example';
+  const playerOrigin = 'https://player.example';
+  const stream = {url:'https://media.example/master.mpd',kind:'mpd',observed:true,playerAssociated:true,frameId:3,playerOrigin};
+  const fragment = {url:'https://parts.example/chunk.m4s?sig=private',frameId:3,playerOrigin,
+    requestHeaders:{Origin:playerOrigin,Cookie:'private',Authorization:'private'}};
+  updateClientAccess({id:client.id,action:'trust',origins:[origin],allowRelatedMedia:true,confirm:true});
+  const pending = requestGrant(client,origin);
+  const tab = {url:origin,streams:[stream]};
+  const approved = approveGrant({id:pending.id,automatic:true,tab:{...tab,resources:[fragment,
+    {...fragment,url:'https://parts.example/chunk2.m4s',frameId:4},
+    {...fragment,url:'https://parts.example/chunk3.m4s',playerOrigin:origin}]}});
+  assert.ok(!JSON.stringify(approved).includes('private'));
+  const snapshot = activeTab(client,pending.id);
+  assert.ok(!('resources' in snapshot.tab));
+  assert.deepEqual(snapshot.resources,[{url:fragment.url,frameId:3,playerOrigin,headers:{Origin:playerOrigin}}]);
+  updateGrantSnapshot({id:pending.id,tab});
+  assert.deepEqual(activeTab(client,pending.id).resources,[]);
+});
+
+test('CDN connections use only publicly routable DNS answers', async () => {
+  const {publicMediaAddress,publicMediaLookup} = await import('../tools/managed-media.mjs');
+  for (const ip of ['127.0.0.1','10.2.3.4','169.254.169.254','100.64.1.1','192.168.2.4',
+    '203.0.113.20','::1','::ffff:8.8.8.8','fc00::2','fe80::1','2001:db8::2','ff00::1']) {
+    assert.equal(publicMediaAddress(ip),false,ip);
+  }
+  for (const ip of ['1.1.1.1','8.8.8.8','2606:4700:4700::1111']) assert.equal(publicMediaAddress(ip),true,ip);
+  let calls = 0;
+  const lookup = publicMediaLookup(async () => ++calls === 1
+    ? [{address:'1.1.1.1',family:4}] : [{address:'1.1.1.1',family:4},{address:'127.0.0.1',family:4}]);
+  const connect = () => new Promise((resolve,reject) => lookup('media.example',{all:true},
+    (error,records) => error ? reject(error) : resolve(records)));
+  assert.deepEqual(await connect(),[{address:'1.1.1.1',family:4}]);
+  await assert.rejects(connect,{code:'MCP_MEDIA_SCOPE'});
+});
+
 test('paired management and managed sessions use separate permissions', {timeout:20000}, async t => {
   const temp = await mkdtemp(path.join(os.tmpdir(),'videosave-control-'));
   const owner = 'isolated-test-pairing';

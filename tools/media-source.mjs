@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { connectCdp, withChromium } from './edge-session.mjs';
+import { BrowserTransportError, connectCdp, withChromium } from './edge-session.mjs';
 import { mediaProcessEnvironment } from './media-proxy.mjs';
 import { classify, isMediaFragment, isPlaylist, mediaResponseSize, pageStreams, scanDocument, sourceTitle } from '../extension/media.mjs';
 import { assessCandidates, detectionDiagnostic, documentBlockers } from '../extension/detection.mjs';
@@ -213,15 +213,51 @@ function visibleReferenceCodes() {
   return [...results];
 }
 
-export async function discover(url, cookies, signal, {
+const emptyPage = reason => ({pageTitle:null,pageContext:null,streams:[],pages:[],candidates:[],reason});
+
+export async function discover(url,cookies,signal,options = {}) {
+  const launchBudget = AbortSignal.timeout(20_000);
+  for (let attempts = 1; attempts <= 2; attempts++) {
+    let stage = 'launch';
+    try {
+      const result = await discoverOnce(url,cookies,signal,launchBudget,options,value => { stage = value; });
+      return attempts === 1 && result.reason !== 'timeout' ? result : {...result,browserProbe:{stage,attempts}};
+    } catch (error) {
+      signal.throwIfAborted();
+      const dispatched = stage === 'navigate' || stage === 'observe';
+      const launchTimedOut = launchBudget.aborted && (error === launchBudget.reason || error.cause === launchBudget.reason);
+      if (!(error instanceof BrowserTransportError) && !launchTimedOut) throw error;
+      if (attempts === 2 || launchBudget.aborted || dispatched) {
+        return {...emptyPage('timeout'),browserProbe:{stage,attempts}};
+      }
+    }
+  }
+}
+
+async function discoverOnce(url, cookies, signal, launchBudget, {
   waitMs = 20_000, includeText = false, harvestCodes = false, clickPlay = false, captureXhrBody = false, includeFrames = false, mode = 'headless',
   onMediaHeaders,
-} = {}) {
+}, setStage) {
+  const setup = new AbortController();
+  const abortSetup = () => setup.abort(launchBudget.reason);
+  launchBudget.addEventListener('abort',abortSetup,{once:true});
+  if (launchBudget.aborted) abortSetup();
+  const startupSignal = AbortSignal.any([signal,setup.signal]);
   return withChromium(['--autoplay-policy=no-user-gesture-required'], async ({ list }) => {
-    const target = (await list()).find(t => t.type === 'page' && t.url === 'about:blank');
-    if (!target) throw new ApiError('PAGE_FAILED', '隔离浏览器未创建页面', 502);
-    const page = await connectCdp(target.webSocketDebuggerUrl, signal);
+    setStage('target');
+    const targetDeadline = performance.now() + 600;
+    let target;
+    do {
+      const targets = await list();
+      target = Array.isArray(targets) && targets.find(t => t.type === 'page' && t.url === 'about:blank');
+      if (target?.webSocketDebuggerUrl) break;
+      await sleep(75,undefined,{signal:startupSignal});
+    } while (performance.now() < targetDeadline);
+    if (!target?.webSocketDebuggerUrl) throw new BrowserTransportError('隔离浏览器未创建页面');
+    setStage('connect');
+    const page = await connectCdp(target.webSocketDebuggerUrl,startupSignal);
     try {
+      setStage('setup');
       const responses = new Map();
       const fragmentFrames = new Set();
       const blockedFrames = new Set();
@@ -337,11 +373,15 @@ export async function discover(url, cookies, signal, {
       if (cookies.length) {
         await page.send('Network.setCookies', { cookies: cookies.map(cookie => ({ ...cookie, url: url.origin, path: '/', secure: url.protocol === 'https:' })) });
       }
+      startupSignal.throwIfAborted();
+      launchBudget.removeEventListener('abort',abortSetup);
+      setStage('navigate');
       const nav = await page.send('Page.navigate', { url: url.href });
       if (nav.errorText) {
         const reason = /BLOCKED|CERT_/i.test(nav.errorText) ? 'blocked' : 'timeout';
-        return {pageTitle:null,pageContext:null,streams:[],pages:[],candidates:[],reason};
+        return emptyPage(reason);
       }
+      setStage('observe');
       const deadline = Date.now() + waitMs;
       let collectUntil = deadline;
       let lastSignal;
@@ -459,7 +499,7 @@ export async function discover(url, cookies, signal, {
         reason: blocked || blockers.size ? 'blocked' : !found?.ready ? 'timeout' : found.playerCount ? 'no-playlist-request' : 'no-player',
       };
     } finally { page.close(); }
-  }, signal, {headed:mode === 'headed'});
+  },startupSignal,{headed:mode === 'headed'}).finally(() => launchBudget.removeEventListener('abort',abortSetup));
 }
 
 function inputArgs(url, cookies = [], headers = {}) {

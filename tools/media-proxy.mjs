@@ -137,6 +137,10 @@ export function networkPreferences(update) {
   };
 }
 
+export function hasManagedCdnProxy() {
+  return effectiveProxies.length > 0;
+}
+
 export async function diagnoseNetwork() {
   const current = networkPreferences();
   let connection = effective.mode === 'direct' ? 'direct' : environmentStatus;

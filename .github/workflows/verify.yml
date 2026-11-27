@@ -79,7 +79,7 @@ jobs:
         id: release
         run: |
           $manifest = Get-Content -Raw extension/manifest.json | ConvertFrom-Json
-          $version = $manifest.version
+          $version = if ($manifest.version_name) { $manifest.version_name } else { $manifest.version }
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
             throw "The release tag does not match the manifest version."
           }

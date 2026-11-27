@@ -11,7 +11,7 @@ import sys
 from tempfile import TemporaryDirectory
 from zipfile import BadZipFile, ZipFile
 
-from build_release import ROOT, package_entries, sbom
+from build_release import ROOT, package_entries, release_version, sbom
 
 
 def require(condition, message):
@@ -125,16 +125,17 @@ def main():
         parser.error("--smoke-windows requires Windows")
     try:
         manifest = json.loads((ROOT / "extension/manifest.json").read_text(encoding="utf-8"))
-        version = manifest["version"]
+        version = release_version(manifest)
+        browser_version = manifest["version"]
         name = f"VideoSave-{version}"
         packages = package_entries(manifest)
         bom_name = f"{name}-sbom.cdx.json"
         verify_checksums(args.dist, (*packages, bom_name))
         for filename, entries in packages.items():
             verify_archive(args.dist / filename, entries)
-        verify_browser_manifest(packages[f"{name}-extension.zip"], "chromium", version)
-        verify_browser_manifest(packages[f"{name}-firefox.zip"], "firefox", version)
-        verify_browser_manifest(packages[f"{name}-android-dev.zip"], "android", version)
+        verify_browser_manifest(packages[f"{name}-extension.zip"], "chromium", browser_version)
+        verify_browser_manifest(packages[f"{name}-firefox.zip"], "firefox", browser_version)
+        verify_browser_manifest(packages[f"{name}-android-dev.zip"], "android", browser_version)
         desktop = packages[f"{name}.zip"]
         for path in ("Start VideoSave.cmd", "tools/start-windows.ps1", "tools/mcp-server.mjs", "tools/media-cli.mjs", "tools/server.mjs"):
             require(f"{name}/{path}" in desktop, f"Desktop package is missing {path}")

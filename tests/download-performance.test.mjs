@@ -315,7 +315,9 @@ test('finite HLS transfer', async t => {
   let interruptNextSegment = false;
   let failures = 0;
   let failedSegment;
-  let dashManifestRequests = 0;
+  const dashRequests = [];
+  let firstDashFragmentStatus;
+  let dashRedirect;
   const hlsRanges = [];
   let playlistAttempts = 0;
   let requireReferer = false;
@@ -327,9 +329,16 @@ test('finite HLS transfer', async t => {
         return res.writeHead(403).end();
       }
       if (filename === 'retry-playlist.m3u8' && ++playlistAttempts === 1) return res.writeHead(503).end();
+      if (filename === 'redirect.mpd') return res.writeHead(302,{location:dashRedirect}).end();
       const bytes = await readFile(path.join(folder, filename));
-      if (filename === 'fixture.mpd') dashManifestRequests++;
-      if (filename.startsWith('dash-') && dashManifestRequests === 3) return res.writeHead(503).end();
+      if (filename.endsWith('.mpd') || filename.startsWith('dash-')) {
+        dashRequests.push({filename,referer:req.headers.referer,cookie:req.headers.cookie});
+      }
+      if (filename === 'dash-segment-0-1.m4s' && firstDashFragmentStatus) {
+        const status = firstDashFragmentStatus;
+        firstDashFragmentStatus = undefined;
+        return res.writeHead(status).end();
+      }
       if (filename === 'direct.mp4') {
         directRequests.push(req.headers.range || 'full');
         res.setHeader('content-type', 'video/mp4');
@@ -391,15 +400,60 @@ test('finite HLS transfer', async t => {
       assert.deepEqual(info.streams, [{ codec_type: 'video', width: 320, height: 240 }, { codec_type: 'audio' }]);
       assert.ok(Math.abs(Number(info.format.duration) - 12) < 0.2);
     };
-    await t.test('recovers a DASH download when the first fragment returns a transient error', async () => {
+    await t.test('natively stages DASH and retries the first fragment without reopening the manifest', async () => {
       execFileSync(process.env.FFMPEG_BIN || 'ffmpeg', ['-v','error','-f','lavfi','-i','testsrc2=s=320x240:r=24',
         '-f','lavfi','-i','sine=frequency=800','-t','12','-c:v','libx264','-preset','ultrafast','-g','48','-sc_threshold','0',
         '-c:a','aac','-f','dash','-seg_duration','2','-init_seg_name','dash-init-$RepresentationID$.m4s',
         '-media_seg_name','dash-segment-$RepresentationID$-$Number$.m4s','fixture.mpd'], {cwd:folder,windowsHide:true});
-      const {id} = queue({items:[{kind:'stream',url:new URL('fixture.mpd',url).href,format:'mkv'}]});
+      firstDashFragmentStatus = 503;
+      const {id} = queue({items:[{kind:'stream',url:new URL('fixture.mpd',url).href,format:'mkv'}],
+        headers:{Referer:fixtureReferer},cookie:'session=test'});
       const {items} = await finish(id);
       verifyMedia(items[0]);
-      assert.equal(dashManifestRequests, 4);
+      assert.equal(items[0].prefetch,true);
+      assert.equal(dashRequests.filter(request => request.filename === 'fixture.mpd').length,1);
+      assert.equal(dashRequests.filter(request => request.filename === 'dash-segment-0-1.m4s').length,2);
+      assert.ok(dashRequests.every(request => request.referer === fixtureReferer && request.cookie === 'session=test'));
+    });
+    await t.test('keeps FFmpeg for an unsupported public DASH manifest', async () => {
+      dashRequests.length = 0;
+      const text = await readFile(path.join(folder,'fixture.mpd'),'utf8');
+      const fallback = text.replaceAll('mimeType="video/mp4"','mimeType="video/quicktime"')
+        .replaceAll('mimeType="audio/mp4"','mimeType="audio/quicktime"');
+      await writeFile(path.join(folder,'fallback.mpd'),fallback);
+      const {id} = queue({items:[{kind:'stream',url:new URL('fallback.mpd',url).href,format:'mkv'}]});
+      const {items} = await finish(id);
+      verifyMedia(items[0]);
+      assert.equal(items[0].prefetch,false);
+      assert.equal(items[0].prefetchFallback?.reason,'unsupported-dash-playlist');
+      assert.ok(dashRequests.filter(request => request.filename === 'fallback.mpd').length > 1);
+    });
+    await t.test('stops DASH on a fragment access denial without a remote FFmpeg retry', async () => {
+      dashRequests.length = 0;
+      firstDashFragmentStatus = 403;
+      const {id} = queue({items:[{kind:'stream',url:new URL('fixture.mpd?deny=first',url).href,format:'mkv'}]});
+      const {items} = await finish(id);
+      assert.equal(items[0].status,'error');
+      assert.equal(items[0].errorCode,'MEDIA_ACCESS_RESTRICTED');
+      assert.equal(dashRequests.filter(request => request.filename === 'fixture.mpd').length,1);
+      assert.equal(dashRequests.filter(request => request.filename === 'dash-segment-0-1.m4s').length,1);
+    });
+    await t.test('keeps local DASH redirects within the selected origin', async () => {
+      let crossOriginRequests = 0;
+      const outside = createServer((_req,res) => { crossOriginRequests++; res.writeHead(403).end(); }).listen(0,'127.0.0.1');
+      try {
+        await once(outside,'listening');
+        const entry = new URL('redirect.mpd',url);
+        dashRedirect = '/fixture.mpd';
+        const sameOrigin = await finish(queue({items:[{kind:'stream',url:entry.href,format:'mkv'}]}).id);
+        verifyMedia(sameOrigin.items[0]);
+        assert.equal(sameOrigin.items[0].prefetch,true);
+        dashRedirect = `http://127.0.0.1:${outside.address().port}/fixture.mpd`;
+        entry.searchParams.set('case','different-origin');
+        const outsideOrigin = await finish(queue({items:[{kind:'stream',url:entry.href,format:'mkv'}],cookie:'session=test'}).id);
+        assert.equal(outsideOrigin.items[0].errorCode,'DASH_RESOURCE_SCOPE');
+        assert.equal(crossOriginRequests,0);
+      } finally { outside.closeAllConnections(); outside.close(); }
     });
     await t.test('fetches direct MP4 once when the origin ignores Range', async () => {
       execFileSync(process.env.FFMPEG_BIN || 'ffmpeg', ['-v','error','-i',path.join(folder,'fixture.m3u8'),

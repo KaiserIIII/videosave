@@ -132,6 +132,14 @@ export function selectPageStream(streams) {
   return {status:'selected', url:longest.url, reason:'longest-player'};
 }
 
+export function observedMediaResources(frames,requests) {
+  const frameOrigins = new Map(frames.filter(frame => !frame.result.encrypted && !frame.result.blocker)
+    .map(frame => [frame.frameId,URL.parse(frame.result.documentUrl)?.origin]));
+  return requests.filter(row => row.fragment && row.playerOrigin && frameOrigins.get(row.frameId) === row.playerOrigin &&
+    typeof row.url === 'string' && row.url.length <= 2048 && URL.parse(row.url)?.protocol === 'https:')
+    .map(({url,playerOrigin,frameId,requestHeaders}) => ({url,playerOrigin,frameId,requestHeaders})).slice(-48);
+}
+
 export function pageStreams(frames, requests) {
   const noisy = /\/(?:ad[sx]?|preroll|midroll|storyboards?|thumbnails?|sprites?|tracking|beacons?)\//i;
   const declared = new Set();
@@ -185,12 +193,16 @@ export function pageStreams(frames, requests) {
     templatedParts.some(row => row.frameId === frameId && row.patterns.some(pattern => pattern.test(url.href))));
   const network = requests.filter(request => {
     const url = URL.parse(request.url);
-    return url && url.href !== documents.get(request.frameId) && !isPart(url,request.frameId) &&
+    return url && !request.fragment && url.href !== documents.get(request.frameId) && !isPart(url,request.frameId) &&
       !encryptedFrames.has(request.frameId) && eligible(url) && !covered.has(`${request.frameId} ${url.href}`) && (declared.has(url.href) ||
       !noisy.test(url.pathname) && request.type !== 'image');
   });
   const streams = pickStreams([...network.map(request => request.xhrJson || request.manifestOnly ? request : {
-    ...request,observed:true,...(request.frameId === 0 && {observedTopFrame:true}),
+    ...request,observed:true,observerFrameId:request.frameId,playerAssociated:Boolean(request.playerOrigin &&
+      URL.parse(documents.get(request.frameId))?.origin === request.playerOrigin &&
+      (request.type === 'media' || request.mime && classify('https://media.invalid/resource',request.mime,true) ||
+        declared.has(URL.parse(request.url)?.href))),
+    ...(request.frameId === 0 && {observedTopFrame:true}),
   }), ...observed.filter(candidate => {
     const url = URL.parse(candidate.url);
     return url && !isPart(url,candidate.frameId) && eligible(url) && !covered.has(`${candidate.frameId} ${url.href}`) &&

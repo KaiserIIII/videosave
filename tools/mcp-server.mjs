@@ -5,6 +5,7 @@ import * as downloads from './media-downloads.mjs';
 import { configureMediaProxy } from './media-proxy.mjs';
 import { localPairingCode, settingsPatchSchema, settingsScope } from './preferences.mjs';
 import { boundClientToken } from './mcp-control.mjs';
+import { probeModes } from './compatibility-policy.mjs';
 
 configureMediaProxy();
 const latestProtocol = '2025-11-25';
@@ -40,7 +41,7 @@ const operations = [
     url:string,cookie:string,waitMs:{type:'integer',minimum:100,maximum:30_000,default:20_000},
     waitForMediaMs:{type:'integer',minimum:100,maximum:60_000,description:'Media observation window for a single probe attempt'},
     mode:{type:'string',enum:['headless','headed'],default:'headless'},
-    compatibility:{enum:['standard','maximum'],default:'standard'},
+    compatibility:{enum:probeModes,default:'standard'},
     learnCompatibility:{type:'boolean',default:false},
     retries:{type:'integer',minimum:0,maximum:2,default:2},includeText:{type:'boolean',default:false},
     harvestCodes:{type:'boolean',default:false,description:'Extract at most 50 visible reference codes as untrusted page data'},
@@ -76,6 +77,7 @@ const operations = [
 const batchResult = object({
   id:string, status:string, timedOut:{type:'boolean'}, items:array(object({
     status:string, errorCode:{type:['string','null']}, outputs:array(object({})),
+    engine:string,elapsedMs:{type:'integer',minimum:0},prefetchFallback:object({reason:string}),
     alreadySaved:{type:'boolean'},segmentDirectory:string,
     segments:object({completed:{type:'integer'},total:{type:'integer'},restored:{type:'integer'}}),
   },['status'])),resumable:{type:'boolean'},

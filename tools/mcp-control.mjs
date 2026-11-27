@@ -81,7 +81,7 @@ export function clientAccess(id) {
   return db(connection => readAccess(connection,assertId(id)));
 }
 
-export function updateClientAccess({id,action,origins,days = 30,shareSession = false,allowDownload = false,privacy,confirm} = {}) {
+export function updateClientAccess({id,action,origins,days = 30,shareSession = false,allowDownload = false,allowRelatedMedia = false,privacy,confirm} = {}) {
   const client = listClients().items.find(entry => entry.id === assertId(id));
   if (!client) throw new ApiError('MCP_CLIENT_NOT_FOUND','Client not found',404);
   if (action === 'reset' || action === 'revoke') {
@@ -91,7 +91,7 @@ export function updateClientAccess({id,action,origins,days = 30,shareSession = f
   }
   if (action !== 'trust' || client.disabled || !client.scopes.includes('automation') ||
       !Array.isArray(origins) || origins.length > 24 || !Number.isInteger(days) || days < 1 || days > 90 ||
-      typeof shareSession !== 'boolean' || typeof allowDownload !== 'boolean' ||
+      typeof shareSession !== 'boolean' || typeof allowDownload !== 'boolean' || typeof allowRelatedMedia !== 'boolean' ||
       privacy !== undefined && typeof privacy !== 'boolean') {
     throw new ApiError('MCP_INVALID_ACCESS','Select an enabled client and up to 24 exact sites');
   }
@@ -100,7 +100,7 @@ export function updateClientAccess({id,action,origins,days = 30,shareSession = f
     const origin = siteOrigin(value);
     if (value !== origin && value !== origin + '/') throw new ApiError('MCP_INVALID_ORIGIN','Enter exact HTTP(S) origins');
     return origin;
-  }))].map(origin => ({origin,shareSession,allowDownload,expiresAt:Date.now()+days*86400_000}));
+  }))].map(origin => ({origin,shareSession,allowDownload,allowRelatedMedia,expiresAt:Date.now()+days*86400_000}));
   const settings = db(connection => {
     const next = {sites,privacy:privacy ?? readAccess(connection,id).privacy};
     connection.prepare('INSERT OR REPLACE INTO mcp_client_access VALUES (?,?)').run(id,JSON.stringify(next));
@@ -145,9 +145,10 @@ export function siteOrigin(value) {
   return parsed.origin;
 }
 
-function publicGrant({id,clientId,clientName,origin,status,expiresAt,sessionMode,automatic,shareAllowed,diagnostic}) {
+function publicGrant({id,clientId,clientName,origin,status,expiresAt,sessionMode,automatic,shareAllowed,allowRelatedMedia,diagnostic}) {
   return {id,clientId,clientName,origin,status,expiresAt:new Date(expiresAt).toISOString(),...(sessionMode && {sessionMode}),
-    ...(automatic && {automatic:true,shareAllowed}),...(status === 'pending' && diagnostic && {diagnostic})};
+    ...(automatic && {automatic:true,shareAllowed}),...(allowRelatedMedia && {allowRelatedMedia}),
+    ...(status === 'pending' && diagnostic && {diagnostic})};
 }
 
 function sweep(now = Date.now()) {
@@ -175,7 +176,7 @@ export function requestGrant(client, value) {
     throw new ApiError('MCP_AUTHORIZATION_LIMIT','Too many authorization requests',429);
   }
   const grant = {id:randomUUID(),clientId:client.id,clientName:client.name,origin,status:'pending',expiresAt:Date.now()+300_000,
-    automatic:Boolean(trust),shareAllowed:trust?.shareSession};
+    automatic:Boolean(trust),shareAllowed:trust?.shareSession,allowRelatedMedia:trust?.allowRelatedMedia === true};
   sessions.set(grant.id,grant);
   return publicGrant(grant);
 }
@@ -207,13 +208,13 @@ export function sessionStatus(client,value) {
     ...(grant.sessionMode && {sessionMode:grant.sessionMode})};
 }
 
-export function approveGrant({id,tab,minutes = 5,sessionMode = 'timed',shareSession = false,singleTask = false,automatic = false} = {}) {
+export function approveGrant({id,tab,minutes = 5,sessionMode = 'timed',shareSession = false,singleTask = false,automatic = false,allowRelatedMedia = false} = {}) {
   const grant = getGrant(id);
   if (grant.status !== 'pending') throw new ApiError('MCP_AUTHORIZATION_INACTIVE','Request is no longer pending',409);
   const valid = tab && tab.restricted !== true && Array.isArray(tab.streams) && tab.streams.length <= 40;
   if (!valid || siteOrigin(tab.url) !== grant.origin || !['timed','browser'].includes(sessionMode) ||
       !Number.isInteger(minutes) || minutes < 1 || minutes > browserSessionMinutes ||
-      typeof shareSession !== 'boolean' || typeof singleTask !== 'boolean') {
+      typeof shareSession !== 'boolean' || typeof singleTask !== 'boolean' || typeof allowRelatedMedia !== 'boolean') {
     throw new ApiError('MCP_INVALID_TAB','Open the requested site and select an allowed authorization duration');
   }
   const {settings} = sitePreferences(grant.origin);
@@ -225,6 +226,8 @@ export function approveGrant({id,tab,minutes = 5,sessionMode = 'timed',shareSess
   if (!settings.probe || shareSession && !settings.session) {
     throw new ApiError('MCP_SITE_DENIED','The site policy rejects this authorization',403);
   }
+  grant.allowRelatedMedia = client?.scopes.includes('automation') === true &&
+    (automatic ? trust?.allowRelatedMedia === true : allowRelatedMedia);
   grant.tab = tabSnapshot(grant,tab,client,shareSession);
   for (const previous of sessions.values()) {
     if (previous.clientId === grant.clientId && previous.origin === grant.origin && previous.status === 'approved') revoke(previous);
@@ -246,18 +249,35 @@ function tabSnapshot(grant,tab,client,shareSession) {
   for (const item of tab.streams) {
     const url = typeof item?.url === 'string' && item.url.length <= 2048 ? URL.parse(item.url) : null;
     const observed = client?.scopes.includes('automation') && item?.observed === true;
-    if (!url || url.origin !== grant.origin || url.search && !observed || url.hash || !mediaKinds.has(item.kind) ||
+    const playerUrl = typeof item?.playerOrigin === 'string' && item.playerOrigin.length <= 2048 && URL.parse(item.playerOrigin);
+    const associated = observed && item.playerAssociated === true && playerUrl?.origin === item.playerOrigin &&
+      ['http:','https:'].includes(playerUrl?.protocol);
+    const relatedMedia = Boolean(grant.allowRelatedMedia && associated && url?.protocol === 'https:' && url.origin !== grant.origin);
+    if (!url || url.origin !== grant.origin && !relatedMedia || url.search && !observed || url.hash || !mediaKinds.has(item.kind) ||
         url.username || url.password || item.restricted || item.drm) continue;
-    const cookiesFor = shareSession && !['m3u8','mpd'].includes(item.kind) ? approvedCookies(item.cookies) : () => [];
+    const cookiesFor = !relatedMedia && shareSession && !['m3u8','mpd'].includes(item.kind) ? approvedCookies(item.cookies) : () => [];
     const prior = previous.get(url.href);
     streams.set(url.href,{candidateId:prior?.kind === item.kind ? prior.candidateId : randomUUID(),url:url.href,kind:item.kind,cookiesFor,preview:item.preview === true,
-      recommended:item.recommended === true,headers:item.observed === true ? playbackHeaders(item.requestHeaders,grant.origin) : {},
+      relatedMedia,associated,playerOrigin:associated ? playerUrl.origin : grant.origin,frameId:Number.isInteger(item.frameId) && item.frameId >= 0 ? item.frameId : 0,
+      recommended:item.recommended === true,headers:item.observed === true ? playbackHeaders(item.requestHeaders,relatedMedia ? item.playerOrigin : grant.origin) : {},
       ...(Number.isSafeInteger(item.size) && item.size > 0 && !['m3u8','mpd'].includes(item.kind) && {size:item.size}),
       ...(Number.isFinite(item.duration) && item.duration > 0 && {duration:item.duration}),
       ...(Number.isInteger(item.height) && item.height > 0 && {height:item.height})});
   }
+  const resources = new Map();
+  if (grant.allowRelatedMedia && Array.isArray(tab.resources) && tab.resources.length <= 48) {
+    const players = new Set([...streams.values()].filter(source => source.associated && ['m3u8','mpd'].includes(source.kind))
+      .map(source => `${source.frameId} ${source.playerOrigin}`));
+    for (const item of tab.resources) {
+      const url = typeof item?.url === 'string' && item.url.length <= 2048 ? URL.parse(item.url) : null;
+      const {frameId,playerOrigin} = item ?? {};
+      if (!url || url.protocol !== 'https:' || url.port || url.username || url.password || url.hash ||
+          !Number.isInteger(frameId) || typeof playerOrigin !== 'string' || !players.has(`${frameId} ${playerOrigin}`)) continue;
+      resources.set(`${frameId} ${url.href}`,{url:url.href,frameId,playerOrigin,headers:playbackHeaders(item.requestHeaders,playerOrigin)});
+    }
+  }
   return {origin:grant.origin,title:typeof tab.title === 'string' ? tab.title.replace(/[\x00-\x1f\x7f]/g,' ').slice(0,160) : '',
-    playing:tab.playing === true,sessionShared:shareSession,streams:[...streams.values()],
+    playing:tab.playing === true,sessionShared:shareSession,streams:[...streams.values()],resources:[...resources.values()],
     diagnostic:detectionDiagnostic({...diagnosticReport({diagnostic:tab.diagnostic ?? {}}).diagnostic,streams:[...streams.values()],
       selection:{status:streams.size > 1 ? 'ambiguous' : 'selected'}})};
 }
@@ -313,11 +333,11 @@ export function activeTab(client, id) {
   if (approved.length > 1) throw new ApiError('MCP_AUTHORIZATION_REQUIRED','Select an authorization ID from list_authorized_sites',409);
   const [grant] = approved;
   if (!grant?.tab) throw new ApiError('MCP_TAB_REQUIRED','Approve a current tab in VideoSave to use its media context',409);
-  const {streams,diagnostic,...tab} = grant.tab;
+  const {streams,resources,diagnostic,...tab} = grant.tab;
   const standingDownload = grant.automatic ? clientAccess(client.id).sites.some(site =>
     site.origin === grant.origin && site.expiresAt > Date.now() && site.allowDownload === true) : undefined;
-  return {authorizationId:grant.id,tab,streams,diagnostic,standingDownload,
-    singleTask:grant.singleTask,used:grant.used === true};
+  return {authorizationId:grant.id,tab,streams,resources,diagnostic,standingDownload,
+    allowRelatedMedia:grant.allowRelatedMedia === true,singleTask:grant.singleTask,used:grant.used === true};
 }
 
 export function consumeGrant(id,client) {

@@ -2,6 +2,8 @@
 
 [简体中文](README.zh-CN.md) · [Download](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT License](LICENSE)
 
+[Verification](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [Release candidate changes](CHANGELOG.md#100-rc1) · [Compatibility results](docs/compatibility-report.zh-CN.md)
+
 Find the video playing in your browser, preview it, and save it to Downloads. VideoSave is free and open source. The optional Windows companion adds DASH, more HLS formats, conversion, and an MCP interface for AI clients.
 
 ![VideoSave 0.9 in Microsoft Edge](docs/videosave-0.9-detection.png)
@@ -9,6 +11,8 @@ Find the video playing in your browser, preview it, and save it to Downloads. Vi
 **AI & MCP** gives registered clients individual permissions, current-tab approval, optional login sharing for eligible direct media, website download limits, pause and resume, and a filterable local activity log. [Set up a managed client](docs/mcp.md#managed-browser-clients) · [Control center screenshot](docs/videosave-mcp-control.png)
 
 Advanced and Full Access clients can use standing approvals for selected origins, follow media changes in an active tab, and download an unambiguous selection. Maximum Compatibility can extend the observation window and stage a deeper probe. [Permissions and probe options](docs/mcp.md#full-access-and-standing-approvals)
+
+In the release candidate, managed MCP can stage supported static DASH and use a public HTTPS CDN observed during playback when the owner enables the option. Use `get_engine_capabilities` to check the managed transfer paths and `get_task_report` to read the engine, elapsed time and result of an owned batch. [Managed MCP guide](docs/mcp.md)
 
 ## Install
 

@@ -19,6 +19,7 @@ const english = {
   '有效天数':'Validity in days',
   '在长期授权站点使用登录会话':'Use the login session for standing site approvals',
   '允许从长期授权站点下载':'Allow downloads from standing sites',
+  '允许播放时观察到的关联 CDN':'Allow CDNs observed during playback',
   '隐私模式':'Privacy mode',
   '保存长期授权':'Save standing approvals',
   '站点组':'Site group',

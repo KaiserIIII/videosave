@@ -15,6 +15,16 @@ test('maximum mode shares a bounded observation budget between stages', async ()
   assert.deepEqual(maximumProbePlan(10_000,'deep'),[{waitMs:10_000,deep:true}]);
 });
 
+test('probe modes preserve legacy defaults and apply a bounded strategy for new callers', async () => {
+  const { probePlan } = await import('../tools/compatibility-policy.mjs');
+  const options = {waitMs:20_000,retries:2};
+  assert.deepEqual(probePlan('standard',options).map(attempt => attempt.waitMs),[20_000,30_000,40_000]);
+  assert.deepEqual(probePlan('fast',options),[{waitMs:4000,deep:false}]);
+  assert.deepEqual(probePlan('balanced',options),[{waitMs:20_000,deep:false}]);
+  assert.deepEqual(probePlan('deep',options),[{waitMs:20_000,deep:true}]);
+  assert.deepEqual(probePlan('adaptive',{...options,preferred:'deep'}),[{waitMs:20_000,deep:true}]);
+});
+
 test('site rules export bounded observations and reject sensitive imports', async () => {
   const { compatibilityRules, recordCompatibility } = await import('../tools/compatibility-policy.mjs');
   const origin = 'https://qa.example';
