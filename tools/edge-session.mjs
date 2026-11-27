@@ -6,22 +6,89 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { browserProxyArgs } from './media-proxy.mjs';
+import { prepareDedicatedProfile } from './browser-sessions.mjs';
+import { ApiError } from './media-source.mjs';
 
 const edgeDefault = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const exec = promisify(execFile);
 
 export class BrowserTransportError extends Error {}
 
-function chromiumExecutable() {
-  const configured = process.env.BROWSER_BIN || process.env.EDGE_BIN;
-  if (configured) return configured;
-  const chrome = 'Google/Chrome/Application/chrome.exe';
-  const brave = 'BraveSoftware/Brave-Browser/Application/brave.exe';
-  const candidates = [edgeDefault, ...['ProgramFiles','ProgramFiles(x86)','LOCALAPPDATA'].flatMap(name =>
-    process.env[name] ? [chrome,brave].map(entry => path.join(process.env[name],entry)) : [])];
-  const installed = candidates.find(existsSync);
-  if (!installed) throw new Error('找不到 Chromium 浏览器。请用 BROWSER_BIN 指定 Edge、Chrome 或 Brave。');
+function candidatePaths(browser) {
+  const roots = ['ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA']
+    .map(name => process.env[name])
+    .filter(Boolean);
+  const byBrowser = {
+    edge: [
+      process.env.EDGE_BIN,
+      edgeDefault,
+      ...roots.map(r => path.join(r, 'Microsoft/Edge/Application/msedge.exe')),
+      '/usr/bin/microsoft-edge',
+    ],
+    chrome: [
+      process.env.CHROME_BIN,
+      ...roots.map(r => path.join(r, 'Google/Chrome/Application/chrome.exe')),
+      '/usr/bin/google-chrome',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+    ],
+    brave: [
+      process.env.BRAVE_BIN,
+      ...roots.map(r => path.join(r, 'BraveSoftware/Brave-Browser/Application/brave.exe')),
+      '/usr/bin/brave-browser',
+    ],
+  };
+  if (browser && browser !== 'auto') {
+    return (byBrowser[browser] ?? []).filter(Boolean);
+  }
+  return [
+    process.env.BROWSER_BIN,
+    process.env.EDGE_BIN,
+    ...byBrowser.edge,
+    ...byBrowser.chrome,
+    ...byBrowser.brave,
+  ].filter(Boolean);
+}
+
+export function detectAvailableBrowsers() {
+  const found = {};
+  for (const name of ['edge', 'chrome', 'brave']) {
+    const bin = candidatePaths(name).find(existsSync);
+    if (bin) found[name] = bin;
+  }
+  return found;
+}
+
+export function resolveChromiumExecutable({ browser = 'auto', browserBinary } = {}) {
+  if (browserBinary !== undefined) {
+    if (typeof browserBinary !== 'string' || !browserBinary.trim() || /[\x00-\x1f]/.test(browserBinary)) {
+      throw new ApiError('INVALID_BROWSER_BINARY', 'browserBinary 必须为有效的浏览器可执行文件路径');
+    }
+    const resolved = path.resolve(browserBinary);
+    const base = path.basename(resolved).toLowerCase();
+    if (!/^(?:msedge|chrome|chromium|chromium-browser|brave|brave-browser|google-chrome)(?:\.exe)?$/.test(base) || !existsSync(resolved)) {
+      throw new ApiError('INVALID_BROWSER_BINARY', 'browserBinary 必须指向本机已安装的受支持 Chromium 浏览器（Edge/Chrome/Brave/Chromium）');
+    }
+    return resolved;
+  }
+  const installed = candidatePaths(browser).find(existsSync);
+  if (!installed) {
+    throw new Error(
+      browser && browser !== 'auto'
+        ? `找不到指定的 ${browser} 浏览器。请检查安装或通过 BROWSER_BIN 指定。`
+        : '找不到 Chromium 浏览器。请用 BROWSER_BIN 指定 Edge、Chrome 或 Brave。',
+    );
+  }
   return installed;
+}
+
+function probeProxyArgs({ networkMode, proxy } = {}) {
+  if (!networkMode) return browserProxyArgs();
+  if (networkMode === 'direct') return ['--no-proxy-server'];
+  if (networkMode === 'http' && proxy) {
+    return ['--proxy-server=' + proxy, '--proxy-bypass-list=localhost;127.0.0.1;[::1]'];
+  }
+  return [];
 }
 
 export async function connectCdp(url, signal) {
@@ -37,10 +104,10 @@ export async function connectCdp(url, signal) {
   const close = () => ws.close();
   const abort = () => { rejectPending(signal.reason); close(); };
   ws.addEventListener('close', () => {
-    signal?.removeEventListener('abort',abort);
+    signal?.removeEventListener('abort', abort);
     rejectPending(signal?.aborted ? signal.reason : closed());
   });
-  signal?.addEventListener('abort',abort,{once:true});
+  signal?.addEventListener('abort', abort, { once: true });
   ws.addEventListener('message', ({ data }) => {
     const { id, error, result, method, params, sessionId } = JSON.parse(data);
     if (method) for (const handler of subscriptions.get(`${sessionId ?? ''} ${method}`) ?? []) handler(params);
@@ -56,11 +123,11 @@ export async function connectCdp(url, signal) {
         if (error) reject(error);
         else resolve();
       };
-      const options = {signal:listeners.signal};
+      const options = { signal: listeners.signal };
       ws.addEventListener('open', () => finish(), options);
       ws.addEventListener('error', () => finish(new BrowserTransportError('无法连接 Edge')), options);
       ws.addEventListener('close', () => finish(closed()), options);
-      signal?.addEventListener('abort', () => finish(signal.reason),options);
+      signal?.addEventListener('abort', () => finish(signal.reason), options);
       if (signal?.aborted) finish(signal.reason);
     });
   } catch (error) {
@@ -77,7 +144,7 @@ export async function connectCdp(url, signal) {
       if (error) reject(error);
       else resolve(result);
     };
-    const timeout = setTimeout(() => finish(new BrowserTransportError(`Edge 调试请求超时（${method}）`)),8000);
+    const timeout = setTimeout(() => finish(new BrowserTransportError(`Edge 调试请求超时（${method}）`)), 8000);
     pending.set(id, finish);
     try { ws.send(JSON.stringify({ id, method, params, sessionId })); }
     catch (error) { finish(error); }
@@ -95,54 +162,105 @@ export async function connectCdp(url, signal) {
       return result.result.value;
     },
   });
-  return {...session(), session, close};
+  return { ...session(), session, close };
 }
 
 export function withEdge(args, run, signal, options) {
-  return withChromium(args, run, signal, {...options, executable:process.env.EDGE_BIN || edgeDefault});
+  return withChromium(args, run, signal, { ...options, executable: process.env.EDGE_BIN || edgeDefault });
 }
 
-export async function withChromium(args, run, signal, {downloadsDirectory, executable = chromiumExecutable(), headed = false} = {}) {
+export async function withChromium(args, run, signal, {
+  downloadsDirectory,
+  executable,
+  browser = 'auto',
+  browserBinary,
+  headed = false,
+  userAgent,
+  profileMode = 'ephemeral',
+  browserSessionId,
+  networkMode,
+  proxy,
+} = {}) {
   signal?.throwIfAborted();
-  const profile = await mkdtemp(path.join(os.tmpdir(), 'media-toolkit-edge-'));
+  const binary = executable || resolveChromiumExecutable({ browser, browserBinary });
+  const dedicated = profileMode === 'dedicated' && browserSessionId
+    ? await prepareDedicatedProfile(browserSessionId, { browser: path.basename(binary), userAgent })
+    : null;
+  const profile = dedicated ? dedicated.profileDir : await mkdtemp(path.join(os.tmpdir(), 'media-toolkit-edge-'));
   let edge;
   try {
     const settings = path.join(profile, 'Default');
-    await mkdir(settings);
-    await writeFile(path.join(settings, 'Preferences'), JSON.stringify({
-      download:{default_directory:downloadsDirectory ?? path.join(profile,'Downloads'),prompt_for_download:false},
+    await mkdir(settings, { recursive: true });
+    const prefPath = path.join(settings, 'Preferences');
+    let existingPrefs = {};
+    if (dedicated) {
+      existingPrefs = await readFile(prefPath, 'utf8').then(JSON.parse).catch(() => ({}));
+    }
+    await writeFile(prefPath, JSON.stringify({
+      ...existingPrefs,
+      download: {
+        ...(existingPrefs.download ?? {}),
+        default_directory: downloadsDirectory ?? (dedicated ? dedicated.downloadsDir : path.join(profile, 'Downloads')),
+        prompt_for_download: false,
+      },
     }));
+    const devToolsPortFile = path.join(profile, 'DevToolsActivePort');
+    if (dedicated) {
+      await rm(devToolsPortFile, { force: true }).catch(() => {});
+    }
     signal?.throwIfAborted();
-    edge = spawn(executable, [
-      ...(headed ? [] : ['--headless=new']), '--no-first-run', '--no-default-browser-check', '--disable-gpu',
+    edge = spawn(binary, [
+      ...(headed ? [] : ['--headless=new']),
+      '--no-first-run', '--no-default-browser-check', '--disable-gpu',
       '--mute-audio', '--disable-background-networking', '--disable-component-update',
       '--disable-sync', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
-      `--user-data-dir=${profile}`, ...browserProxyArgs(), ...args, 'about:blank',
-    ], {stdio:'ignore',windowsHide:!headed,detached:process.platform !== 'win32'});
+      `--user-data-dir=${profile}`,
+      ...(userAgent ? [`--user-agent=${userAgent}`] : []),
+      ...probeProxyArgs({ networkMode, proxy }),
+      ...args,
+      'about:blank',
+    ], { stdio: 'ignore', windowsHide: !headed, detached: process.platform !== 'win32' });
     let startupError;
-    edge.once('error',error => { startupError = error; });
+    let activeBrowserUrl;
+    edge.once('error', error => { startupError = error; });
     const deadline = Date.now() + 12000;
     while (Date.now() < deadline) {
       signal?.throwIfAborted();
-      if (startupError) throw new Error('无法启动隔离的 Chromium 浏览器',{cause:startupError});
+      if (startupError) throw new Error('无法启动隔离的 Chromium 浏览器', { cause: startupError });
       if (edge.exitCode !== null || edge.signalCode !== null) throw new BrowserTransportError('隔离的 Chromium 浏览器提前退出');
-      const ports = await readFile(path.join(profile, 'DevToolsActivePort'), 'utf8').catch(() => '');
+      const ports = await readFile(devToolsPortFile, 'utf8').catch(() => '');
       const [port, browserPath] = ports.trim().split(/\r?\n/);
       if (port && browserPath) {
         const origin = `http://127.0.0.1:${port}`;
+        activeBrowserUrl = `ws://127.0.0.1:${port}${browserPath}`;
         const list = async () => {
           try {
             const response = await fetch(`${origin}/json/list`, {
-              signal:AbortSignal.any([AbortSignal.timeout(3000),...(signal ? [signal] : [])]),
+              signal: AbortSignal.any([AbortSignal.timeout(3000), ...(signal ? [signal] : [])]),
             });
             if (!response.ok) { await response.body?.cancel(); throw new Error('Chromium target list unavailable'); }
             return await response.json();
           } catch (error) {
             signal?.throwIfAborted();
-            throw new BrowserTransportError('读取 Chromium 调试目标失败',{cause:error});
+            throw new BrowserTransportError('读取 Chromium 调试目标失败', { cause: error });
           }
         };
-        return await run({ list, profile, browserUrl: `ws://127.0.0.1:${port}${browserPath}` });
+        try {
+          return await run({ list, profile, dedicated: Boolean(dedicated), browserUrl: activeBrowserUrl });
+        } finally {
+          // For dedicated profiles, ask Chromium to close cleanly so cookies & storage flush to disk.
+          if (dedicated && activeBrowserUrl && edge.exitCode === null && edge.signalCode === null) {
+            try {
+              const browserCdp = await connectCdp(activeBrowserUrl, AbortSignal.timeout(1500));
+              await browserCdp.send('Browser.close').catch(() => {});
+              browserCdp.close();
+              await Promise.race([
+                new Promise(resolve => edge.once('exit', resolve)),
+                sleep(2500),
+              ]);
+            } catch {}
+          }
+        }
       }
       await sleep(100, undefined, { signal });
     }
@@ -150,12 +268,17 @@ export async function withChromium(args, run, signal, {downloadsDirectory, execu
   } finally {
     if (edge?.pid && edge.exitCode === null && edge.signalCode === null) {
       if (process.platform === 'win32') {
-        await exec('taskkill.exe',['/PID',String(edge.pid),'/F','/T'],{windowsHide:true,timeout:5000}).catch(() => edge.kill());
+        await exec('taskkill.exe', ['/PID', String(edge.pid), '/F', '/T'], { windowsHide: true, timeout: 5000 }).catch(() => edge.kill());
       } else {
-        try { process.kill(-edge.pid,'SIGKILL'); }
+        try { process.kill(-edge.pid, 'SIGKILL'); }
         catch (error) { if (error.code !== 'ESRCH') throw error; }
       }
     }
-    await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+    if (dedicated) {
+      await rm(path.join(profile, 'DevToolsActivePort'), { force: true }).catch(() => {});
+      dedicated.release();
+    } else {
+      await rm(profile, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
+    }
   }
 }

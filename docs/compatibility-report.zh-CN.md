@@ -1,5 +1,23 @@
 # VideoSave 兼容性实测
 
+## v1.0.0 正式版全量验收实测
+
+2026 年 11 月 27 日在 Windows x64、Node.js 24.19.0、FFmpeg 8.1.2 上，基于解压后的 `VideoSave-1.0.0` 正式发行包执行全量浏览器/MCP 兼容矩阵、官方公网样片、真实 DeepSeek Harness (DSH) 运行时验收以及全量自动化回归，测试全程在 `.ots/tmp/videosave-tests/` 独立沙箱运行，真实用户下载目录零写入（`122 → 122`，`delta = 0`）。
+
+| 验证路径 | 场景数 | 探测命中 | 误报 | 正片判断 | FFprobe 验证落盘 | 首次探测中位耗时 | 原始 JSON 记录 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Edge 158.0.4370.45 扩展（解压包） | 105 | 96/96 | 0 | 1/1 | 5/5 | 248 ms | [v1.0.0-edge.json](compatibility-data/v1.0.0-edge.json) |
+| Chrome 158.0.8127.38 扩展（解压包） | 105 | 96/96 | 0 | 1/1 | 5/5 | 229 ms | [v1.0.0-chrome.json](compatibility-data/v1.0.0-chrome.json) |
+| Firefox 136.0.1 扩展（解压包） | 105 | 96/96 | 0 | 1/1 | 5/5 | 281 ms | [v1.0.0-firefox.json](compatibility-data/v1.0.0-firefox.json) |
+| 独立 MCP · Edge（解压包） | 104 | 95/95 | 0 | 2/2 | 11/11 | 5,069 ms | [v1.0.0-mcp-edge.json](compatibility-data/v1.0.0-mcp-edge.json) |
+| 独立 MCP · 官方公网样本 | 7 | 7/7 | 0 | — | 2/2 | 12,223 ms | [v1.0.0-mcp-public.json](compatibility-data/v1.0.0-mcp-public.json) |
+| 原生静态 DASH · 官方公网样本 | 2 | 2/2 | 0 | — | 2/2（含 5 音轨） | — | [v1.0.0-dash-public.json](compatibility-data/v1.0.0-dash-public.json) |
+| 真实 DSH 运行时（解压包 + AJV 校验） | 17 | 17/17 | 0 | — | 全通过（含 25 工具 Schema） | 总耗时 33.1 s | [v1.0.0-dsh-acceptance.json](compatibility-data/v1.0.0-dsh-acceptance.json) |
+
+> **诚实口径说明**：受控本地夹具（105/104 场景）用于验证确定性探测精度、零误报、请求头一致性、非标准后缀内容校验及落盘完整性，不代表对全互联网任意网站的 100% 兼容。DRM 加密内容、验证码/Cloudflare 质询、付费墙与动态直播 DASH 仍按设计边界准确报告限制而不做绕过。
+
+全量单元测试与故障注入回归 `node --test --test-concurrency=2 tests/*.test.mjs` 通过 **131/131**（涵盖统一请求头与跨域 Cookie 隔离、非标准后缀 TS/fMP4/自定义封装/AES-128 内容嗅探、25%/50%/90% `SIGKILL` + 单分片损坏 SHA-256 恢复 + DASH 续传 + 刷新复用断点 + 1,000 分片压力测试、专用隔离浏览器会话、智能画质协商、Netscape Cookie 文件导入、ReDoS/路径穿越/Origin 安全审计及测试沙箱隔离）。
+
 ## v1.0.0-rc.2 定向回归
 
 2026 年 11 月 27 日在 Windows 和 Node.js 24.19.0 上，以相同本地样本对照 v0.9.0 标签和候选代码。模拟服务器只在 `Referer`、`Origin`、`User-Agent` 三项全部匹配时返回媒体。

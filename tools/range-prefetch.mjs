@@ -2,12 +2,14 @@ import { createWriteStream } from 'node:fs';
 import { createHash } from 'node:crypto';
 import http from 'node:http';
 import https from 'node:https';
-import { lstat, mkdir, open, readdir, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { classify, isPlaylist } from '../extension/media.mjs';
 import { ApiError } from './media-source.mjs';
+import { createRequestContext } from './request-context.mjs';
+import { inspectMediaFile } from './media-inspector.mjs';
 
 const MiB = 1024 * 1024;
 const minimumParallelSize = 8 * MiB;
@@ -47,44 +49,87 @@ function validRange(response, start, end, size, etag) {
     response.headers.get('etag') === etag && (length === null || length === String(end - start + 1));
 }
 
+async function rangeSliceSha256(filePath, offset, length) {
+  const handle = await open(filePath, 'r');
+  try {
+    const hash = createHash('sha256');
+    const buf = Buffer.alloc(Math.min(262_144, length));
+    let pos = offset;
+    let remaining = length;
+    while (remaining > 0) {
+      const { bytesRead } = await handle.read(buf, 0, Math.min(buf.length, remaining), pos);
+      if (!bytesRead) throw new Error('Truncated range checkpoint');
+      hash.update(buf.subarray(0, bytesRead));
+      pos += bytesRead;
+      remaining -= bytesRead;
+    }
+    return hash.digest('hex');
+  } finally {
+    await handle.close();
+  }
+}
+
 async function rangeCheckpoint(root, target, size, etag, chunkSize) {
-  const identity = createHash('sha256').update(JSON.stringify([target.href,size,etag,chunkSize])).digest('hex');
-  const directory = path.join(root,'ranges-' + identity);
-  await mkdir(directory,{recursive:true,mode:0o700});
+  const identity = createHash('sha256').update(JSON.stringify([target.origin + target.pathname, size, etag, chunkSize])).digest('hex');
+  const directory = path.join(root, 'ranges-' + identity);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
   if (!(await lstat(directory)).isDirectory()) throw new Error('Invalid range checkpoint directory');
-  const file = path.join(directory,'source.bin');
+  const file = path.join(directory, 'source.bin');
   const saved = await lstat(file).catch(error => {
     if (error.code !== 'ENOENT') throw error;
   });
-  const entries = await readdir(directory,{withFileTypes:true});
+  const entries = await readdir(directory, { withFileTypes: true });
   const markers = entries.filter(entry => entry.isFile() && /^complete-\d+$/.test(entry.name));
   const completed = new Set();
   if (saved?.isFile() && saved.size === size) {
-    for (const {name} of markers) {
+    for (const { name } of markers) {
       const offset = Number(name.slice('complete-'.length));
-      if (offset < size && offset % chunkSize === 0) completed.add(offset);
+      if (offset < size && offset % chunkSize === 0) {
+        const markerPath = path.join(directory, name);
+        const expected = await readFile(markerPath, 'utf8').catch(() => '');
+        const sliceLen = Math.min(size - offset, chunkSize);
+        if (expected && /^[0-9a-f]{64}$/.test(expected.trim())) {
+          const actual = await rangeSliceSha256(file, offset, sliceLen).catch(() => null);
+          if (actual === expected.trim()) completed.add(offset);
+          else await rm(markerPath, { force: true });
+        } else {
+          completed.add(offset);
+        }
+      }
     }
   } else {
     if (saved && !saved.isFile()) throw new Error('Invalid range checkpoint file');
-    await Promise.all(markers.map(({name}) => rm(path.join(directory,name),{force:true})));
-    const output = await open(file,saved ? 'r+' : 'wx',0o600);
+    await Promise.all(markers.map(({ name }) => rm(path.join(directory, name), { force: true })));
+    const output = await open(file, saved ? 'r+' : 'wx', 0o600);
     try { await output.truncate(size); }
     finally { await output.close(); }
   }
-  return {file,completed,commit:offset => writeFile(path.join(directory,'complete-' + offset),'',{flag:'wx',mode:0o600})};
+  return {
+    file,
+    completed,
+    commit: async offset => {
+      const sliceLen = Math.min(size - offset, chunkSize);
+      const digest = await rangeSliceSha256(file, offset, sliceLen);
+      await writeFile(path.join(directory, 'complete-' + offset), digest, { flag: 'wx', mode: 0o600 });
+    },
+  };
 }
 
 export async function prefetchRanges(source, cookies, staging, signal, onProgress, {
-  connections = maxConnections, stageFull = false, expectedSize, onKind, recovery, headers:mediaHeaders,
-  exactSource = false, cookiesFor, transport,
+  connections = maxConnections, stageFull = false, expectedSize, onKind, recovery, headers: mediaHeaders,
+  exactSource = false, cookiesFor, transport, requestContext,
 } = {}) {
   if (expectedSize !== undefined && expectedSize < minimumParallelSize) return null;
   const request = transport?.request ?? requestFile;
-  const cookie = cookies.map(({ name, value }) => name + '=' + value).join('; ');
-  const headersFor = url => {
-    const scoped = cookiesFor ? cookiesFor(url).map(({name,value}) => name + '=' + value).join('; ') : cookie;
-    return {...mediaHeaders,'accept-encoding':'identity', ...(scoped && url.origin === source.origin && {cookie:scoped})};
-  };
+  const ctx = requestContext ?? createRequestContext({
+    origin: source.origin,
+    headers: mediaHeaders,
+    cookies,
+    cookiesFor,
+    restrictedOrigin: exactSource,
+    transport,
+  });
+  const headersFor = (url, range) => ctx.headersFor(url, { phase: range ? 'byte-range' : 'direct', range });
   const probe = new AbortController();
   const probeSignal = AbortSignal.any([signal, probe.signal]);
   let deadline = setTimeout(() => probe.abort(), 2000);
@@ -122,6 +167,11 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
         response = await request(target,headersFor(target),probeSignal);
         if (exactSource) enforceExactResponse(response);
       }
+      const accessErr = !exactSource && ctx.accessError(response.status, response.headers, 'direct');
+      if (accessErr && [401, 402, 403, 410, 451].includes(response.status)) {
+        response.body.destroy();
+        throw accessErr;
+      }
       const encoding = response.headers.get('content-encoding');
       if (!stageFull || response.status !== 200 || !response.body || encoding && encoding !== 'identity') {
         response.body.destroy();
@@ -144,6 +194,12 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
         }
       }, createWriteStream(file, {flags:'r+'}), {signal:probeSignal});
       if (!bytes || (length && length !== bytes)) throw new Error('Incomplete media response');
+      const inspected = await inspectMediaFile(file);
+      if (inspected.rejected && ['html-error-page', 'json-error-response', 'image-payload', 'drm-isobmff'].includes(inspected.reason)) {
+        throw inspected.errorCode === 'DRM'
+          ? new ApiError('DRM', '媒体响应包含受 DRM 保护的内容', 422)
+          : new ApiError('INVALID_MEDIA_CONTENT', `响应内容不是有效媒体（${inspected.reason}）`, 422, { detectedKind: inspected.kind, reason: inspected.reason });
+      }
       return file;
     }
     // Drain the one-byte probe so its connection can serve a later range.
@@ -240,7 +296,10 @@ export async function prefetchRanges(source, cookies, staging, signal, onProgres
   } catch (error) {
     if (created) await rm(file, {force:true, maxRetries:5});
     signal.throwIfAborted();
-    if (exactSource && error instanceof ApiError) throw error;
+    if (error.code === 'ENOSPC') throw new ApiError('NO_SPACE', 'The output volume has run out of space', 507);
+    if (error instanceof ApiError && (exactSource || ['DRM', 'INVALID_MEDIA_CONTENT', 'MEDIA_ACCESS_RESTRICTED', 'STREAM_EXPIRED', 'NO_SPACE'].includes(error.code))) {
+      throw error;
+    }
     return null;
   } finally {
     clearTimeout(deadline);

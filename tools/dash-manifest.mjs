@@ -1,4 +1,5 @@
 import { ApiError } from './media-source.mjs';
+import { negotiateQuality } from './quality-negotiator.mjs';
 
 const maxParts = 10_000;
 const maxOriginsPerResource = 4;
@@ -214,15 +215,25 @@ function withAddress(state,representation,periodDuration) {
   return {init,index:resource(undefined,'index',index)};
 }
 
-function tracksForPeriod(state,period,seconds,quality,subtitles) {
+function tracksForPeriod(state,period,seconds,quality,subtitles,onQualityNegotiated) {
   const groups = children(period,'AdaptationSet').flatMap(adaptation => {
     const adaptationState = descend(state,adaptation);
     const group = children(adaptation,'Representation').map(representation => {
       const context = descend(adaptationState,representation);
-      const {mimeType,contentType,codecs,lang,id,height,bandwidth} = context.attrs;
+      const {mimeType,contentType,codecs,lang,id,width,height,bandwidth,frameRate} = context.attrs;
       const type = contentType ?? mimeType?.split('/')[0] ?? (/^avc|^hev|^hvc|^av01|^vp/.test(codecs ?? '') ? 'video'
         : /^(mp4a|ac-3|ec-3|opus)/i.test(codecs ?? '') ? 'audio' : undefined);
-      return {type,mimeType,lang,id,height:integer(height,0),bandwidth:integer(bandwidth,0),context};
+      const hdr = Boolean(codecs && /(?:hev1\.2|hvc1\.2|dvh1|dvhe|vp09\.02|av01\.0\.(?:0[89]|1\d)M\.10)/i.test(codecs));
+      return {
+        type, mimeType, codecs: codecs ?? null, lang, id,
+        width: integer(width, 0) || null,
+        height: integer(height, 0),
+        bandwidth: integer(bandwidth, 0),
+        bitrate: integer(bandwidth, 0),
+        frameRate: frameRate ? (frameRate.includes('/') ? Number(frameRate.split('/')[0]) / Number(frameRate.split('/')[1]) : Number(frameRate)) || null : null,
+        hdr,
+        context,
+      };
     }).filter(track => (track.type === 'audio' || track.type === 'video') &&
       (!track.mimeType || ['video/mp4','audio/mp4'].includes(track.mimeType)) ||
       subtitles && (track.mimeType === 'text/vtt' || track.mimeType === 'application/x-subrip'));
@@ -230,7 +241,17 @@ function tracksForPeriod(state,period,seconds,quality,subtitles) {
   });
   const video = groups.flat().filter(track => track.type === 'video').sort((left,right) =>
     right.height - left.height || right.bandwidth - left.bandwidth);
-  const selected = video.find(track => !quality || track.height <= quality) ?? video.at(-1);
+  const negotiated = video.length ? negotiateQuality(video, quality, { durationSec: seconds }) : null;
+  if (negotiated) {
+    onQualityNegotiated?.({
+      requested: negotiated.requested,
+      selected: negotiated.selected ? { width: negotiated.selected.width, height: negotiated.selected.height, bandwidth: negotiated.selected.bandwidth, codecs: negotiated.selected.codecs, hdr: negotiated.selected.hdr } : null,
+      available: video.map(v => ({ width: v.width, height: v.height, bandwidth: v.bandwidth, codecs: v.codecs, hdr: v.hdr })),
+      fallbackApplied: negotiated.fallbackApplied,
+      reason: negotiated.reason,
+    });
+  }
+  const selected = negotiated?.selected;
   const others = groups.map(group => group.filter(track => track.type !== 'video')
     .sort((left,right) => right.bandwidth - left.bandwidth)[0]).filter(Boolean);
   const tracks = [selected,...others].filter(Boolean);
@@ -250,7 +271,58 @@ function tracksForPeriod(state,period,seconds,quality,subtitles) {
   });
 }
 
-export function dashPlan(xml,source,{quality,subtitles} = {}) {
+export function dashQualitiesFromXml(xml, source) {
+  try {
+    const mpd = parseXml(xml);
+    const state = descend({ bases: [source], attrs: {}, budget: { parts: 0, urls: 0 } }, mpd);
+    const firstPeriod = children(mpd, 'Period')[0];
+    if (!firstPeriod) return [];
+    const periodState = descend(state, firstPeriod);
+    const videos = [];
+    const audioTracks = [];
+    const subtitleTracks = [];
+    for (const adaptation of children(firstPeriod, 'AdaptationSet')) {
+      const aState = descend(periodState, adaptation);
+      for (const rep of children(adaptation, 'Representation')) {
+        const ctx = descend(aState, rep);
+        const { mimeType, contentType, codecs, lang, width, height, bandwidth, frameRate } = ctx.attrs;
+        const type = contentType ?? mimeType?.split('/')[0] ?? (/^avc|^hev|^hvc|^av01|^vp/.test(codecs ?? '') ? 'video'
+          : /^(mp4a|ac-3|ec-3|opus)/i.test(codecs ?? '') ? 'audio' : undefined);
+        const bw = Number(bandwidth) || 0;
+        const h = Number(height) || 0;
+        const w = Number(width) || null;
+        if (type === 'video' && (h || bw)) {
+          const hdr = Boolean(codecs && /(?:hev1\.2|hvc1\.2|dvh1|dvhe|vp09\.02|av01\.0\.(?:0[89]|1\d)M\.10)/i.test(codecs));
+          videos.push({
+            ...(w && { width: w }),
+            height: h,
+            bitrate: bw,
+            bandwidth: bw,
+            ...(codecs && { codecs }),
+            ...(frameRate && { frameRate: frameRate.includes('/') ? Number(frameRate.split('/')[0]) / Number(frameRate.split('/')[1]) : Number(frameRate) }),
+            ...(hdr && { hdr: true }),
+            url: source.href,
+          });
+        } else if (type === 'audio') {
+          audioTracks.push({ language: lang ?? null, codecs: codecs ?? null, bandwidth: bw });
+        } else if (mimeType === 'text/vtt' || mimeType === 'application/x-subrip' || contentType === 'text') {
+          subtitleTracks.push({ language: lang ?? null, mimeType: mimeType ?? null });
+        }
+      }
+    }
+    return videos
+      .sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth)
+      .map(v => ({
+        ...v,
+        ...(audioTracks.length && { audioTracks }),
+        ...(subtitleTracks.length && { subtitleTracks }),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+export function dashPlan(xml,source,{quality,subtitles,onQualityNegotiated} = {}) {
   const mpd = parseXml(xml);
   if (mpd.attrs.type && mpd.attrs.type !== 'static') unsupported(mpd.attrs.type === 'dynamic');
   const mediaDuration = duration(mpd.attrs.mediaPresentationDuration);
@@ -265,6 +337,6 @@ export function dashPlan(xml,source,{quality,subtitles} = {}) {
     if (previousEnd === undefined || start === undefined || Math.abs(start-previousEnd) > 0.001 || seconds !== undefined && seconds <= 0 ||
         end !== undefined && Math.abs(start+seconds-end) > 0.001) unsupported();
     previousEnd = seconds === undefined ? undefined : start+seconds;
-    return {tracks:tracksForPeriod(descend(state,period),period,seconds,quality,subtitles),duration:seconds};
+    return {tracks:tracksForPeriod(descend(state,period),period,seconds,quality,subtitles,index === 0 ? onQualityNegotiated : undefined),duration:seconds};
   });
 }

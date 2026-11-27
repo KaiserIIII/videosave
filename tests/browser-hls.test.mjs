@@ -9,6 +9,7 @@ import test from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { connectCdp, withChromium, withEdge } from '../tools/edge-session.mjs';
+import { createTestSandbox } from './test-sandbox.mjs';
 
 const project = fileURLToPath(new URL('../', import.meta.url));
 
@@ -24,8 +25,10 @@ const endpoint = process.env.VIDEOSAVE_HLS_BENCH_ENDPOINT;
 const token = process.env.VIDEOSAVE_HLS_BENCH_TOKEN;
 
 test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
-  : 'Chromium saves complete HLS video through the panel without a companion', async () => {
-  const directory = await mkdtemp(path.join(project, '.browser-smoke-'));
+  : 'Chromium saves complete HLS video through the panel without a companion', async t => {
+  const sandbox = await createTestSandbox('browser-hls');
+  const directory = sandbox.downloads;
+  t.after(() => sandbox.cleanup());
   const requests = new Map();
   let holdSegments = false;
   let holdLastSegment = false;
@@ -309,6 +312,5 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
   } finally {
     server.closeAllConnections();
     server.close();
-    await rm(directory, {recursive:true,force:true,maxRetries:5});
   }
 });

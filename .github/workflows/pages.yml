@@ -1,0 +1,59 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'docs/compatibility-data/**'
+      - 'docs/logo.svg'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, MIT
+        with:
+          persist-credentials: false
+      - name: Assemble static site with live repository compatibility data
+        run: |
+          mkdir -p _site/data
+          cp -r site/* _site/
+          cp docs/compatibility-data/*.json _site/data/
+          cp docs/logo.svg _site/logo.svg
+          node -e "
+            const fs = require('fs');
+            const files = fs.readdirSync('_site/data').filter(f => f.endsWith('.json')).sort();
+            const manifest = JSON.parse(fs.readFileSync('extension/manifest.json', 'utf8'));
+            fs.writeFileSync('_site/data/index.json', JSON.stringify({
+              version: manifest.version_name || manifest.version,
+              generatedAt: new Date().toISOString(),
+              files,
+            }, null, 2) + '\n');
+          "
+      - uses: actions/configure-pages@983d7736d9b0ae72be0817fd97c5722aa6756b70 # v5
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3
+        with:
+          path: _site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-24.04
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4

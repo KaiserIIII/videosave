@@ -1,5 +1,5 @@
-const manifestByteLimit = 128 * 1024;
-const supportedTag = /^#EXT(?:M3U|INF:[\d.]+,.*|-X-(?:VERSION:\d+|TARGETDURATION:\d+|MEDIA-SEQUENCE:\d+|PLAYLIST-TYPE:VOD|INDEPENDENT-SEGMENTS|ENDLIST))$/;
+const manifestByteLimit = 256 * 1024;
+const supportedTag = /^#EXT(?:M3U|INF:[\d.]+,.*|-X-(?:VERSION:\d+|TARGETDURATION:\d+|MEDIA-SEQUENCE:\d+|DISCONTINUITY(?:-SEQUENCE:\d+)?|PLAYLIST-TYPE:(?:VOD|EVENT)|INDEPENDENT-SEGMENTS|ALLOW-CACHE:(?:YES|NO)|PROGRAM-DATE-TIME:.*|START:.*|ENDLIST))$/;
 
 export function httpUrl(value, base) {
   const url = URL.parse(value, base);
@@ -23,54 +23,137 @@ function manifestLines(text) {
   return text.trim().split(/\r?\n/).map(line => line.trim()).filter(line => line && (!line.startsWith('#') || line.startsWith('#EXT')));
 }
 
-export function selectRendition(text, source, quality) {
-  return rankRenditions(text,source,quality)[0] ?? null;
+function attribute(attributes, key) {
+  return new RegExp(`(?:^|,)${key}="([^"]+)"`).exec(attributes)?.[1];
 }
 
-export function rankRenditions(text, source, quality) {
+function unquotedAttribute(attributes, key) {
+  return new RegExp(`(?:^|,)${key}=([^,\\s]+)`).exec(attributes)?.[1];
+}
+
+export function parseMasterVariants(text, source) {
   const [header, ...lines] = manifestLines(text);
-  if (header !== '#EXTM3U') return [];
+  if (header !== '#EXTM3U') return { variants: [], audioTracks: [], subtitleTracks: [] };
   const variants = [];
-  const audio = [];
-  let pending;
+  const audioTracks = [];
+  const subtitleTracks = [];
+  let pending = null;
   for (const line of lines) {
     if (pending) {
       const url = !line.startsWith('#') && httpUrl(line, source);
-      if (!url) return [];
-      variants.push({...pending, url});
+      if (!url) return { variants: [], audioTracks: [], subtitleTracks: [] };
+      variants.push({ ...pending, url });
       pending = null;
     } else if (line.startsWith('#EXT-X-STREAM-INF:')) {
       const attributes = line.slice(line.indexOf(':') + 1);
-      if (/(?:^|,)(?:VIDEO|SUBTITLES|CLOSED-CAPTIONS)=(?!NONE(?:,|$))/.test(attributes)) return [];
-      const bandwidth = Number(/(?:^|,)BANDWIDTH=(\d+)/.exec(attributes)?.[1]);
-      const height = Number(/(?:^|,)RESOLUTION=\d+x(\d+)/.exec(attributes)?.[1]);
-      if (!bandwidth || !height) return [];
-      pending = {height, bandwidth, audioGroup:attribute(attributes,'AUDIO')};
+      if (/(?:^|,)VIDEO=(?!NONE(?:,|$))/.test(attributes)) {
+        return { variants: [], audioTracks: [], subtitleTracks: [] };
+      }
+      const bandwidth = Number(unquotedAttribute(attributes, 'BANDWIDTH') ?? unquotedAttribute(attributes, 'AVERAGE-BANDWIDTH'));
+      const averageBandwidth = Number(unquotedAttribute(attributes, 'AVERAGE-BANDWIDTH')) || null;
+      const resolution = /(?:^|,)RESOLUTION=(\d+)x(\d+)/.exec(attributes);
+      const width = resolution ? Number(resolution[1]) : null;
+      const height = resolution ? Number(resolution[2]) : null;
+      const frameRate = Number(unquotedAttribute(attributes, 'FRAME-RATE')) || null;
+      const codecs = attribute(attributes, 'CODECS') ?? null;
+      const videoRange = unquotedAttribute(attributes, 'VIDEO-RANGE') ?? null;
+      const hdr = Boolean(videoRange && /^(?:PQ|HLG)$/i.test(videoRange)) ||
+        Boolean(codecs && /(?:hev1\.2|hvc1\.2|dvh1|dvhe|vp09\.02|av01\.0\.(?:0[89]|1\d)M\.10)/i.test(codecs));
+      if (!bandwidth) return { variants: [], audioTracks: [], subtitleTracks: [] };
+      pending = {
+        width,
+        height,
+        bandwidth,
+        bitrate: bandwidth,
+        ...(averageBandwidth && { averageBandwidth }),
+        ...(frameRate && { frameRate }),
+        ...(codecs && { codecs }),
+        ...(videoRange && { videoRange }),
+        hdr,
+        audioGroup: attribute(attributes, 'AUDIO') ?? null,
+        subtitleGroup: attribute(attributes, 'SUBTITLES') ?? null,
+      };
     } else if (line.startsWith('#EXT-X-MEDIA:')) {
       const attributes = line.slice(line.indexOf(':') + 1);
+      const type = unquotedAttribute(attributes, 'TYPE');
       const group = attribute(attributes, 'GROUP-ID');
       const uri = attribute(attributes, 'URI');
-      if (!/(?:^|,)TYPE=AUDIO(?:,|$)/.test(attributes) || !group || !uri) return [];
-      const url = httpUrl(uri, source);
-      if (!url) return [];
-      audio.push({url,group,preferred:/(?:^|,)DEFAULT=YES(?:,|$)/.test(attributes)});
-    } else if (!/^#EXT-X-(?:VERSION:\d+|INDEPENDENT-SEGMENTS)$/.test(line)) {
-      return [];
+      const name = attribute(attributes, 'NAME') ?? null;
+      const language = attribute(attributes, 'LANGUAGE') ?? null;
+      const preferred = /(?:^|,)DEFAULT=YES(?:,|$)/.test(attributes);
+      const autoSelect = /(?:^|,)AUTOSELECT=YES(?:,|$)/.test(attributes);
+      const channels = attribute(attributes, 'CHANNELS') ?? null;
+      if (type === 'AUDIO') {
+        if (!group) return { variants: [], audioTracks: [], subtitleTracks: [] };
+        if (uri) {
+          const url = httpUrl(uri, source);
+          if (!url) return { variants: [], audioTracks: [], subtitleTracks: [] };
+          audioTracks.push({ url, group, name, language, channels, preferred, autoSelect });
+        }
+      } else if (type === 'SUBTITLES') {
+        if (group && uri) {
+          const url = httpUrl(uri, source);
+          if (url) subtitleTracks.push({ url, group, name, language, preferred, autoSelect });
+        }
+      } else if (type === 'CLOSED-CAPTIONS') {
+        // Inline closed captions do not require separate playlist fetching.
+      } else {
+        return { variants: [], audioTracks: [], subtitleTracks: [] };
+      }
+    } else if (
+      /^#EXT-X-(?:VERSION:\d+|INDEPENDENT-SEGMENTS|I-FRAME-STREAM-INF:|SESSION-DATA:|SESSION-KEY:|START:|DEFINE:|CONTENT-STEERING:)/.test(line)
+    ) {
+      // Allowed master-playlist metadata tags that do not alter primary VOD rendition staging.
+    } else {
+      return { variants: [], audioTracks: [], subtitleTracks: [] };
     }
   }
-  if (pending || !variants.length) return [];
-  variants.sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth);
-  const eligible = variants.filter(variant => !quality || variant.height <= quality);
-  return (eligible.length ? eligible : variants.filter(variant => variant.height === variants.at(-1).height)).map(variant => {
-    const group = audio.filter(track => track.group === variant.audioGroup);
-    const sound = group.find(track => track.preferred) ?? group[0];
-    return variant.audioGroup && !sound ? null
-      : {video:variant.url, audio:sound?.url, bandwidth:variant.bandwidth, height:variant.height};
+  if (pending || !variants.length) return { variants: [], audioTracks: [], subtitleTracks: [] };
+  const resolvedVariants = variants.map(variant => {
+    const aGroup = variant.audioGroup ? audioTracks.filter(track => track.group === variant.audioGroup) : [];
+    const sound = aGroup.find(track => track.preferred) ?? aGroup.find(track => track.autoSelect) ?? aGroup[0] ?? null;
+    const sGroup = variant.subtitleGroup ? subtitleTracks.filter(track => track.group === variant.subtitleGroup) : [];
+    const sub = sGroup.find(track => track.preferred) ?? sGroup.find(track => track.autoSelect) ?? sGroup[0] ?? null;
+    return {
+      ...variant,
+      video: variant.url,
+      audio: sound?.url,
+      audioTracks: aGroup,
+      subtitle: sub?.url,
+      subtitleTracks: sGroup,
+      missingAudioGroup: Boolean(variant.audioGroup && !sound && audioTracks.some(t => t.group === variant.audioGroup)),
+    };
   });
+  return { variants: resolvedVariants, audioTracks, subtitleTracks };
 }
 
-function attribute(attributes, key) {
-  return new RegExp(`(?:^|,)${key}="([^"]+)"`).exec(attributes)?.[1];
+export function selectRendition(text, source, quality) {
+  return rankRenditions(text, source, quality)[0] ?? null;
+}
+
+export function rankRenditions(text, source, quality) {
+  const { variants } = parseMasterVariants(text, source);
+  if (!variants.length) return [];
+  const sorted = [...variants].sort((a, b) => (b.height || 0) - (a.height || 0) || b.bandwidth - a.bandwidth);
+  const numericQuality = typeof quality === 'number' && Number.isFinite(quality) ? quality : null;
+  const eligible = sorted.filter(variant => !numericQuality || (variant.height && variant.height <= numericQuality));
+  const lowestHeight = sorted.at(-1)?.height;
+  const chosen = eligible.length ? eligible : sorted.filter(variant => variant.height === lowestHeight);
+  return chosen.map(variant =>
+    variant.missingAudioGroup ? null : {
+      video: variant.video,
+      audio: variant.audio,
+      subtitle: variant.subtitle,
+      subtitleTracks: variant.subtitleTracks,
+      audioTracks: variant.audioTracks,
+      bandwidth: variant.bandwidth,
+      height: variant.height,
+      width: variant.width,
+      codecs: variant.codecs,
+      frameRate: variant.frameRate,
+      hdr: variant.hdr,
+    },
+  );
 }
 
 function byteRange(value, defaultStart) {
@@ -104,13 +187,20 @@ function segmentKey(value, source) {
   return {method:'AES-128', url, iv:iv && '0x' + iv.slice(2).padStart(32, '0')};
 }
 
-export function parseManifest(text, source, prefix, {byteRanges = false, aes128 = false, sniffTransport = false} = {}) {
+export function detectLlHls(text) {
+  return /^#EXT-X-(?:PART|PART-INF|PRELOAD-HINT|SERVER-CONTROL):/m.test(text);
+}
+
+export function parseManifest(text, source, prefix, {
+  byteRanges = false, aes128 = false, sniffTransport = false, subtitle = false,
+} = {}) {
   const lines = manifestLines(text);
   if (lines[0] !== '#EXTM3U' || lines.at(-1) !== '#EXT-X-ENDLIST') return null;
   const segments = [];
   const playlist = [];
   const keys = new Map();
-  let encrypted = false;
+  let currentKey = null;
+  let mediaSequence = 0;
   let needsSegment = false;
   let initFilename;
   let mediaCount = 0;
@@ -118,18 +208,23 @@ export function parseManifest(text, source, prefix, {byteRanges = false, aes128 
   let previousRange;
   for (const line of lines) {
     if (line.startsWith('#')) {
+      if (line.startsWith('#EXT-X-MEDIA-SEQUENCE:')) {
+        const seq = Number(line.slice('#EXT-X-MEDIA-SEQUENCE:'.length));
+        if (Number.isSafeInteger(seq) && seq >= 0) mediaSequence = seq;
+      }
       if (aes128 && line.startsWith('#EXT-X-KEY:')) {
         const key = segmentKey(line.slice('#EXT-X-KEY:'.length), source);
         if (!key) return null;
-        encrypted = key.method === 'AES-128';
-        if (encrypted) {
+        if (key.method === 'AES-128') {
           let local = keys.get(key.url.href);
           if (!local) {
             local = {url:key.url, filename:`${prefix}-key-${keys.size}.key`};
             keys.set(key.url.href, local);
           }
+          currentKey = { filename: local.filename, iv: key.iv ?? null };
           playlist.push(`#EXT-X-KEY:METHOD=AES-128,URI="${local.filename}"${key.iv ? ',IV=' + key.iv : ''}`);
         } else {
+          currentKey = null;
           playlist.push(line);
         }
         continue;
@@ -138,9 +233,16 @@ export function parseManifest(text, source, prefix, {byteRanges = false, aes128 
       if (map) {
         const url = httpUrl(map[1], source);
         const range = map[2] && byteRanges && byteRange(map[2]);
-        if (!url || needsSegment || encrypted || (map[2] && !range)) return null;
+        if (!url || needsSegment || currentKey || (map[2] && !range)) return null;
         initFilename = `${prefix}-init-${segments.length}.mp4`;
-        segments.push({url, filename:initFilename, ...(range && {range})});
+        segments.push({
+          url,
+          filename: initFilename,
+          isInit: true,
+          expectedKind: 'fmp4-init',
+          ...(range && { range }),
+          ...(sniffTransport && { verifyContent: true }),
+        });
         playlist.push(`#EXT-X-MAP:URI="${initFilename}"`);
         continue;
       }
@@ -150,7 +252,10 @@ export function parseManifest(text, source, prefix, {byteRanges = false, aes128 
         if (!pendingRange) return null;
         continue;
       }
-      if (/^#EXT-X-BITRATE:\d+$/.test(line)) continue;
+      if (/^#EXT-X-(?:BITRATE|PART-INF|SERVER-CONTROL|PRELOAD-HINT|RENDITION-REPORT|SKIP|PART):/.test(line)) {
+        // LL-HLS auxiliary tags in a finalized VOD (#EXT-X-ENDLIST) can be ignored safely while staging full segments.
+        continue;
+      }
       if (!supportedTag.test(line) || needsSegment) return null;
       needsSegment = line.startsWith('#EXTINF:');
       playlist.push(line);
@@ -158,13 +263,26 @@ export function parseManifest(text, source, prefix, {byteRanges = false, aes128 
     }
     const url = httpUrl(line, source);
     if (!needsSegment || !url) return null;
-    const verifyTransport = !initFilename && !/\.ts$/i.test(url.pathname);
-    if (verifyTransport && (!sniffTransport || encrypted)) return null;
+    const isEncrypted = Boolean(currentKey);
+    const nonStandardExt = subtitle ? !/\.vtt$/i.test(url.pathname)
+      : initFilename ? !/\.(?:m4s|mp4|m4v|m4a)$/i.test(url.pathname) : !/\.ts$/i.test(url.pathname);
+    if (nonStandardExt && !sniffTransport) return null;
     const range = pendingRange && byteRange(pendingRange, previousRange?.url === url.href ? previousRange.end + 1 : undefined);
-    // Full MPEG-TS segments can be staged unchanged for local FFmpeg decryption.
-    if (pendingRange && !range || encrypted && (range || initFilename)) return null;
-    const filename = `${prefix}-${segments.length}.${initFilename ? 'm4s' : 'ts'}`;
-    segments.push({url, filename, ...(range && {range}), ...(verifyTransport && {verifyTransport})});
+    // Encrypted byte-range or encrypted fMP4 init remains outside discrete local TS decryption.
+    if (pendingRange && !range || isEncrypted && (range || initFilename)) return null;
+    const extension = subtitle ? 'vtt' : initFilename ? 'm4s' : 'ts';
+    const filename = `${prefix}-${segments.length}.${extension}`;
+    const sequenceNumber = mediaSequence + mediaCount;
+    segments.push({
+      url,
+      filename,
+      sequenceNumber,
+      expectedKind: subtitle ? 'webvtt' : initFilename ? 'fmp4' : 'mpegts',
+      ...(range && { range }),
+      ...(nonStandardExt && { verifyTransport: true }),
+      ...(sniffTransport && { verifyContent: true }),
+      ...(currentKey && { encryption: { keyFilename: currentKey.filename, iv: currentKey.iv, sequenceNumber } }),
+    });
     previousRange = range ? {url:url.href, end:range.end} : undefined;
     pendingRange = undefined;
     playlist.push(filename);
@@ -172,5 +290,10 @@ export function parseManifest(text, source, prefix, {byteRanges = false, aes128 
     needsSegment = false;
   }
   if (!mediaCount || needsSegment) return null;
-  return { segments, playlist: playlist.join('\n') + '\n', ...(aes128 && {keys:[...keys.values()]}) };
+  return {
+    segments,
+    playlist: playlist.join('\n') + '\n',
+    mediaSequence,
+    ...(aes128 && {keys:[...keys.values()]}),
+  };
 }

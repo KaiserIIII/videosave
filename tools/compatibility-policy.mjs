@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { ApiError } from './media-source.mjs';
-import { settingsFile } from './preferences.mjs';
+import { getSettingsFile } from './preferences.mjs';
 
 const strategies = new Set(['standard','deep']);
 const limit = 250;
@@ -10,8 +10,9 @@ const strategyLifetimeMs = 30 * 86400_000;
 export const probeModes = Object.freeze(['standard','fast','balanced','deep','maximum','adaptive']);
 
 function database(run) {
-  mkdirSync(path.dirname(settingsFile),{recursive:true});
-  const db = new DatabaseSync(settingsFile,{timeout:5000});
+  const file = getSettingsFile();
+  mkdirSync(path.dirname(file),{recursive:true});
+  const db = new DatabaseSync(file,{timeout:5000});
   try {
     db.exec(`CREATE TABLE IF NOT EXISTS compatibility_rules (
       origin TEXT PRIMARY KEY, preferred TEXT, samples INTEGER NOT NULL DEFAULT 0,

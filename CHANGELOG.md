@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0
+
+- **Unified Request Context & HLS Header Consistency (`tools/request-context.mjs`)**: Consistent `Referer`, `Origin`, and `User-Agent` propagation across Master Playlist, Media Playlist, init segments, media segments, byte ranges, separate audio and subtitle tracks, authorized AES-128 keys, retries, checkpoint resumes, bounded refreshes, and FFmpeg fallback (including host+port scoped `-cookies`), with strict cross-origin `Cookie` / `Authorization` isolation and accurate HTTP 403 phase reporting.
+- **Binary Media Content Identification (`tools/media-inspector.mjs`)**: Content-first container validation for MPEG-TS (including 1-packet, ID3v2-prefixed, M2TS, and verified custom-wrapped TS), fMP4/ISOBMFF, WebVTT subtitles, and AES-128 encrypted segments behind nonstandard URL extensions (`.jpeg`, `.jpg`, `.png`, extensionless) or misleading MIME types. Strictly rejects real images, HTML/JSON/XML error responses, corrupted segments, and DRM containers.
+- **SHA-256 Verified Resumable Downloads & Authorized URL Refresh**: Fault-tolerant checkpointing with per-segment/part SHA-256 verification across HLS, static DASH, and HTTP Range transfers. Survives hard process termination (`SIGKILL`), network drops, companion restarts, MCP client disconnects, and signed URL refreshes; detects and selectively re-downloads corrupted parts; supports HLS subtitle staging and 1,000-segment VOD transfers.
+- **Expanded `probe_page` & Dedicated Isolated Browser Sessions (`tools/browser-sessions.mjs`, `tools/edge-session.mjs`)**: Added `userAgent`, `browser`, `browserBinary`, `profileMode: "dedicated"`, `browserSessionId`, `networkMode`, `proxy`, and `timeoutBudget` with clean CDP shutdown and status/reset controls (`get_browser_session_status`) while never touching system browser profiles.
+- **Smart Quality Negotiation, Batch Queue & DSH MCP Suite**: Added `quality-negotiator.mjs` (`best`, `max`, `auto`, `lowest`, height caps, `exact:HEIGHT`, bitrate/size budgets, SDR/HDR preference), `download_best_media`, `get_version` (with stale-process mismatch detection), `get_capabilities`, `get_engine_capabilities`, `get_effective_settings`, `get_task_report`, `verify_download`, `pause_download`, `resume_download`, single-item `cancel_download({ id, itemIndex })`, `diagnose_probe`, `diagnose_download`, generalized identifier extraction (`idPattern`, `urlTemplate`, `previewOnly`, `deduplicate`), optional Streamlink adapter, unified Netscape/Header `import_cookie_file` + CLI `--cookie-file`, and richer JSONL progress.
+- **Complete Test Sandbox Isolation & CI Gate (`tests/test-sandbox.mjs`)**: Dynamic settings/output path resolution and `VIDEOSAVE_TEST_SANDBOX` confinement with automated real-download-directory immutability assertions across all tests and CI.
+- **Extension UI Polish & Official Product Website (`site/`)**: Refined visual hierarchy across all 5 themes, companion version mismatch indicators, bilingual DSH integration guides, and an independent GitHub Pages product website powered by live repository JSON reports.
+
+### 简体中文
+
+- **统一请求上下文与 HLS 请求头全链路一致性（`tools/request-context.mjs`）**：在 Master/Media 清单、初始化分片、普通分片、Byte-Range、独立音轨、字幕轨、授权 AES-128 密钥、重试、断点续传、合法刷新及 FFmpeg 回退（修复非默认端口 `-cookies` 域匹配）中一致传递 `Referer`、`Origin`、`User-Agent`，同时严格禁止跨域泄露 `Cookie` 与 `Authorization`，访问被拒时准确报告拒绝阶段。
+- **统一二进制媒体内容识别（`tools/media-inspector.mjs`）**：不依赖 URL 后缀（`.jpeg`/`.jpg`/`.png`/无后缀）与 MIME，按字节结构识别 MPEG-TS（含单包、ID3 前缀、M2TS、合法自定义前缀）、fMP4/ISOBMFF、WebVTT 字幕及 AES-128 解密内容；严格拒绝真实图片、HTML/JSON/XML 错误页、损坏分片与 DRM 容器。
+- **SHA-256 校验断点续传与合法临时链接刷新**：覆盖 HLS、静态 DASH 与 HTTP Range 的分片级 SHA-256 校验断点续传，通过 25%/50%/90% 强制终止、断网、服务重启、单分片损坏篡改检测、清单变更与千分片压力测试；临时签名过期刷新可复用已完成分片。
+- **完善 `probe_page` 与 VideoSave 专用隔离浏览器会话**：新增 `userAgent`、`browser`、`browserBinary`、`profileMode: "dedicated"`、`browserSessionId`、`networkMode`、`proxy`、`timeoutBudget` 与 `get_browser_session_status`，绝不读取系统浏览器隐私数据。
+- **智能画质协商、完整串行批量队列与 DSH 专用 MCP 工具集**：新增 `download_best_media`、`get_version`（含旧版进程漂移检测）、`get_capabilities`、`get_engine_capabilities`、`get_effective_settings`、`get_task_report`、`verify_download`、`pause_download`、`resume_download`、单项取消 `cancel_download({ id, itemIndex })`、`diagnose_probe`、`diagnose_download`、通用媒体标识提取与预览确认、统一 Netscape/Header `import_cookie_file` 及增强版 CLI JSONL 进度输出。
+- **测试环境彻底沙箱隔离与 CI 强制门禁**：修复静态导入锁死真实 `settings.sqlite` 导致写入用户真实下载目录的问题，所有测试运行于 `.ots/tmp/videosave-tests/` 独立沙箱并执行真实下载目录前后零变更断言。
+- **扩展界面精修与独立 GitHub Pages 官网（`site/`）**：优化 5 套主题视觉质感与伴侣版本不一致提醒，新增中英双语 DSH 指南与直接读取真实仓库 JSON 报告的产品官网。
+
 ## 1.0.0-rc.2
 
 - Accept single-segment HLS VOD and report whether an access denial came from a playlist, segment or key. Test all three explicit media headers through a master playlist and variant, then verify decoded audio and video from MPEG-TS segments with nonstandard filenames.

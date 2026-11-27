@@ -1,0 +1,240 @@
+{
+  "recordedAt": "2026-11-27T10:36:06.679Z",
+  "version": "1.0.0",
+  "runtime": "DeepSeek Harness (@deepseek-ai/dsh-mcp-client + AjvJsonSchemaValidator)",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "summary": {
+    "total": 17,
+    "passed": 17,
+    "failed": 0,
+    "realDownloadDirDelta": 0,
+    "totalMs": 33062
+  },
+  "cases": [
+    {
+      "id": "01-connect-mcp",
+      "title": "Connect to extracted release package via DSH McpClientHost",
+      "passed": true,
+      "ms": 528,
+      "evidence": {
+        "serverVersion": "1.0.0",
+        "handshakeMs": 256,
+        "toolCount": 25
+      }
+    },
+    {
+      "id": "02-version-check",
+      "title": "Verify get_version reports exact release version and mismatch:false",
+      "passed": true,
+      "ms": 31,
+      "evidence": {
+        "version": "1.0.0",
+        "installedVersion": "1.0.0",
+        "versionMismatch": false
+      }
+    },
+    {
+      "id": "03-tool-schemas",
+      "title": "Validate all MCP tool input & output schemas via DSH AjvJsonSchemaValidator",
+      "passed": true,
+      "ms": 73,
+      "evidence": {
+        "totalTools": 25,
+        "mode": "standalone",
+        "transferEngines": [
+          "http",
+          "hls",
+          "dash-static"
+        ]
+      }
+    },
+    {
+      "id": "04-probe-public-mp4",
+      "title": "Probe official public MDN CC0 MP4 page (with controlled fallback)",
+      "passed": true,
+      "ms": 14487,
+      "evidence": {
+        "source": "public-mdn",
+        "selection": "selected",
+        "streamCount": 2
+      }
+    },
+    {
+      "id": "05-probe-hls",
+      "title": "Probe adaptive HLS master playlist and return real variant qualities",
+      "passed": true,
+      "ms": 3610,
+      "evidence": {
+        "selection": "selected",
+        "qualities": [
+          {
+            "height": 180,
+            "bandwidth": 600000
+          },
+          {
+            "height": 90,
+            "bandwidth": 200000
+          }
+        ]
+      }
+    },
+    {
+      "id": "06-nonstandard-hls-headers",
+      "title": "Download .jpeg/.png/extensionless HLS with Referer/Origin/User-Agent",
+      "passed": true,
+      "ms": 280,
+      "evidence": {
+        "status": "done",
+        "checkedRequests": 4,
+        "duration": 3.029333,
+        "engine": "hls"
+      }
+    },
+    {
+      "id": "07-signed-netscape-cookie",
+      "title": "Import Netscape cookies.txt and download authenticated HLS without leaking secrets",
+      "passed": true,
+      "ms": 276,
+      "evidence": {
+        "format": "netscape",
+        "cookieCount": 1,
+        "leakedSecret": false,
+        "duration": 3.029333
+      }
+    },
+    {
+      "id": "08-dedicated-browser-session",
+      "title": "Probe with dedicated browserSessionId & custom User-Agent, reuse login, then reset",
+      "passed": true,
+      "ms": 5753,
+      "evidence": {
+        "firstProbe": "selected",
+        "memberReuse": "selected",
+        "resetOk": true
+      }
+    },
+    {
+      "id": "09-separate-audio-video",
+      "title": "Download HLS master with separate video & audio tracks and verify both streams",
+      "passed": true,
+      "ms": 412,
+      "evidence": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 2.026667
+      }
+    },
+    {
+      "id": "10-auto-best-quality",
+      "title": "Auto-select highest observed quality (320x180 > 160x90) via download_best_media",
+      "passed": true,
+      "ms": 3941,
+      "evidence": {
+        "width": 320,
+        "height": 180,
+        "verified": true
+      }
+    },
+    {
+      "id": "11-serial-batch-queue",
+      "title": "Run serial start_batch with preview, pause, single-item cancel, and resume",
+      "passed": true,
+      "ms": 1566,
+      "evidence": {
+        "previewDeduplicated": 1,
+        "finalStates": [
+          "done",
+          "cancelled",
+          "done"
+        ]
+      }
+    },
+    {
+      "id": "12-network-drop-interrupt",
+      "title": "Interrupt HLS mid-transfer on transient 503 and verify resumable checkpoint",
+      "passed": true,
+      "ms": 520,
+      "evidence": {
+        "errorCode": "HLS_TRANSFER_INTERRUPTED",
+        "completedBeforeDrop": 2,
+        "resumable": true
+      }
+    },
+    {
+      "id": "13-mcp-disconnect-resume",
+      "title": "Disconnect DSH MCP client, reconnect fresh client, and resume without redownloading 0..1",
+      "passed": true,
+      "ms": 852,
+      "evidence": {
+        "reconnectedId": "86a5d510-45b9-4a23-aee5-d7a6f947ba0f",
+        "refetchedIndices": [
+          2
+        ],
+        "duration": 3.029333
+      }
+    },
+    {
+      "id": "14-progress-and-report",
+      "title": "Query get_progress and get_task_report with structured engine/phase/elapsedMs",
+      "passed": true,
+      "ms": 9,
+      "evidence": {
+        "status": "done",
+        "engine": "hls",
+        "elapsedMs": 296
+      }
+    },
+    {
+      "id": "15-verify-download",
+      "title": "Run verify_download FFprobe validation on completed output",
+      "passed": true,
+      "ms": 77,
+      "evidence": {
+        "ok": true,
+        "info": {
+          "duration": 3.029333,
+          "size": 153065,
+          "width": 320,
+          "height": 180,
+          "codec": "h264",
+          "audioCodec": "aac",
+          "container": "mp4",
+          "subtitleTracks": 0
+        }
+      }
+    },
+    {
+      "id": "16-diagnose-403-failure",
+      "title": "Diagnose HTTP 403 segment denial with exact hlsPhase and zero fallback bypass",
+      "passed": true,
+      "ms": 29,
+      "evidence": {
+        "errorCode": "MEDIA_ACCESS_RESTRICTED",
+        "hlsPhase": "segment",
+        "category": "access-denied",
+        "retryable": false
+      }
+    },
+    {
+      "id": "17-zero-real-dir-pollution",
+      "title": "Verify real user download folders are 100% untouched (delta = 0)",
+      "passed": true,
+      "ms": 107,
+      "evidence": {
+        "monitoredDirectories": 2,
+        "beforeCounts": [
+          194,
+          122
+        ],
+        "afterCounts": [
+          194,
+          122
+        ],
+        "realDownloadDirDelta": 0
+      }
+    }
+  ]
+}

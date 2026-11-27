@@ -1,0 +1,2109 @@
+{
+  "version": "1.0.0",
+  "browser": "firefox",
+  "browserVersion": "136.0.1",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "sample": "local fixtures",
+  "scenarioCount": 105,
+  "count": {
+    "scenarios": 105,
+    "positive": 96,
+    "detected": 96,
+    "casesWithFalsePositives": 0,
+    "selectionTests": 1,
+    "selectionCorrect": 1,
+    "downloads": 5,
+    "downloaded": 5,
+    "firstProbeMedianMs": 281,
+    "browserTaskMedianMs": null,
+    "browserHeapMedianBytes": null,
+    "fixtureRequests": 283,
+    "fixtureBytes": 3062236,
+    "restrictedRequests": 0
+  },
+  "rows": [
+    {
+      "id": "mp4",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 330,
+      "probeMs": 331,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 140942,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.webm",
+      "firstProbeMs": 391,
+      "probeMs": 391,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.008
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 125226,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "audio-element",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "sound.m4a"
+      ],
+      "names": [
+        "sound.m4a"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "sound.m4a",
+      "firstProbeMs": 519,
+      "probeMs": 519,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "audio"
+        ],
+        "duration": 3
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 55295,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "audio-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "sound.m4a"
+      ],
+      "names": [
+        "sound.m4a"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "sound.m4a",
+      "firstProbeMs": 256,
+      "probeMs": 256,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 1,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "source-elements",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 281,
+      "probeMs": 281,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "extensionless-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "raw"
+      ],
+      "names": [
+        "raw"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "raw",
+      "firstProbeMs": 197,
+      "probeMs": 197,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "extensionless-network",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "raw"
+      ],
+      "names": [
+        "raw"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "raw",
+      "firstProbeMs": 210,
+      "probeMs": 210,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-webm",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "raw-webm"
+      ],
+      "names": [
+        "raw-webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "raw-webm",
+      "firstProbeMs": 301,
+      "probeMs": 301,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "native-hls-url",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 435,
+      "probeMs": 435,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.023222
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 7,
+      "fixtureBytes": 76459,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-hls",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 352,
+      "probeMs": 352,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-hls-mime",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "manifest"
+      ],
+      "names": [
+        "manifest"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "manifest",
+      "firstProbeMs": 271,
+      "probeMs": 271,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-dash",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mpd",
+      "firstProbeMs": 202,
+      "probeMs": 202,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "network-dash-mime",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "dashmanifest"
+      ],
+      "names": [
+        "dashmanifest"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "dashmanifest",
+      "firstProbeMs": 314,
+      "probeMs": 314,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "external-audio-hls",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "separate.m3u8"
+      ],
+      "names": [
+        "separate.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "separate.m3u8",
+      "firstProbeMs": 363,
+      "probeMs": 363,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 404,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mse-hls-blob",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 283,
+      "probeMs": 283,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mse-dash-blob",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mpd",
+      "firstProbeMs": 285,
+      "probeMs": 285,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mse-sourcebuffer",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "fmp4.m3u8"
+      ],
+      "names": [
+        "fmp4.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "fmp4.m3u8",
+      "firstProbeMs": 432,
+      "probeMs": 434,
+      "mediaSourceBuffered": true,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 69443,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "fmp4-hls",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "fmp4.m3u8"
+      ],
+      "names": [
+        "fmp4.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "fmp4.m3u8",
+      "firstProbeMs": 283,
+      "probeMs": 283,
+      "download": "verified",
+      "verified": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 3.156341
+      },
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 8,
+      "fixtureBytes": 69443,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "only-fragments",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "The player uses an unsupported media source.",
+      "probeMs": 1715,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 136846,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "same-origin-iframe",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 273,
+      "probeMs": 273,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "cross-origin-iframe",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 348,
+      "probeMs": 348,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "nested-iframe",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 207,
+      "probeMs": 207,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "srcdoc-player",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 262,
+      "probeMs": 262,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 272,
+      "probeMs": 272,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "nested-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 268,
+      "probeMs": 268,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "shadow-delayed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 3756,
+      "probeMs": 3756,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "shadow-attach-late",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 2202,
+      "probeMs": 2203,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "structured-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 280,
+      "probeMs": 280,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "structured-graph",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.webm",
+      "firstProbeMs": 435,
+      "probeMs": 435,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "open-graph-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 281,
+      "probeMs": 281,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "player-json",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 284,
+      "probeMs": 284,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 169,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dynamic-json",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 357,
+      "probeMs": 357,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 169,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "delay-early",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 1222,
+      "probeMs": 1222,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "delay-late",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 3224,
+      "probeMs": 3224,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "spa-route",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 3323,
+      "probeMs": 3323,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "play-event",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 296,
+      "probeMs": 296,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "user-scroll",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 280,
+      "probeMs": 280,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "preroll",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 275,
+      "probeMs": 275,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "long-trailer",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4",
+        "trailer.mp4"
+      ],
+      "names": [
+        "film.mp4",
+        "trailer.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 277,
+      "probeMs": 277,
+      "detected": true,
+      "falsePositives": [],
+      "selectionCorrect": true,
+      "fixtureRequests": 3,
+      "fixtureBytes": 85165,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "multi-ambiguous",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4",
+        "other.mp4"
+      ],
+      "names": [
+        "other.mp4",
+        "film.mp4"
+      ],
+      "hint": "Multiple candidates found. Choose the video you want.",
+      "selected": "other.mp4",
+      "firstProbeMs": 283,
+      "probeMs": 283,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 68423,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "html-fake-mp4",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "No player was detected on this page.",
+      "probeMs": 1686,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "empty",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "No player was detected on this page.",
+      "probeMs": 1700,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "player-empty",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "Start normal playback to update the candidate list.",
+      "probeMs": 1710,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "http-login",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "Sign in on the website and scan again.",
+      "probeMs": 1697,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "http-paywall",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "The site requires authorized access.",
+      "probeMs": 1697,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "http-restricted",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "The site restricted access.",
+      "probeMs": 1697,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "challenge-header",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "The site returned a Cloudflare challenge. No media stream was detected.",
+      "probeMs": 1735,
+      "falsePositives": [],
+      "fixtureRequests": 1,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "protected-hls",
+      "public": false,
+      "positive": false,
+      "expected": [],
+      "names": [],
+      "hint": "The player uses DRM",
+      "probeMs": 1630,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "complete-transport-stream",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.ts"
+      ],
+      "names": [
+        "film.ts"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.ts",
+      "firstProbeMs": 207,
+      "probeMs": 207,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 1,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 425,
+      "probeMs": 425,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 1499,
+      "probeMs": 1499,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 276,
+      "probeMs": 276,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 209,
+      "probeMs": 209,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 290,
+      "probeMs": 290,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mp4"
+      ],
+      "names": [
+        "body-mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "body-mp4",
+      "firstProbeMs": 195,
+      "probeMs": 195,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 72519,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 424,
+      "probeMs": 424,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mp4-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mp4"
+      ],
+      "names": [
+        "film.mp4"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mp4",
+      "firstProbeMs": 189,
+      "probeMs": 189,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 4096,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.webm",
+      "firstProbeMs": 277,
+      "probeMs": 277,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.webm",
+      "firstProbeMs": 1551,
+      "probeMs": 1551,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.webm",
+      "firstProbeMs": 434,
+      "probeMs": 434,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.webm",
+      "firstProbeMs": 290,
+      "probeMs": 290,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.webm",
+      "firstProbeMs": 293,
+      "probeMs": 293,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-webm"
+      ],
+      "names": [
+        "body-webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "body-webm",
+      "firstProbeMs": 287,
+      "probeMs": 287,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 62613,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.webm",
+      "firstProbeMs": 273,
+      "probeMs": 273,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "webm-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.webm"
+      ],
+      "names": [
+        "film.webm"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.webm",
+      "firstProbeMs": 281,
+      "probeMs": 281,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mov",
+      "firstProbeMs": 266,
+      "probeMs": 266,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 68474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mov",
+      "firstProbeMs": 1209,
+      "probeMs": 1209,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mov",
+      "firstProbeMs": 205,
+      "probeMs": 205,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mov",
+      "firstProbeMs": 199,
+      "probeMs": 200,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 68474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mov",
+      "firstProbeMs": 198,
+      "probeMs": 198,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 68474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mov"
+      ],
+      "names": [
+        "body-mov"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "body-mov",
+      "firstProbeMs": 206,
+      "probeMs": 206,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 68474,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mov",
+      "firstProbeMs": 429,
+      "probeMs": 429,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mov-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mov"
+      ],
+      "names": [
+        "film.mov"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mov",
+      "firstProbeMs": 194,
+      "probeMs": 194,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mkv",
+      "firstProbeMs": 519,
+      "probeMs": 519,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mkv",
+      "firstProbeMs": 2300,
+      "probeMs": 2300,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mkv",
+      "firstProbeMs": 284,
+      "probeMs": 284,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mkv",
+      "firstProbeMs": 279,
+      "probeMs": 279,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mkv",
+      "firstProbeMs": 277,
+      "probeMs": 277,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-mkv"
+      ],
+      "names": [
+        "body-mkv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "body-mkv",
+      "firstProbeMs": 360,
+      "probeMs": 360,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 67641,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mkv",
+      "firstProbeMs": 191,
+      "probeMs": 191,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "mkv-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mkv"
+      ],
+      "names": [
+        "film.mkv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mkv",
+      "firstProbeMs": 191,
+      "probeMs": 191,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.flv",
+      "firstProbeMs": 345,
+      "probeMs": 345,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.flv",
+      "firstProbeMs": 1489,
+      "probeMs": 1489,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.flv",
+      "firstProbeMs": 194,
+      "probeMs": 194,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.flv",
+      "firstProbeMs": 207,
+      "probeMs": 207,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 4,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.flv",
+      "firstProbeMs": 196,
+      "probeMs": 196,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-flv"
+      ],
+      "names": [
+        "body-flv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "body-flv",
+      "firstProbeMs": 432,
+      "probeMs": 432,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 69058,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.flv",
+      "firstProbeMs": 190,
+      "probeMs": 190,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "flv-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.flv"
+      ],
+      "names": [
+        "film.flv"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.flv",
+      "firstProbeMs": 197,
+      "probeMs": 197,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 0,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 199,
+      "probeMs": 199,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 169,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 2228,
+      "probeMs": 2228,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 275,
+      "probeMs": 275,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 204,
+      "probeMs": 204,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 195,
+      "probeMs": 195,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-hls"
+      ],
+      "names": [
+        "body-hls"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "body-hls",
+      "firstProbeMs": 351,
+      "probeMs": 351,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 338,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 187,
+      "probeMs": 187,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 169,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "hls-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.m3u8"
+      ],
+      "names": [
+        "film.m3u8"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.m3u8",
+      "firstProbeMs": 286,
+      "probeMs": 286,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 169,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-typed-source",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mpd",
+      "firstProbeMs": 185,
+      "probeMs": 185,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 1953,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-late-dom",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mpd",
+      "firstProbeMs": 2274,
+      "probeMs": 2274,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-open-shadow",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mpd",
+      "firstProbeMs": 197,
+      "probeMs": 197,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-nested-frame",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mpd",
+      "firstProbeMs": 218,
+      "probeMs": 218,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 5,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-network-signed",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mpd",
+      "firstProbeMs": 202,
+      "probeMs": 202,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-network-no-suffix",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "body-dash"
+      ],
+      "names": [
+        "body-dash"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "body-dash",
+      "firstProbeMs": 347,
+      "probeMs": 347,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 3,
+      "fixtureBytes": 3906,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-schema-video",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mpd",
+      "firstProbeMs": 198,
+      "probeMs": 198,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 1953,
+      "restrictedRequests": 0
+    },
+    {
+      "id": "dash-public-player-config",
+      "public": false,
+      "positive": true,
+      "expected": [
+        "film.mpd"
+      ],
+      "names": [
+        "film.mpd"
+      ],
+      "hint": "No videos found. Start playback and scan again, or paste a media link.",
+      "selected": "film.mpd",
+      "firstProbeMs": 202,
+      "probeMs": 202,
+      "detected": true,
+      "falsePositives": [],
+      "fixtureRequests": 2,
+      "fixtureBytes": 1953,
+      "restrictedRequests": 0
+    }
+  ]
+}

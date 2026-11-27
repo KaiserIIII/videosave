@@ -1,5 +1,15 @@
 # VideoSave MCP
 
+## v1.0.0 DSH & Standalone MCP Enhancements
+
+See the dedicated [DSH Integration & Upgrade Guide](dsh-guide.md) ([简体中文](dsh-guide.zh-CN.md)) and [12-Item DSH Feedback Tracker](dsh-feedback-tracker.md) for complete examples.
+
+- **Version & Stale-Process Detection (`get_version`, `get_capabilities`, `get_engine_capabilities`)**: Immediately detect whether your MCP client is still connected to an older directory or stale Node.js process (`versionMismatch: true`), inspect feature flags, available browsers, and local engines (`http`, `hls`, `dash-static`, optional `yt-dlp`, optional `streamlink`).
+- **One-Call Best Quality (`download_best_media`)**: Probes the page, selects the unambiguous main stream, negotiates smart quality (`best`, `max`, `auto`, `lowest`, cap, `exact:HEIGHT`, bitrate/byte budgets, `preferHdr`), downloads, and runs FFprobe verification in one call.
+- **Expanded `probe_page` Browser Options & Dedicated Sessions**: Supports `userAgent`, `browser`, `browserBinary`, `profileMode: "dedicated"` + `browserSessionId`, `networkMode`, `proxy`, `timeoutBudget`, custom safe `idPattern`, and `urlTemplate`. Manage isolated sessions with `get_browser_session_status({ browserSessionId, action: "status" | "reset" })`.
+- **Unified Cookie Import (`import_cookie_file`)**: Imports Netscape 7-column `cookies.txt` (including `#HttpOnly_`) or single-line `Cookie:` header files into memory-only origin-scoped TTL sessions, rejects challenge cookies, never echoes raw cookie values to the AI, and strictly blocks cross-origin cookie forwarding.
+- **Full Queue Controls & Diagnostics**: `pause_download`, `resume_download`, single-item `cancel_download({ id, itemIndex })`, `start_batch` (`previewOnly`, `deduplicate`, `continueOnError`, `perItem`), `get_task_report`, `verify_download`, `diagnose_probe`, `diagnose_download`, and `get_effective_settings`.
+
 ## 高级授权和兼容性
 
 配对本机服务后，在扩展的「AI 与 MCP」选择客户端权限。点击「一键授权全部」并确认可启用 Full Access。「长期站点授权与隐私」可从当前窗口填入来源，或加载保存的站点组。选定有效期，并按需要分别允许下载和登录会话。站点设置中的明确拒绝优先。可以用「一键撤销全部」停用客户端，或用「恢复默认权限」清除长期授权并恢复受限模式。

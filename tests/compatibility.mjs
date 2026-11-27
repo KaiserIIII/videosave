@@ -27,10 +27,12 @@ if (!executable(engine)) throw Error('Browser executable unavailable: ' + engine
 if (isMcp && engine === 'firefox') throw Error('MCP probes use Chromium. Test Firefox using --browser=firefox.');
 if (!requested.length) throw Error('No matching compatibility scenarios');
 
-const directory = await mkdtemp(path.join(os.tmpdir(),'videosave-compatibility-'));
-const media = path.join(directory,'media');
-const output = path.join(directory,'output');
-await Promise.all([mkdir(media),mkdir(output)]);
+const sandboxMod = await import('./test-sandbox.mjs').catch(() => null);
+const sandbox = sandboxMod ? await sandboxMod.createTestSandbox('compatibility-' + browser) : null;
+const directory = sandbox ? sandbox.root : await mkdtemp(path.join(os.tmpdir(),'videosave-compatibility-'));
+const media = sandbox ? sandbox.media : path.join(directory,'media');
+const output = sandbox ? sandbox.downloads : path.join(directory,'output');
+if (!sandbox) await Promise.all([mkdir(media),mkdir(output)]);
 const rows = [];
 let fixtures;
 let browserVersion;
@@ -159,8 +161,10 @@ async function testExtension(driver) {
 }
 
 async function withMcp(run) {
-  const env = {...process.env,BROWSER_BIN:executable(engine),MEDIA_TOOLKIT_SETTINGS:path.join(directory,'settings.sqlite'),
-    OUT_DIR:output,MEDIA_TOOLKIT_URL:''};
+  const env = sandbox
+    ? sandbox.env({BROWSER_BIN:executable(engine),OUT_DIR:output,MEDIA_TOOLKIT_URL:''})
+    : {...process.env,BROWSER_BIN:executable(engine),MEDIA_TOOLKIT_SETTINGS:path.join(directory,'settings.sqlite'),
+      OUT_DIR:output,VIDEOSAVE_TEST_SANDBOX:directory,MEDIA_TOOLKIT_URL:''};
   const child = spawn(process.execPath,[path.join(source,'tools','mcp-server.mjs')],{
     cwd:source,env,windowsHide:true,stdio:['pipe','pipe','ignore'],
   });
@@ -254,7 +258,8 @@ try {
   console.error(error);
 } finally {
   await fixtures?.close();
-  await rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:150}).catch(() => {});
+  if (sandbox) await sandbox.cleanup();
+  else await rm(directory,{recursive:true,force:true,maxRetries:10,retryDelay:150}).catch(() => {});
 }
 
 const count = {

@@ -6,22 +6,21 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
+import { createTestSandbox } from './test-sandbox.mjs';
 
 const [entry, version] = process.argv.slice(2);
-const workspace = await mkdtemp(path.join(tmpdir(),'videosave-package-smoke-'));
+const sandbox = await createTestSandbox('release-smoke');
 try {
-  await verifyPackage(workspace);
+  await verifyPackage(sandbox);
 } finally {
-  await rm(workspace,{recursive:true,force:true,maxRetries:5});
+  await sandbox.cleanup();
 }
 
-async function verifyPackage(workspace) {
-  const fixture = path.join(workspace,'fixture.mp4');
-  const outputDirectory = path.join(workspace,'downloads');
-  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
-    !/^(?:OUT_DIR|MEDIA_TOOLKIT_(?:URL|TOKEN|MCP_CLIENT|LOCAL_PAIRING|SETTINGS))$/i.test(name)));
-  env.OUT_DIR = outputDirectory;
-  env.MEDIA_TOOLKIT_SETTINGS = path.join(workspace,'settings.sqlite');
+async function verifyPackage(sandbox) {
+  const workspace = sandbox.root;
+  const fixture = path.join(sandbox.media,'fixture.mp4');
+  const outputDirectory = sandbox.downloads;
+  const env = sandbox.env();
   execFileSync(process.env.FFMPEG_BIN, ['-v','error','-f','lavfi','-i','testsrc2=s=160x90:r=10',
     '-f','lavfi','-i','sine=frequency=440:sample_rate=48000','-t','2',
     '-c:v','libx264','-c:a','aac','-movflags','+faststart',fixture], {windowsHide:true,timeout:15_000});
@@ -68,9 +67,12 @@ async function verifyPackage(workspace) {
     assert.equal(serverInfo.version,version);
     child.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');
     const {tools} = await call('tools/list');
-    for (const name of ['probe_page','start_download','start_batch','wait_for_download']) {
+    for (const name of ['get_version','get_capabilities','get_engine_capabilities','probe_page','start_download','start_batch','wait_for_download','verify_download','diagnose_download']) {
       assert.ok(tools.some(tool => tool.name === name),'Missing packaged MCP tool ' + name);
     }
+    const verInfo = await tool('get_version',{});
+    assert.equal(verInfo.version, version);
+    assert.equal(verInfo.mismatch, false);
     const probe = await tool('probe_page',{url:base + '/watch',waitForMediaMs:4000});
     assert.equal(probe.selection?.url,base + '/fixture.mp4');
     const request = {items:[{kind:'stream',url:probe.selection.url,title:'Packaged fixture'}],concurrency:1};

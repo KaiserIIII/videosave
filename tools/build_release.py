@@ -12,9 +12,11 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 ROOT = Path(__file__).resolve().parents[1]
 RELEASE_DOCS = (
     "LICENSE", "README.md", "README.zh-CN.md", "CHANGELOG.md", "SECURITY.md",
+    "docs/logo.svg",
     "docs/videosave-0.9-detection.png", "docs/videosave-0.9-settings.png", "docs/videosave-mcp-control.png",
     "docs/architecture.md", "docs/compatibility-report.zh-CN.md", "docs/competitive-review.zh-CN.md",
     "docs/detection-research.zh-CN.md", "docs/privacy.md", "docs/mcp.md", "docs/install.md",
+    "docs/dsh-guide.md", "docs/dsh-guide.zh-CN.md", "docs/dsh-feedback-tracker.md",
     "docs/hls-benchmark.zh-CN.md", "docs/v1-security.md", "tests/benchmark-hls.mjs", "tests/dash-public.mjs",
 )
 PROJECT = "https://github.com/KaiserIIII/videosave"

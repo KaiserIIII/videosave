@@ -6,7 +6,7 @@ import { ApiError } from './media-source.mjs';
 import { approvedCookies } from './approved-cookies.mjs';
 import { detectionDiagnostic, diagnosticReport } from '../extension/detection.mjs';
 import { playbackHeaders } from '../extension/request-context.mjs';
-import { readPreferences, settingsFile } from './preferences.mjs';
+import { getSettingsFile, readPreferences } from './preferences.mjs';
 
 const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 export const roles = Object.freeze(['read-only','restricted','standard','advanced','full-access','custom']);
@@ -23,8 +23,9 @@ const browserSessionMinutes = 12 * 60;
 const scopeError = () => new ApiError('MCP_PERMISSION_DENIED','This client lacks permission for the requested operation',403);
 
 function db(run) {
-  mkdirSync(path.dirname(settingsFile),{recursive:true,mode:0o700});
-  const connection = new DatabaseSync(settingsFile,{timeout:5000});
+  const file = getSettingsFile();
+  mkdirSync(path.dirname(file),{recursive:true,mode:0o700});
+  const connection = new DatabaseSync(file,{timeout:5000});
   try {
     connection.exec('CREATE TABLE IF NOT EXISTS mcp_clients (id TEXT PRIMARY KEY, name TEXT NOT NULL, preset TEXT NOT NULL, scopes TEXT NOT NULL, disabled INTEGER NOT NULL);' +
       'CREATE TABLE IF NOT EXISTS mcp_audit (time TEXT NOT NULL, client TEXT NOT NULL, tool TEXT NOT NULL, result TEXT NOT NULL, origin TEXT, batch TEXT);' +

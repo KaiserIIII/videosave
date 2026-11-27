@@ -479,7 +479,13 @@ export function bindMcpCenter({root,translate,getConnection,getTab,getSnapshot,s
       origin ? call('site?origin=' + encodeURIComponent(origin)) : null,call('network').catch(() => null),
     ]);
     if (turn !== epoch) return;
-    alert(label('本机服务已连接 · ','Companion connected · ') + health.version);
+    const manifest = browserApi.runtime?.getManifest?.();
+    const extVersion = manifest?.version_name || manifest?.version || '';
+    const mismatch = Boolean(extVersion && health.version && health.version !== extVersion && health.version !== manifest?.version);
+    alert(mismatch
+      ? label(`本机服务版本（${health.version}）与扩展版本（${extVersion}）不一致，建议重启本机服务。`,
+        `Companion (${health.version}) differs from extension (${extVersion}). Restart the companion.`)
+      : label('本机服务已连接 · ','Companion connected · ') + health.version);
     byId('mcp-clients').replaceChildren(...clients.items.map(client => {
       const row = node('li');
       const names = {

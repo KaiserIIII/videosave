@@ -31,11 +31,39 @@ export const settingsPatchSchema = {anyOf:Object.values(profiles).map(fields => 
   additionalProperties:false, properties:Object.fromEntries(Object.entries(fields)
     .map(([key, schema]) => [key, {anyOf:[schema, {type:'null'}]}]))}))};
 
-const stateDirectory = process.env.LOCALAPPDATA || path.join(os.homedir(), '.config');
-export const settingsFile = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || path.join(stateDirectory, 'VideoSave', 'settings.sqlite'));
+const stateDirectory = () => process.env.LOCALAPPDATA || path.join(os.homedir(), '.config');
+
+function isPathInside(parent, child) {
+  const rel = path.relative(path.resolve(parent), path.resolve(child));
+  return Boolean(rel && !rel.startsWith('..') && !path.isAbsolute(rel)) || path.resolve(parent) === path.resolve(child);
+}
+
+export function assertSandboxPath(targetPath, label = 'path') {
+  const sandbox = process.env.VIDEOSAVE_TEST_SANDBOX;
+  if (!sandbox) return path.resolve(targetPath);
+  const resolved = path.resolve(targetPath);
+  const allowedRoots = [sandbox, os.tmpdir()];
+  if (!allowedRoots.some(root => isPathInside(root, resolved))) {
+    throw new ApiError(
+      'TEST_SANDBOX_VIOLATION',
+      `Refusing to access ${label} outside the active test sandbox`,
+      403,
+    );
+  }
+  return resolved;
+}
+
+export function getSettingsFile() {
+  const target = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || path.join(stateDirectory(), 'VideoSave', 'settings.sqlite'));
+  return assertSandboxPath(target, 'settings database');
+}
+
+export const settingsFile = path.resolve(process.env.MEDIA_TOOLKIT_SETTINGS || path.join(stateDirectory(), 'VideoSave', 'settings.sqlite'));
+
 function withDatabase(run) {
-  mkdirSync(path.dirname(settingsFile), {recursive:true});
-  const connection = new DatabaseSync(settingsFile, {timeout:5000});
+  const file = getSettingsFile();
+  mkdirSync(path.dirname(file), {recursive:true});
+  const connection = new DatabaseSync(file, {timeout:5000});
   try {
     connection.exec(`CREATE TABLE IF NOT EXISTS preferences (
       scope TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY (scope,name)
@@ -50,7 +78,8 @@ function fieldsFor(scope) {
 }
 
 export function localPairingCode({create = false} = {}) {
-  if (!create && !existsSync(settingsFile)) return;
+  const file = getSettingsFile();
+  if (!create && !existsSync(file)) return;
   return withDatabase(connection => {
     if (create) {
       connection.exec('CREATE TABLE IF NOT EXISTS companion_pairing (id INTEGER PRIMARY KEY CHECK(id=1), code TEXT NOT NULL)');
@@ -97,7 +126,7 @@ function read(connection, scope, fields) {
 
 export function readPreferences(scope) {
   const fields = fieldsFor(scope);
-  return existsSync(settingsFile) ? withDatabase(connection => read(connection, scope, fields)) : {};
+  return existsSync(getSettingsFile()) ? withDatabase(connection => read(connection, scope, fields)) : {};
 }
 
 export function writePreferences(scope, patch) {

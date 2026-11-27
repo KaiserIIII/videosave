@@ -257,6 +257,17 @@ function connectionLabel() {
   $('service-status').hidden = false;
 }
 
+function setConnectedMetadata(health) {
+  const manifest = browserApi.runtime?.getManifest?.();
+  const extVer = manifest?.version_name || manifest?.version || '';
+  if (health?.version) {
+    $('connection-status').title = 'VideoSave ' + health.version;
+    if (extVer && health.version !== extVer && health.version !== manifest?.version) {
+      $('service-status').textContent = t('本机服务版本（{0}）与扩展（{1}）不一致，建议重启本机服务。', health.version, extVer);
+    }
+  }
+}
+
 function checkService(recheck = false) {
   if (!connection.token) return Promise.resolve(null);
   if (serviceHealth && (!recheck || serviceState === 'checking')) return serviceHealth;
@@ -267,6 +278,7 @@ function checkService(recheck = false) {
     if (connection !== current) return null;
     serviceState = 'connected';
     connectionLabel();
+    setConnectedMetadata(health);
     return health;
   }, error => {
     if (connection === current) {

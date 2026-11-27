@@ -1,7 +1,13 @@
-## Changes
+## Summary
+-
 
-## Verification
+## DSH / User Impact & Compatibility
+- [ ] Verified in isolated test sandbox (zero writes to real Downloads/configured `outDir`)
+- [ ] Regression tests added/updated
+- [ ] Cross-origin credential isolation & security boundaries preserved
+- [ ] Docs / CHANGELOG updated if user-facing behavior changed
 
-- Tests and browser combinations exercised
-- Compatibility, performance and security evidence
-- Remaining failures or limitations
+## Verification Commands & Results
+```powershell
+node --test --test-concurrency=2 tests/*.test.mjs
+```

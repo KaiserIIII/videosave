@@ -44,10 +44,16 @@ const batch = object({...status,timedOut:boolean,items:array(object({status:stri
   verification:array(object({status:stringResult,info,errorCode:stringResult},['status'])),
 },['status']))},['id','status','items']);
 const outputSchemas = {
+  get_version:object({version:stringResult,installedVersion:stringResult,versionMismatch:boolean,mode:{const:'managed'}},
+    ['version','installedVersion','versionMismatch','mode']),
   get_capabilities:object({mode:{const:'managed'},id,preset:stringResult,permissions:array(stringResult),tools:array(stringResult)},
     ['mode','id','preset','permissions','tools']),
   get_engine_capabilities:object({observation:stringResult,transfer:array(stringResult),processing:array(stringResult)},
     ['observation','transfer','processing']),
+  diagnose_download:object({id,status:stringResult,resumable:boolean,items:array(object({
+    idx:int(0,64),status:stringResult,phase:stringResult,category:stringResult,nextAction:stringResult,
+    errorCode:{type:['string','null']},resumable:boolean,
+  },['idx','status','category','nextAction']))},['id','status','resumable','items']),
   request_site_authorization:grantResult, get_authorization_status:grantResult, revoke_site_authorization:grantResult,
   list_authorized_sites:object({items:array(grantResult)},['items']),
   get_session_status:object({origin,status:stringResult,authorizationId:id,expiresAt:stringResult,sessionShared:boolean,
@@ -73,6 +79,7 @@ const outputSchemas = {
   cancel_download:object({ok:boolean},['ok']), open_file:object({ok:boolean},['ok']),
 };
 const specs = [
+  [null,'get_version','Report the running companion and installed VideoSave package version.',object()],
   [null,'get_capabilities','Report this registered client’s current MCP permissions.',object()],
   ['read','get_engine_capabilities','List the media engines available to managed browser tasks.',object()],
   ['session','request_site_authorization','Ask the user to share a snapshot from the matching browser tab.',object({origin},['origin'])],
@@ -100,6 +107,7 @@ const specs = [
     items:{type:'array',minItems:1,maxItems:8,items:object(selection,['candidateId'])}},['authorizationId','items'])],
   ['read','get_progress','Check a batch submitted by this client.',object({id},['id'])],
   ['read','get_task_report','Read the engines, transfer duration, outcomes and verification of an owned batch.',object({id},['id'])],
+  ['read','diagnose_download','Inspect sanitized failure diagnostics and next steps for an owned batch.',object({id},['id'])],
   ['read','wait_for_download','Wait for a batch submitted by this client.',object({id,timeoutMs:int(1,60_000)},['id'])],
   ['read','verify_download','Check the owned output files on disk and compare their media properties with the saved results.',object({id},['id'])],
   ['read','list_batches','List this client’s recent batches.',object({limit:int(1,100)})],
@@ -279,6 +287,10 @@ function publicBatch(batch) {
 
 async function perform(client,name,args,signal) {
   switch (name) {
+    case 'get_version': {
+      const info = await downloads.getVersionInfo();
+      return {version:info.version,installedVersion:info.installedVersion,versionMismatch:info.versionMismatch,mode:'managed'};
+    }
     case 'get_capabilities': return {mode:'managed',id:client.id,preset:client.preset,permissions:client.scopes,tools:managedTools(client).map(tool => tool.name)};
     case 'get_engine_capabilities': return {observation:'approved-browser-tab',transfer:['http','hls','dash-static'],processing:['ffmpeg','ffprobe']};
     case 'request_site_authorization': return requestGrant(client,args.origin);
@@ -352,6 +364,17 @@ async function perform(client,name,args,signal) {
   switch (name) {
     case 'get_progress':
     case 'get_task_report': return publicBatch(downloads.progress(args.id));
+    case 'diagnose_download': {
+      const diag = downloads.diagnoseDownload(args.id);
+      return {
+        id: diag.id,
+        status: diag.status,
+        resumable: diag.resumable,
+        items: diag.items.map(({ idx, status, phase, errorCode, resumable, category, nextAction }) => ({
+          idx, status, phase, errorCode, resumable, category, nextAction,
+        })),
+      };
+    }
     case 'verify_download': return publicBatch(await downloads.verifyBatchFiles(args.id,signal));
     case 'wait_for_download': return publicBatch(await downloads.waitForBatch(args,signal));
     case 'pause_download': return downloads.setBatchPaused(args.id,true);

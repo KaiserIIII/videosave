@@ -166,6 +166,33 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
       case 'GET /api/health':
         return reply(res, 200, { ok: true, version: VERSION, mcpControl:true, outDir: downloads.getSettings().settings.outDir,
           ...(downloads.platformDownloadsEnabled() && {platformDownloads:true}) });
+      case 'GET /api/version':
+        return reply(res, 200, await downloads.getVersionInfo());
+      case 'GET /api/engines':
+        return reply(res, 200, downloads.getEngineCapabilities());
+      case 'GET /api/effective-settings':
+        return reply(res, 200, downloads.getEffectiveSettings());
+      case 'POST /api/diagnose/probe': {
+        const signal = responseSignal(res);
+        const found = await downloads.probe(await body(req), signal);
+        if (!res.destroyed) reply(res, 200, { selection: found.selection, diagnostic: found.diagnostic, blockers: found.blockers ?? [],
+          probeStrategy: found.probeStrategy, browserProbe: found.browserProbe, candidateCount: found.streams?.length ?? 0, qualities: found.qualities ?? [] });
+        return;
+      }
+      case 'POST /api/download-best': {
+        const signal = responseSignal(res);
+        const result = await downloads.downloadBestMedia(await body(req), signal);
+        if (!res.destroyed) reply(res, 200, result);
+        return;
+      }
+      case 'POST /api/browser-sessions': {
+        const args = await body(req);
+        return reply(res, 200, args.action === 'reset'
+          ? await downloads.resetBrowserSession(args.browserSessionId)
+          : await downloads.getBrowserSessionStatus(args.browserSessionId));
+      }
+      case 'POST /api/cookies/import':
+        return reply(res, 200, await downloads.importCookieSession(await body(req)));
       case 'GET /api/settings':
         return reply(res, 200, downloads.getSettings());
       case 'POST /api/settings':
@@ -199,8 +226,10 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
         return reply(res, 200, await downloads.recent());
       case 'POST /api/open':
         return reply(res, 200, await downloads.openDownload((await body(req)).file));
-      case 'POST /api/cancel':
-        return reply(res, 200, await downloads.cancel((await body(req)).id));
+      case 'POST /api/cancel': {
+        const { id, itemIndex } = await body(req);
+        return reply(res, 200, await downloads.cancel(id, itemIndex !== undefined ? { itemIndex } : undefined));
+      }
       case 'POST /api/retry':
         return reply(res, 200, downloads.retryBatch(await body(req)));
     }
@@ -214,26 +243,42 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
         return reply(res, 200, await downloads.releaseFiles(id, Number(item)));
       }
     }
-    const batch = /^\/api\/batch\/([\w-]+)(?:\/(events|wait))?$/.exec(pathname);
-    if (req.method === 'GET' && batch) {
+    const batch = /^\/api\/batch\/([\w-]+)(?:\/(events|wait|verify|pause|resume|diagnose))?$/.exec(pathname);
+    if (batch) {
       const [, id, action] = batch;
-      if (!action) return reply(res, 200, downloads.progress(id));
-      if (action === 'wait') {
-        const signal = responseSignal(res);
-        const timeoutMs = searchParams.has('timeoutMs') ? Number(searchParams.get('timeoutMs')) : undefined;
-        const outcome = await downloads.waitForBatch({id, timeoutMs}, signal);
-        if (!res.destroyed) reply(res, 200, outcome);
-        return;
+      if (req.method === 'POST' && action === 'verify') {
+        return reply(res, 200, await downloads.verifyBatchFiles(id, responseSignal(res)));
       }
-      downloads.progress(id);
-      res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' });
-      const unsubscribe = downloads.subscribe(id, current => {
-        if (res.destroyed || res.writableEnded) return;
-        res.write(`data: ${JSON.stringify(current)}\n\n`);
-        if (downloads.isTerminal(current.status)) res.end();
-      });
-      res.once('close', unsubscribe);
-      return;
+      if (req.method === 'POST' && action === 'pause') {
+        return reply(res, 200, downloads.setBatchPaused(id, true));
+      }
+      if (req.method === 'POST' && action === 'resume') {
+        return reply(res, 200, downloads.setBatchPaused(id, false));
+      }
+      if (req.method === 'GET' && action === 'diagnose') {
+        return reply(res, 200, downloads.diagnoseDownload(id));
+      }
+      if (req.method === 'GET') {
+        if (!action) return reply(res, 200, downloads.progress(id));
+        if (action === 'wait') {
+          const signal = responseSignal(res);
+          const timeoutMs = searchParams.has('timeoutMs') ? Number(searchParams.get('timeoutMs')) : undefined;
+          const outcome = await downloads.waitForBatch({id, timeoutMs}, signal);
+          if (!res.destroyed) reply(res, 200, outcome);
+          return;
+        }
+        if (action === 'events') {
+          downloads.progress(id);
+          res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-cache' });
+          const unsubscribe = downloads.subscribe(id, current => {
+            if (res.destroyed || res.writableEnded) return;
+            res.write(`data: ${JSON.stringify(current)}\n\n`);
+            if (downloads.isTerminal(current.status)) res.end();
+          });
+          res.once('close', unsubscribe);
+          return;
+        }
+      }
     }
     throw new ApiError('NOT_FOUND', '找不到此接口', 404);
   } catch (error) {

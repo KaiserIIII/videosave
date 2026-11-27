@@ -261,6 +261,7 @@ const english = {
   '显示音频':'Show audio',
   '请输入 127.0.0.1 的本机 HTTP 地址':'Enter a local HTTP address on 127.0.0.1.',
   '本机服务已连接':'Local service connected',
+  '本机服务版本（{0}）与扩展（{1}）不一致，建议重启本机服务。':'Companion version ({0}) differs from extension ({1}). Restart the local service.',
   '此网页视频需要桌面版和本机服务':'This video page requires the desktop version and local service.',
   '运行 node tools/setup-platform-downloads.mjs，重启本机服务后再试。':'Run node tools/setup-platform-downloads.mjs, restart the local service, and try again.',
   '请输入 HTTP(S) 媒体地址':'Enter an HTTP(S) media URL.',

@@ -7,12 +7,14 @@ import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+import { createTestSandbox } from './test-sandbox.mjs';
 
 const project = fileURLToPath(new URL('..', import.meta.url));
 
 test('MCP gives a client evidence to choose the full film over the autoplay teaser', {timeout: 150_000}, async t => {
-  const out = await mkdtemp(path.join(project, '.mcp-selection-'));
-  t.after(() => rm(out, {recursive:true, force:true, maxRetries:5}));
+  const sandbox = await createTestSandbox('mcp-selection');
+  const out = sandbox.downloads;
+  t.after(() => sandbox.cleanup());
   const media = new Map();
   let allowRetry = false;
   for (const [name, dimensions, duration] of [['101','160x90','2'], ['102','320x180','5'], ['103','480x270','5']]) {
@@ -156,8 +158,7 @@ test('MCP gives a client evidence to choose the full film over the autoplay teas
   await once(server, 'listening');
   const url = `http://127.0.0.1:${server.address().port}/watch/film`;
   const downloadDir = path.join(out, 'saved');
-  const env = {...process.env, OUT_DIR:out, MEDIA_TOOLKIT_SETTINGS:path.join(out, 'settings.sqlite'),
-    MEDIA_TOOLKIT_TOKEN:'selection-test', MEDIA_TOOLKIT_URL:'', PORT:'0'};
+  const env = sandbox.env({ MEDIA_TOOLKIT_TOKEN:'selection-test', MEDIA_TOOLKIT_URL:'', PORT:'0' });
   const proc = spawn(process.execPath, [path.join(project, 'tools', 'mcp-server.mjs')], {
     env, stdio:['pipe','pipe','inherit'], windowsHide:true, signal:t.signal,
   });
