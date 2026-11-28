@@ -1,4 +1,4 @@
-﻿PackageIdentifier: KaiserIIII.VideoSave
+PackageIdentifier: KaiserIIII.VideoSave
 PackageVersion: 1.2.0
 PackageName: VideoSave
 Publisher: VideoSave Contributors
@@ -22,6 +22,6 @@ NestedInstallerFiles:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/KaiserIIII/videosave/releases/download/v1.2.0/VideoSave-1.2.0.zip
-    InstallerSha256: 3AA275C39783433507F00E5673C73EA362C7FE24CF265CCE021F837FB0CA3D73
+    InstallerSha256: 4E2ACDF6D05DA45C1D676014AA2FDEC0708CF04E9B7F0CF479A2610DED94532F
 ManifestType: singleton
 ManifestVersion: 1.6.0
