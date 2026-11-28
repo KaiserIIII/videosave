@@ -36,9 +36,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
@@ -71,42 +73,67 @@ public final class DownloadService extends Service {
     private static final long MIN_FREE_BYTES = 50L * 1024L * 1024L;
 
     private final AtomicBoolean paused = new AtomicBoolean(false);
-    private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private final AtomicBoolean cancelAll = new AtomicBoolean(false);
+    private final Set<String> cancelledTaskIds = Collections.synchronizedSet(new HashSet<String>());
     private volatile String activeTaskId = null;
     private volatile boolean workerRunning = false;
+
+    private boolean isTaskStopped(String taskId) {
+        return paused.get() || cancelAll.get() || (taskId != null && cancelledTaskIds.contains(taskId));
+    }
+
+    private boolean isTaskCancelled(String taskId) {
+        return cancelAll.get() || (taskId != null && cancelledTaskIds.contains(taskId));
+    }
 
     @Override
     public void onCreate() {
         super.onCreate();
         createNotificationChannel();
+        pruneStaleCaches();
+    }
+
+    private void pruneStaleCaches() {
+        try {
+            File[] entries = getCacheDir().listFiles();
+            if (entries == null) return;
+            long cutoff = System.currentTimeMillis() - 48L * 60L * 60L * 1000L;
+            for (File f : entries) {
+                if (f.isDirectory() && f.getName().startsWith("staging-") && f.lastModified() < cutoff) {
+                    deleteRecursive(f);
+                }
+            }
+        } catch (Exception ignored) {}
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) {
-            // Service restarted by OS (START_STICKY): resume any queued/downloading persisted tasks
             ensureWorker();
             return START_STICKY;
         }
         String action = intent.getAction();
         if (ACTION_CANCEL.equals(action)) {
             String targetId = intent.getStringExtra("taskId");
-            if (targetId == null || targetId.isEmpty() || targetId.equals(activeTaskId)) {
-                cancelled.set(true);
-            }
+            boolean all = (targetId == null || targetId.isEmpty());
+            if (all) cancelAll.set(true);
+            else cancelledTaskIds.add(targetId);
+
             List<DownloadQueueStore.QueuedTask> tasks = DownloadQueueStore.load(this);
             for (DownloadQueueStore.QueuedTask t : tasks) {
-                if (targetId == null || targetId.isEmpty() || targetId.equals(t.id)) {
+                if (all || targetId.equals(t.id)) {
                     if (!"done".equals(t.status)) {
                         t.status = "cancelled";
                         t.statusText = "Cancelled";
                         t.updatedAt = System.currentTimeMillis();
+                        File stDir = new File(getCacheDir(), "staging-" + shaShort(t.url + "|" + (t.audioUrl == null ? "" : t.audioUrl)));
+                        if (stDir.exists()) deleteRecursive(stDir);
                     }
                 }
             }
             DownloadQueueStore.save(this, tasks);
-            broadcastProgress("cancelled", "Download cancelled", 0, 0, "", targetId == null ? "" : targetId);
-            if (targetId == null || targetId.isEmpty()) {
+            broadcastProgress("cancelled", "Download cancelled", 0, 0, "", all ? "" : targetId);
+            if (all) {
                 stopForeground(true);
                 stopSelf();
             }
@@ -129,7 +156,8 @@ public final class DownloadService extends Service {
         }
         if (ACTION_RESUME_ALL.equals(action)) {
             paused.set(false);
-            cancelled.set(false);
+            cancelAll.set(false);
+            cancelledTaskIds.clear();
             List<DownloadQueueStore.QueuedTask> tasks = DownloadQueueStore.load(this);
             for (DownloadQueueStore.QueuedTask t : tasks) {
                 if ("paused".equals(t.status) || "downloading".equals(t.status)) {
@@ -146,7 +174,8 @@ public final class DownloadService extends Service {
         if (ACTION_RETRY.equals(action)) {
             String taskId = intent.getStringExtra("taskId");
             paused.set(false);
-            cancelled.set(false);
+            cancelAll.set(false);
+            if (taskId != null) cancelledTaskIds.remove(taskId);
             List<DownloadQueueStore.QueuedTask> tasks = DownloadQueueStore.load(this);
             for (DownloadQueueStore.QueuedTask t : tasks) {
                 if (taskId != null && taskId.equals(t.id)) {
@@ -162,13 +191,22 @@ public final class DownloadService extends Service {
         }
         if (ACTION_ENQUEUE.equals(action)) {
             paused.set(false);
-            cancelled.set(false);
+            cancelAll.set(false);
             String url = intent.getStringExtra("url");
             if (url != null && !url.trim().isEmpty()) {
+                String cleanUrl = url.trim();
+                String audioUrl = intent.getStringExtra("audioUrl");
+                // Prevent duplicate concurrent/queued identical tasks caused by double-tap or network reconnect
+                for (DownloadQueueStore.QueuedTask existing : DownloadQueueStore.load(this)) {
+                    if (cleanUrl.equals(existing.url) && ("queued".equals(existing.status) || "downloading".equals(existing.status))) {
+                        ensureWorker();
+                        return START_STICKY;
+                    }
+                }
                 DownloadQueueStore.QueuedTask t = new DownloadQueueStore.QueuedTask();
                 t.id = UUID.randomUUID().toString().substring(0, 8);
-                t.url = url.trim();
-                t.audioUrl = intent.getStringExtra("audioUrl");
+                t.url = cleanUrl;
+                t.audioUrl = audioUrl;
                 String title = intent.getStringExtra("title");
                 t.title = (title == null || title.trim().isEmpty()) ? MediaProbeEngine.inferTitle(t.url) : title.trim();
                 String kind = intent.getStringExtra("kind");
@@ -209,7 +247,7 @@ public final class DownloadService extends Service {
             @Override
             public void run() {
                 try {
-                    while (!paused.get() && !cancelled.get()) {
+                    while (!paused.get() && !cancelAll.get()) {
                         DownloadQueueStore.QueuedTask next = findNextQueuedTask();
                         if (next == null) break;
                         activeTaskId = next.id;
@@ -309,7 +347,10 @@ public final class DownloadService extends Service {
                 stagedFile = downloadWithMirrorFailover(task, mirrors, new File(cacheDir, "payload" + ext + ".part"), task.kind, 0, 100);
             }
 
-            if (paused.get() || cancelled.get()) return;
+            if (isTaskStopped(task.id)) {
+                if (isTaskCancelled(task.id)) deleteRecursive(cacheDir);
+                return;
+            }
 
             // Mandatory final binary container + Android MediaExtractor verification before saving!
             MediaContainerUtil.CheckResult check = MediaContainerUtil.inspectFile(stagedFile);
@@ -341,9 +382,21 @@ public final class DownloadService extends Service {
             broadcastProgress("done", task.statusText, 100, size,
                     savedUri != null ? savedUri.toString() : "", task.id);
         } catch (Exception e) {
-            if (paused.get() || cancelled.get()) return;
+            if (isTaskStopped(task.id)) {
+                if (isTaskCancelled(task.id)) {
+                    File cDir = new File(getCacheDir(), "staging-" + shaShort(task.url + "|" + (task.audioUrl == null ? "" : task.audioUrl)));
+                    if (cDir.exists()) deleteRecursive(cDir);
+                }
+                return;
+            }
             String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            // Prune unrecoverable caches (access denied / DRM / invalid media) while preserving checkpoints for transient errors
+            if (e instanceof AccessDeniedException || msg.contains("DRM") || msg.contains("invalid media")) {
+                File cDir = new File(getCacheDir(), "staging-" + shaShort(task.url + "|" + (task.audioUrl == null ? "" : task.audioUrl)));
+                if (cDir.exists()) deleteRecursive(cDir);
+            }
             task.status = "error";
+            task.percent = 0;
             task.statusText = msg;
             task.updatedAt = System.currentTimeMillis();
             DownloadQueueStore.upsert(this, task);
@@ -410,19 +463,19 @@ public final class DownloadService extends Service {
             videoFile = new File(cacheDir, "dash-video" + trackExt);
             downloadDashTrack(task, videoTrack, videoFile, audioTrack != null ? 0 : 0, audioTrack != null ? 70 : 95);
         }
-        if (paused.get() || cancelled.get()) return videoFile != null ? videoFile : new File(cacheDir, "aborted");
+        if (paused.get() || isTaskCancelled(task.id)) return videoFile != null ? videoFile : new File(cacheDir, "aborted");
 
         File audioFile = null;
         if (audioTrack != null) {
             audioFile = new File(cacheDir, "dash-audio" + trackExt);
             downloadDashTrack(task, audioTrack, audioFile, videoFile != null ? 70 : 0, 95);
         }
-        if (paused.get() || cancelled.get()) return audioFile != null ? audioFile : videoFile;
+        if (isTaskStopped(task.id)) return audioFile != null ? audioFile : videoFile;
 
         if (videoFile != null && audioFile != null) {
             emitProgress(task, 96, videoFile.length() + audioFile.length(), 0, "Muxing DASH video + audio...");
             File muxed = new File(cacheDir, isWebm ? "dash-muxed.webm" : "dash-muxed.mp4");
-            muxVideoAndAudio(videoFile, audioFile, muxed, isWebm);
+            muxVideoAndAudio(videoFile, audioFile, muxed, isWebm, task.id);
             return muxed;
         }
         return videoFile != null ? videoFile : audioFile;
@@ -443,7 +496,8 @@ public final class DownloadService extends Service {
         if (track.initUrl != null) {
             initFile = new File(segDir, "init.bin");
             if (!"1".equals(cp.getProperty("init")) || !initFile.exists() || initFile.length() == 0) {
-                streamUrlToFile(track.initUrl, task.userAgent, task.referer, initFile);
+                streamUrlToFile(track.initUrl, task.userAgent, task.referer, initFile, task.id);
+                if (isTaskStopped(task.id)) return;
                 MediaContainerUtil.CheckResult check = MediaContainerUtil.inspectFile(initFile);
                 if (!check.valid) throw new IllegalStateException("DASH init segment invalid: " + check.reason);
                 cp.setProperty("init", "1");
@@ -454,7 +508,7 @@ public final class DownloadService extends Service {
         }
 
         for (int i = 0; i < track.segmentUrls.size(); i++) {
-            if (paused.get() || cancelled.get()) return;
+            if (isTaskStopped(task.id)) return;
             File segFile = new File(segDir, String.format(Locale.US, "seg-%05d.bin", i));
             String expectedSha = cp.getProperty("s" + i);
             if (expectedSha != null && segFile.exists() && segFile.length() > 0 && expectedSha.equals(sha256File(segFile))) {
@@ -462,7 +516,8 @@ public final class DownloadService extends Service {
                 doneSteps++;
                 continue;
             }
-            streamUrlToFile(track.segmentUrls.get(i), task.userAgent, task.referer, segFile);
+            streamUrlToFile(track.segmentUrls.get(i), task.userAgent, task.referer, segFile, task.id);
+            if (isTaskStopped(task.id)) return;
             // Validate every segment isn't an HTML/XML/JSON error page
             MediaContainerUtil.CheckResult check = MediaContainerUtil.inspectFile(segFile);
             if (!check.valid) {
@@ -494,15 +549,15 @@ public final class DownloadService extends Service {
     private File downloadBilibiliSeparateDash(DownloadQueueStore.QueuedTask task, File cacheDir) throws Exception {
         List<String> vMirrors = !task.mirrorUrls.isEmpty() ? task.mirrorUrls : Collections.singletonList(task.url);
         File videoFile = downloadWithMirrorFailover(task, vMirrors, new File(cacheDir, "bili-video.m4s.part"), "video", 0, 75);
-        if (paused.get() || cancelled.get()) return videoFile;
+        if (isTaskStopped(task.id)) return videoFile;
 
         if (task.audioUrl != null && !task.audioUrl.isEmpty()) {
             List<String> aMirrors = !task.audioMirrorUrls.isEmpty() ? task.audioMirrorUrls : Collections.singletonList(task.audioUrl);
             File audioFile = downloadWithMirrorFailover(task, aMirrors, new File(cacheDir, "bili-audio.m4s.part"), "audio", 75, 95);
-            if (paused.get() || cancelled.get()) return audioFile;
+            if (isTaskStopped(task.id)) return audioFile;
             emitProgress(task, 96, videoFile.length() + audioFile.length(), 0, "Muxing Bilibili MP4...");
             File muxed = new File(cacheDir, "bili-muxed.mp4");
-            muxVideoAndAudio(videoFile, audioFile, muxed, false);
+            muxVideoAndAudio(videoFile, audioFile, muxed, false, task.id);
             return muxed;
         }
         return videoFile;
@@ -512,12 +567,12 @@ public final class DownloadService extends Service {
                                             File partFile, String label, int pctStart, int pctEnd) throws Exception {
         Exception lastErr = null;
         for (int i = 0; i < mirrors.size(); i++) {
-            if (paused.get() || cancelled.get()) return partFile;
+            if (isTaskStopped(task.id)) return partFile;
             String mirrorUrl = mirrors.get(i);
             try {
                 return downloadHttpRangeStrict(task, mirrorUrl, partFile, label, pctStart, pctEnd, 0);
             } catch (AccessDeniedException ade) {
-                throw ade; // NEVER fail over or retry HTTP 401/402/403/451 access denials!
+                throw ade; // NEVER fail over or retry HTTP 401/402/403/451/567 access/policy denials!
             } catch (Exception e) {
                 lastErr = e;
             }
@@ -556,7 +611,7 @@ public final class DownloadService extends Service {
         String respContentRange = conn.getHeaderField("Content-Range");
         String respContentType = conn.getContentType() == null ? "" : conn.getContentType().toLowerCase(Locale.US);
 
-        if (code == 401 || code == 402 || code == 403 || code == 451) {
+        if (code == 401 || code == 402 || code == 403 || code == 451 || code == 567) {
             conn.disconnect();
             throw new AccessDeniedException("HTTP " + code + " — Access denied by server (not bypassed)");
         }
@@ -629,7 +684,7 @@ public final class DownloadService extends Service {
             long lastEmit = 0;
             int n;
             while ((n = in.read(buf)) > 0) {
-                if (paused.get() || cancelled.get()) return partFile;
+                if (isTaskStopped(task.id)) return partFile;
                 raf.write(buf, 0, n);
                 done += n;
                 long now = System.currentTimeMillis();
@@ -680,14 +735,14 @@ public final class DownloadService extends Service {
         File videoAssembled = downloadSingleHlsPlaylist(task, task.url, new File(cacheDir, "hls-video"),
                 task.audioUrl != null && !task.audioUrl.isEmpty() ? 0 : 0,
                 task.audioUrl != null && !task.audioUrl.isEmpty() ? 75 : 95);
-        if (paused.get() || cancelled.get()) return videoAssembled;
+        if (isTaskStopped(task.id)) return videoAssembled;
 
         if (task.audioUrl != null && !task.audioUrl.isEmpty()) {
             File audioAssembled = downloadSingleHlsPlaylist(task, task.audioUrl, new File(cacheDir, "hls-audio"), 75, 95);
-            if (paused.get() || cancelled.get()) return audioAssembled;
+            if (isTaskStopped(task.id)) return audioAssembled;
             emitProgress(task, 96, videoAssembled.length() + audioAssembled.length(), 0, "Muxing HLS video + audio...");
             File muxed = new File(cacheDir, "hls-muxed.mp4");
-            muxVideoAndAudio(videoAssembled, audioAssembled, muxed, false);
+            muxVideoAndAudio(videoAssembled, audioAssembled, muxed, false, task.id);
             return muxed;
         }
         return videoAssembled;
@@ -749,7 +804,8 @@ public final class DownloadService extends Service {
         byte[] aesKey = null;
         if (keyUri != null) {
             File keyFile = new File(workDir, "aes.key");
-            streamUrlToFile(keyUri, task.userAgent, task.referer, keyFile);
+            streamUrlToFile(keyUri, task.userAgent, task.referer, keyFile, task.id);
+            if (isTaskStopped(task.id)) return new File(workDir, "aborted");
             if (keyFile.length() != 16) throw new IllegalStateException("Invalid AES-128 key length");
             aesKey = readAllSmall(keyFile);
             keyFile.delete();
@@ -762,7 +818,8 @@ public final class DownloadService extends Service {
         if (isFmp4) {
             initFile = new File(workDir, "init.mp4");
             if (!"1".equals(cp.getProperty("init")) || !initFile.exists() || initFile.length() == 0) {
-                streamUrlToFile(initUris.get(0), task.userAgent, task.referer, initFile);
+                streamUrlToFile(initUris.get(0), task.userAgent, task.referer, initFile, task.id);
+                if (isTaskStopped(task.id)) return new File(workDir, "aborted");
                 MediaContainerUtil.CheckResult ic = MediaContainerUtil.inspectFile(initFile);
                 if (!ic.valid) throw new IllegalStateException("Invalid HLS init segment: " + ic.reason);
                 cp.setProperty("init", "1");
@@ -775,7 +832,7 @@ public final class DownloadService extends Service {
         String firstFormat = null;
 
         for (int i = 0; i < segments.size(); i++) {
-            if (paused.get() || cancelled.get()) return new File(workDir, "aborted");
+            if (isTaskStopped(task.id)) return new File(workDir, "aborted");
             File segFile = new File(workDir, String.format(Locale.US, "seg-%05d.bin", i));
             String savedSha = cp.getProperty("s" + i);
             if (savedSha != null && segFile.exists() && segFile.length() > 0 && savedSha.equals(sha256File(segFile))) {
@@ -785,9 +842,13 @@ public final class DownloadService extends Service {
             }
             if (aesKey != null) {
                 byte[] iv = explicitIv != null ? explicitIv : sequenceIv(mediaSeq + i);
-                streamUrlDecryptedToFile(segments.get(i), task.userAgent, task.referer, aesKey, iv, segFile);
+                streamUrlDecryptedToFile(segments.get(i), task.userAgent, task.referer, aesKey, iv, segFile, task.id);
             } else {
-                streamUrlToFile(segments.get(i), task.userAgent, task.referer, segFile);
+                streamUrlToFile(segments.get(i), task.userAgent, task.referer, segFile, task.id);
+            }
+            if (isTaskStopped(task.id)) {
+                segFile.delete();
+                return new File(workDir, "aborted");
             }
             MediaContainerUtil.CheckResult sc = MediaContainerUtil.inspectFile(segFile);
             if (!sc.valid) {
@@ -826,7 +887,7 @@ public final class DownloadService extends Service {
      * Mux separate video and audio files into a single playable MP4/WebM using Android's built-in
      * MediaExtractor + MediaMuxer (zero external binaries, streaming sample-by-sample, low RAM).
      */
-    private static void muxVideoAndAudio(File videoFile, File audioFile, File outFile, boolean isWebm) throws Exception {
+    private void muxVideoAndAudio(File videoFile, File audioFile, File outFile, boolean isWebm, String taskId) throws Exception {
         MediaExtractor vEx = new MediaExtractor();
         MediaExtractor aEx = new MediaExtractor();
         MediaMuxer muxer = null;
@@ -850,8 +911,8 @@ public final class DownloadService extends Service {
 
             ByteBuffer buffer = ByteBuffer.allocate(512 * 1024);
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
-            copyExtractorTrack(vEx, muxer, vDstIdx, buffer, info);
-            copyExtractorTrack(aEx, muxer, aDstIdx, buffer, info);
+            copyExtractorTrack(vEx, muxer, vDstIdx, buffer, info, taskId);
+            if (!isTaskStopped(taskId)) copyExtractorTrack(aEx, muxer, aDstIdx, buffer, info, taskId);
             muxer.stop();
         } finally {
             if (muxer != null) try { muxer.release(); } catch (Exception ignored) {}
@@ -860,10 +921,10 @@ public final class DownloadService extends Service {
         }
     }
 
-    private static void copyExtractorTrack(MediaExtractor ex, MediaMuxer muxer, int dstTrack,
-                                           ByteBuffer buf, MediaCodec.BufferInfo info) {
+    private void copyExtractorTrack(MediaExtractor ex, MediaMuxer muxer, int dstTrack,
+                                    ByteBuffer buf, MediaCodec.BufferInfo info, String taskId) {
         long lastPts = -1;
-        while (true) {
+        while (!isTaskStopped(taskId)) {
             buf.clear();
             int sampleSize = ex.readSampleData(buf, 0);
             if (sampleSize < 0) break;
@@ -891,24 +952,27 @@ public final class DownloadService extends Service {
     }
 
     private static void verifyPlayableTracksWithMediaExtractor(File file, boolean audioOnly) throws Exception {
+        if (file == null || !file.exists() || file.length() < 128) {
+            throw new IllegalStateException("Output media file missing or truncated");
+        }
         MediaExtractor ex = new MediaExtractor();
         try {
             ex.setDataSource(file.getAbsolutePath());
             int tracks = ex.getTrackCount();
             if (tracks <= 0) throw new IllegalStateException("Output media contains zero playable tracks");
-            boolean hasVideo = findTrackIndex(ex, "video/") >= 0;
-            boolean hasAudio = findTrackIndex(ex, "audio/") >= 0;
-            if (audioOnly && !hasAudio) throw new IllegalStateException("Audio output contains no audio track");
-            if (!audioOnly && !hasVideo && !hasAudio) throw new IllegalStateException("Output contains neither video nor audio track");
+            int vIdx = findTrackIndex(ex, "video/");
+            int aIdx = findTrackIndex(ex, "audio/");
+            if (audioOnly && aIdx < 0) throw new IllegalStateException("Audio output contains no audio track");
+            if (!audioOnly && vIdx < 0) throw new IllegalStateException("Video output contains no playable video track");
         } finally {
             try { ex.release(); } catch (Exception ignored) {}
         }
     }
 
-    private void streamUrlToFile(String url, String ua, String referer, File dest) throws Exception {
+    private void streamUrlToFile(String url, String ua, String referer, File dest, String taskId) throws Exception {
         HttpURLConnection conn = MediaProbeEngine.openConnection(url, ua, referer, null);
         int code = conn.getResponseCode();
-        if (code == 401 || code == 402 || code == 403 || code == 451) {
+        if (code == 401 || code == 402 || code == 403 || code == 451 || code == 567) {
             conn.disconnect();
             throw new AccessDeniedException("HTTP " + code + " on segment/key (not bypassed)");
         }
@@ -921,7 +985,10 @@ public final class DownloadService extends Service {
         try {
             byte[] buf = new byte[32 * 1024];
             int n;
-            while ((n = in.read(buf)) > 0) fos.write(buf, 0, n);
+            while ((n = in.read(buf)) > 0) {
+                if (isTaskStopped(taskId)) return;
+                fos.write(buf, 0, n);
+            }
         } finally {
             fos.close();
             in.close();
@@ -930,10 +997,10 @@ public final class DownloadService extends Service {
     }
 
     private void streamUrlDecryptedToFile(String url, String ua, String referer,
-                                          byte[] key, byte[] iv, File dest) throws Exception {
+                                          byte[] key, byte[] iv, File dest, String taskId) throws Exception {
         HttpURLConnection conn = MediaProbeEngine.openConnection(url, ua, referer, null);
         int code = conn.getResponseCode();
-        if (code == 401 || code == 402 || code == 403 || code == 451) {
+        if (code == 401 || code == 402 || code == 403 || code == 451 || code == 567) {
             conn.disconnect();
             throw new AccessDeniedException("HTTP " + code + " on encrypted segment");
         }
@@ -948,7 +1015,10 @@ public final class DownloadService extends Service {
         try {
             byte[] buf = new byte[32 * 1024];
             int n;
-            while ((n = cin.read(buf)) > 0) fos.write(buf, 0, n);
+            while ((n = cin.read(buf)) > 0) {
+                if (isTaskStopped(taskId)) return;
+                fos.write(buf, 0, n);
+            }
         } finally {
             fos.close();
             cin.close();

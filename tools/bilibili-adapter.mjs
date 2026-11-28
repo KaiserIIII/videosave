@@ -8,11 +8,15 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { platformVideo } from '../extension/media.mjs';
 import { ApiError, FFMPEG, runMedia } from './media-source.mjs';
-import { normalizeQualitySpec } from './quality-negotiator.mjs';
+import { buildQualityNegotiationReport, negotiateQuality, normalizeQualitySpec } from './quality-negotiator.mjs';
 import { paceBandwidth, recordHostFailure, recordHostSuccess } from './rate-controller.mjs';
 
 const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 const BILIBILI_API_HOSTS = new Set(['api.bilibili.com', 'www.bilibili.com', 'm.bilibili.com', 'bilibili.com']);
+// Access denials and non-standard Bilibili 567 policy rejections strictly abort without mirror rotation.
+const ACCESS_DENIED_STATUSES = new Set([401, 402, 403, 412, 451, 567]);
+// Only standard RFC transient server/network failures may fail over across Bilibili's official backup_url mirrors.
+const RETRYABLE_CDN_STATUSES = new Set([408, 500, 502, 503, 504]);
 const CHUNK_SIZE = 4 * 1024 * 1024; // 4 MiB adaptive range chunks
 const directHttpsAgent = new https.Agent({ keepAlive: true });
 let cachedPublicBuvidCookie = '';
@@ -309,6 +313,10 @@ async function fetchBilibiliTracks(meta, signal, { referer, userAgent, cookies }
   }
   audioTracks.sort((a, b) => b.bandwidth - a.bandwidth);
 
+  // Sort DASH video tracks: highest height, then highest bitrate, then broadest codec (AVC > HEVC > AV1) at same tier
+  videoTracks.sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth || codecRank(b.codec) - codecRank(a.codec));
+  const maxDashHeight = videoTracks[0]?.height || 0;
+
   const durlTracks = [];
   const rawDurl = mp4Payload?.code === 0 && Array.isArray(mp4Payload.data?.durl) ? mp4Payload.data.durl : [];
   if (rawDurl.length === 1) {
@@ -317,11 +325,22 @@ async function fetchBilibiliTracks(meta, signal, { referer, userAgent, cookies }
     if (mirrors.length) {
       const qn = Number(mp4Payload.data?.quality) || 64;
       const heightMap = { 120: 2160, 116: 1080, 112: 1080, 80: 1080, 64: 720, 32: 480, 16: 360 };
+      const nominalHeight = heightMap[qn] || 720;
+      // Bilibili's durl playurl can return nominal qn=64 ("720p" tier) even when the original video's
+      // true pixel height (view.data.dimension) is lower (e.g. 512x384 or 640x360). Clamp using real
+      // source/DASH dimensions so reported candidate height never contradicts the actual media stream.
+      const srcH = Number(meta.sourceDimension?.height) || 0;
+      const srcW = Number(meta.sourceDimension?.width) || 0;
+      const effectiveCeiling = Math.max(srcH, maxDashHeight);
+      const resolvedHeight = effectiveCeiling > 0 ? Math.min(nominalHeight, effectiveCeiling) : nominalHeight;
+      const aspect = (srcW > 0 && srcH > 0) ? (srcW / srcH) : (16 / 9);
+      const resolvedWidth = Math.round((resolvedHeight * aspect) / 2) * 2;
       durlTracks.push({
         formatKind: 'durl',
         qn,
-        height: heightMap[qn] || 720,
-        width: Math.round((heightMap[qn] || 720) * 16 / 9),
+        declaredHeight: nominalHeight,
+        height: resolvedHeight,
+        width: resolvedWidth,
         bandwidth: d.size && meta.duration ? Math.round((d.size * 8) / Math.max(1, meta.duration)) : 0,
         size: Number(d.size) || 0,
         codec: 'avc1+mp4a',
@@ -331,9 +350,6 @@ async function fetchBilibiliTracks(meta, signal, { referer, userAgent, cookies }
       });
     }
   }
-
-  // Sort DASH video tracks: highest height, then highest bitrate, then broadest codec (AVC > HEVC > AV1) at same tier
-  videoTracks.sort((a, b) => b.height - a.height || b.bandwidth - a.bandwidth || codecRank(b.codec) - codecRank(a.codec));
 
   return {
     videoTracks,
@@ -349,26 +365,34 @@ async function fetchBilibiliSubtitles(meta, signal, { referer, userAgent, cookie
     const idParam = meta.bvid ? `bvid=${encodeURIComponent(meta.bvid)}` : `aid=${encodeURIComponent(meta.aid)}`;
     const url = `https://api.bilibili.com/x/player/v2?${idParam}&cid=${encodeURIComponent(meta.cid)}`;
     const data = await fetchBiliJson(url, signal, { referer, userAgent, cookies });
-    const list = data?.code === 0 ? data?.data?.subtitle?.subtitles : null;
-    if (!Array.isArray(list)) return [];
-    return list
-      .map(s => {
-        let subUrl = s.subtitle_url || '';
-        if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
-        if (!isSafeBilibiliMediaUrl(subUrl)) return null;
-        return {
-          language: s.lan || 'und',
-          label: s.lan_doc || s.lan || 'Subtitle',
-          url: subUrl,
-        };
-      })
-      .filter(Boolean);
+    const subNode = data?.code === 0 ? data?.data?.subtitle : null;
+    const list = subNode?.subtitles;
+    const needLogin = Boolean(subNode?.need_login_subtitle);
+    const tracks = Array.isArray(list)
+      ? list
+        .map(s => {
+          let subUrl = s.subtitle_url || '';
+          if (subUrl.startsWith('//')) subUrl = 'https:' + subUrl;
+          if (!isSafeBilibiliMediaUrl(subUrl)) return null;
+          return {
+            language: s.lan || 'und',
+            label: s.lan_doc || s.lan || 'Subtitle',
+            url: subUrl,
+          };
+        })
+        .filter(Boolean)
+      : [];
+    return {
+      tracks,
+      needLogin,
+      status: tracks.length ? 'available' : needLogin ? 'login-required' : 'none-available',
+    };
   } catch {
-    return [];
+    return { tracks: [], needLogin: false, status: 'unavailable' };
   }
 }
 
-function formatVttTimestamp(sec) {
+export function formatVttTimestamp(sec) {
   const totalMs = Math.max(0, Math.round(Number(sec || 0) * 1000));
   const ms = totalMs % 1000;
   const totalSec = Math.floor(totalMs / 1000);
@@ -379,23 +403,141 @@ function formatVttTimestamp(sec) {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
 }
 
-async function downloadBilibiliSubtitleVtt(sub, destPath, signal, { referer, userAgent } = {}) {
+export function formatSrtTimestamp(sec) {
+  return formatVttTimestamp(sec).replace('.', ',');
+}
+
+export function convertBilibiliSubtitleJson(json) {
+  if (!Array.isArray(json?.body) || !json.body.length) return null;
+  const validCues = [];
+  for (const cue of json.body) {
+    const from = Number(cue?.from);
+    const to = Number(cue?.to);
+    const text = typeof cue?.content === 'string' ? cue.content.replace(/\r?\n/g, '\n').trim() : '';
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to < from || !text) continue;
+    validCues.push({ from, to: Math.max(to, from + 0.05), text });
+  }
+  if (!validCues.length) return null;
+  validCues.sort((a, b) => a.from - b.from || a.to - b.to);
+
+  const vttLines = ['WEBVTT', ''];
+  const srtLines = [];
+  for (let i = 0; i < validCues.length; i++) {
+    const cue = validCues[i];
+    vttLines.push(`${formatVttTimestamp(cue.from)} --> ${formatVttTimestamp(cue.to)}`, cue.text, '');
+    srtLines.push(String(i + 1), `${formatSrtTimestamp(cue.from)} --> ${formatSrtTimestamp(cue.to)}`, cue.text, '');
+  }
+  const firstCueSec = Math.round(validCues[0].from * 1000) / 1000;
+  const lastCueSec = Math.round(validCues[validCues.length - 1].to * 1000) / 1000;
+  return {
+    cueCount: validCues.length,
+    firstCueSec,
+    lastCueSec,
+    timelineValid: validCues.length > 0 && lastCueSec >= firstCueSec,
+    vtt: vttLines.join('\n'),
+    srt: srtLines.join('\n'),
+  };
+}
+
+async function downloadBilibiliSubtitleFiles(sub, baseDestPath, signal, { referer, userAgent, format = 'both' } = {}) {
   const res = await fetch(sub.url, {
     signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
     headers: { 'User-Agent': userAgent || DEFAULT_UA, Referer: referer },
   });
-  if (!res.ok) return null;
-  const json = await res.json().catch(() => null);
-  if (!Array.isArray(json?.body) || !json.body.length) return null;
-  const lines = ['WEBVTT', ''];
-  for (const cue of json.body) {
-    if (typeof cue?.content !== 'string') continue;
-    lines.push(`${formatVttTimestamp(cue.from)} --> ${formatVttTimestamp(cue.to)}`);
-    lines.push(cue.content.replace(/\r?\n/g, '\n').trim());
-    lines.push('');
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    return null;
   }
-  await writeFile(destPath, lines.join('\n'), 'utf8');
-  return destPath;
+  const json = await res.json().catch(() => null);
+  const converted = convertBilibiliSubtitleJson(json);
+  if (!converted || !converted.timelineValid) return null;
+
+  const out = {
+    language: sub.language,
+    label: sub.label,
+    cueCount: converted.cueCount,
+    firstCueSec: converted.firstCueSec,
+    lastCueSec: converted.lastCueSec,
+    timelineValid: true,
+    vttPath: null,
+    srtPath: null,
+  };
+  if (format === 'vtt' || format === 'both') {
+    const vttPath = `${baseDestPath}.vtt`;
+    await writeFile(vttPath, converted.vtt, 'utf8');
+    out.vttPath = vttPath;
+  }
+  if (format === 'srt' || format === 'both') {
+    const srtPath = `${baseDestPath}.srt`;
+    await writeFile(srtPath, converted.srt, 'utf8');
+    out.srtPath = srtPath;
+  }
+  return out;
+}
+
+export function selectSubtitleTracks(availableTracks, requestedLanguages = null, maxTracks = 3) {
+  if (!Array.isArray(availableTracks) || !availableTracks.length) return [];
+  if (Array.isArray(requestedLanguages) && requestedLanguages.length) {
+    const wanted = requestedLanguages.map(l => String(l).trim().toLowerCase()).filter(Boolean);
+    if (wanted.includes('all')) return availableTracks.slice(0, Math.max(maxTracks, 8));
+    const matched = availableTracks.filter(t => {
+      const lang = String(t.language || '').toLowerCase();
+      return wanted.some(w => lang === w || lang.startsWith(w + '-'));
+    });
+    return matched.slice(0, maxTracks);
+  }
+  return availableTracks.slice(0, maxTracks);
+}
+
+export function expandBilibiliParts(probed, { multiPartMode = 'current', pages = null, maxParts = 100 } = {}) {
+  const allPages = Array.isArray(probed?.pages) && probed.pages.length
+    ? probed.pages
+    : [{ page: probed?.partIndex || 1, url: probed?.url, part: probed?.title || 'P1' }];
+  const currentPage = probed?.partIndex || 1;
+  if (multiPartMode === 'all') {
+    if (allPages.length > maxParts) {
+      throw new ApiError(
+        'TOO_MANY_PARTS',
+        `该多P视频共有 ${allPages.length} 集，超过单批次安全上限 ${maxParts} 集；请使用 pages 分批指定分P范围。`,
+        422,
+        { totalPages: allPages.length, maxParts },
+      );
+    }
+    return {
+      mode: 'all',
+      currentPage,
+      totalPages: allPages.length,
+      selectedPages: allPages.map(p => p.page),
+      entries: allPages,
+    };
+  }
+  if (multiPartMode === 'selected' || (Array.isArray(pages) && pages.length)) {
+    const wanted = [...new Set((pages || []).map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= allPages.length))];
+    if (!wanted.length) {
+      throw new ApiError('INVALID_PART_SELECTION', `指定的分P编号超出有效范围（1..${allPages.length}）`, 422, {
+        totalPages: allPages.length,
+      });
+    }
+    if (wanted.length > maxParts) {
+      throw new ApiError('TOO_MANY_PARTS', `单次最多选择 ${maxParts} 个分P`, 422, { totalPages: allPages.length, maxParts });
+    }
+    const entries = wanted.map(n => allPages.find(p => p.page === n)).filter(Boolean);
+    return {
+      mode: 'selected',
+      currentPage,
+      totalPages: allPages.length,
+      selectedPages: entries.map(p => p.page),
+      entries,
+    };
+  }
+  const single = allPages.find(p => p.page === currentPage) ?? allPages[0];
+  return {
+    mode: 'current',
+    currentPage: single.page,
+    totalPages: allPages.length,
+    selectedPages: [single.page],
+    entries: [single],
+  };
 }
 
 export async function probeBilibili(video, signal, { headers = {}, cookies = [] } = {}) {
@@ -421,17 +563,32 @@ export async function probeBilibili(video, signal, { headers = {}, cookies = [] 
       cid: pg.cid,
       part: pg.part || `P${pg.page}`,
       duration: pg.duration ?? null,
+      dimension: pg.dimension?.width && pg.dimension?.height
+        ? { width: Number(pg.dimension.width), height: Number(pg.dimension.height) }
+        : null,
       url: `https://www.bilibili.com/video/${d.bvid}/?p=${pg.page}`,
     }))
-    : [{ page: 1, cid: d.cid, part: d.title, duration: d.duration ?? null, url: `https://www.bilibili.com/video/${d.bvid}/` }];
+    : [{
+      page: 1,
+      cid: d.cid,
+      part: d.title,
+      duration: d.duration ?? null,
+      dimension: d.dimension?.width && d.dimension?.height
+        ? { width: Number(d.dimension.width), height: Number(d.dimension.height) }
+        : null,
+      url: `https://www.bilibili.com/video/${d.bvid}/`,
+    }];
 
   const selectedPage = pages.find(p => p.page === parsed.partIndex) ?? pages[0];
+  const sourceDimension = selectedPage.dimension
+    ?? (d.dimension?.width && d.dimension?.height ? { width: Number(d.dimension.width), height: Number(d.dimension.height) } : null);
   const meta = {
     bvid: d.bvid,
     aid: d.aid,
     cid: selectedPage.cid,
     partIndex: selectedPage.page,
     totalPages: pages.length,
+    sourceDimension,
     title: pages.length > 1 && selectedPage.part && selectedPage.part !== d.title
       ? `${d.title} - P${selectedPage.page} ${selectedPage.part}`
       : d.title,
@@ -444,12 +601,13 @@ export async function probeBilibili(video, signal, { headers = {}, cookies = [] 
       : `https://www.bilibili.com/video/${d.bvid}/`,
   };
 
-  const [tracks, subtitles] = await Promise.all([
+  const [tracks, subtitleInfo] = await Promise.all([
     fetchBilibiliTracks(meta, signal, { referer: meta.canonicalUrl, userAgent, cookies }),
     fetchBilibiliSubtitles(meta, signal, { referer: meta.canonicalUrl, userAgent, cookies }),
   ]);
+  const subtitles = subtitleInfo.tracks;
 
-  // Combine DASH tracks + any higher-resolution progressive durl MP4 track so best quality is genuinely selected
+  // Combine DASH tracks + any strictly higher-resolution progressive durl MP4 track so best quality is genuinely selected
   const maxDashHeight = tracks.videoTracks[0]?.height || 0;
   const higherDurl = tracks.durlTracks.filter(d => d.height > maxDashHeight);
   const allVideos = [...higherDurl, ...tracks.videoTracks, ...(tracks.videoTracks.length ? [] : tracks.durlTracks)];
@@ -468,6 +626,7 @@ export async function probeBilibili(video, signal, { headers = {}, cookies = [] 
       candidateId: `bilibili-${v.formatKind}-${v.qn}-${v.codecid || 0}`,
       height: v.height,
       width: v.width || null,
+      declaredHeight: v.declaredHeight ?? v.height,
       bandwidth: v.bandwidth,
       codec: v.codec || null,
       frameRate: v.frameRate ?? null,
@@ -496,6 +655,12 @@ export async function probeBilibili(video, signal, { headers = {}, cookies = [] 
     cid: meta.cid,
     partIndex: meta.partIndex,
     totalPages: meta.totalPages,
+    partSelection: {
+      mode: 'current',
+      currentPage: meta.partIndex,
+      totalPages: meta.totalPages,
+      selectedPages: [meta.partIndex],
+    },
     pages: meta.pages,
     owner: meta.owner,
     title: meta.title,
@@ -505,48 +670,46 @@ export async function probeBilibili(video, signal, { headers = {}, cookies = [] 
     qualities: [...seenHeights],
     qualityDetails,
     subtitles,
+    subtitleInfo,
     ...(meta.poster && { poster: meta.poster }),
     _resolvedMeta: meta,
     _tracks: tracks,
   };
 }
 
-function selectBilibiliVideoTrack(videoTracks, durlTracks, qualitySpec) {
+export function selectBilibiliVideoTrack(videoTracks, durlTracks, qualitySpec, { durationSec = null } = {}) {
   const maxDashHeight = videoTracks[0]?.height || 0;
   const higherDurl = durlTracks.filter(d => d.height > maxDashHeight);
   const candidates = [...higherDurl, ...videoTracks, ...(videoTracks.length ? [] : durlTracks)];
   if (!candidates.length) return null;
-  const spec = normalizeQualitySpec(qualitySpec);
-  let pool = candidates;
 
-  if (spec.mode === 'lowest') {
-    const sorted = [...candidates].sort((a, b) => a.height - b.height || a.bandwidth - b.bandwidth);
-    return { selected: sorted[0], reason: 'lowest-available', fallbackApplied: false };
-  }
-  if (spec.mode === 'exact' && spec.exactHeight) {
-    const exact = candidates.filter(c => c.height === spec.exactHeight);
-    if (exact.length) return { selected: exact[0], reason: `exact:${spec.exactHeight}p`, fallbackApplied: false };
-    const lower = candidates.filter(c => c.height <= spec.exactHeight);
-    const chosen = lower[0] ?? candidates[candidates.length - 1];
-    return { selected: chosen, reason: `fallback-from-exact:${spec.exactHeight}p-to-${chosen.height}p`, fallbackApplied: true };
-  }
-  if (spec.maxHeight) {
-    const capped = candidates.filter(c => c.height <= spec.maxHeight);
-    if (capped.length) {
-      pool = capped;
-      return { selected: pool[0], reason: `capped<=${spec.maxHeight}p`, fallbackApplied: pool[0].height < candidates[0].height };
-    }
-    return { selected: candidates[candidates.length - 1], reason: `fallback-lowest-${candidates[candidates.length - 1].height}p`, fallbackApplied: true };
-  }
-  if (spec.maxBitrateKbps) {
-    const bps = spec.maxBitrateKbps * 1000;
-    const within = candidates.filter(c => c.bandwidth <= bps);
-    if (within.length) return { selected: within[0], reason: `bitrate<=${spec.maxBitrateKbps}kbps`, fallbackApplied: false };
-  }
-  // Default: highest available quality (preferring AVC/H.264 when height is tied for universal MP4 playability)
-  const topHeight = candidates[0].height;
-  const atTop = candidates.filter(c => c.height === topHeight).sort((a, b) => codecRank(b.codec) - codecRank(a.codec) || b.bandwidth - a.bandwidth);
-  return { selected: atTop[0], reason: `best-available:${atTop[0].height}p`, fallbackApplied: false };
+  // Prefer broadest playable codec (AVC > HEVC > AV1) when height & availability tie and caller did not pin a codec
+  const spec = normalizeQualitySpec(qualitySpec);
+  const ordered = [...candidates].sort((a, b) =>
+    (b.height || 0) - (a.height || 0)
+    || (!spec.preferCodec ? codecRank(b.codec) - codecRank(a.codec) : 0)
+    || (b.bandwidth || 0) - (a.bandwidth || 0)
+  );
+  const negotiation = negotiateQuality(
+    ordered.map(c => ({ ...c, availability: 'available', available: true })),
+    qualitySpec,
+    { durationSec },
+  );
+  if (!negotiation?.selected) return null;
+  // When height ties with multiple codecs and caller didn't force preferCodec, keep broadest AVC candidate
+  const pickedHeight = negotiation.selected.height;
+  const tiedSameHeight = negotiation.ranked.filter(c => c.height === pickedHeight);
+  const chosen = (!spec.preferCodec && tiedSameHeight.length > 1)
+    ? [...tiedSameHeight].sort((a, b) => codecRank(b.codec) - codecRank(a.codec) || (b.bandwidth || 0) - (a.bandwidth || 0))[0]
+    : negotiation.selected;
+
+  return {
+    selected: chosen,
+    requested: negotiation.requested,
+    fallbackApplied: negotiation.fallbackApplied,
+    reason: negotiation.reason,
+    availableHeights: [...new Set(ordered.map(c => c.height).filter(Boolean))].sort((a, b) => b - a),
+  };
 }
 
 function httpGetRaw(urlStr, headers, signal, direct = true) {
@@ -596,12 +759,13 @@ async function probeMirrorSize(mirrorUrl, headers, signal) {
   res.resume();
   res.destroy();
 
-  if ([401, 402, 403, 451].includes(status)) {
+  if (ACCESS_DENIED_STATUSES.has(status)) {
     throw new ApiError('MEDIA_ACCESS_RESTRICTED', `Bilibili 媒体服务器拒绝访问（HTTP ${status}）`, 403, { platform: 'bilibili', status });
   }
   if (status !== 206 && status !== 200) {
     const err = new Error(`Mirror returned HTTP ${status}`);
     err.httpStatus = status;
+    err.retryableCdn = RETRYABLE_CDN_STATUSES.has(status);
     throw err;
   }
   if (contentType.includes('text/html') || contentType.includes('application/json') || contentType.includes('text/xml')) {
@@ -628,7 +792,7 @@ async function downloadRangeChunk(mirrorUrls, start, end, headers, signal, onByt
       signal.throwIfAborted();
       try {
         const res = await httpGetRaw(url, { ...headers, Range: `bytes=${start}-${end}` }, signal);
-        if ([401, 402, 403, 451].includes(res.statusCode)) {
+        if (ACCESS_DENIED_STATUSES.has(res.statusCode)) {
           res.destroy();
           throw new ApiError('MEDIA_ACCESS_RESTRICTED', `Bilibili 媒体分块被拒绝访问（HTTP ${res.statusCode}）`, 403, {
             platform: 'bilibili',
@@ -639,6 +803,7 @@ async function downloadRangeChunk(mirrorUrls, start, end, headers, signal, onByt
           res.destroy();
           const err = new Error(`HTTP ${res.statusCode}`);
           err.httpStatus = res.statusCode;
+          err.retryableCdn = RETRYABLE_CDN_STATUSES.has(res.statusCode);
           throw err;
         }
         const expected = end - start + 1;
@@ -659,6 +824,12 @@ async function downloadRangeChunk(mirrorUrls, start, end, headers, signal, onByt
       } catch (err) {
         if (err instanceof ApiError && err.code === 'MEDIA_ACCESS_RESTRICTED') throw err;
         if (signal.aborted) throw err;
+        if (err.httpStatus && !RETRYABLE_CDN_STATUSES.has(err.httpStatus)) {
+          throw new ApiError('PLATFORM_DOWNLOAD_FAILED', `Bilibili 媒体服务器返回不可容灾状态码 HTTP ${err.httpStatus}`, 502, {
+            platform: 'bilibili',
+            status: err.httpStatus,
+          });
+        }
         recordHostFailure(host, err.httpStatus ?? 502);
         lastError = err;
         if (attempt === 0) await sleep(200, undefined, { signal }).catch(() => {});
@@ -816,11 +987,100 @@ async function downloadTrackWithMirrors(mirrors, destFile, { headers, connection
   return { file: workFile, bytes: totalSize, mirror: new URL(orderedMirrors[0]).hostname, restoredChunks: completedChunks.size };
 }
 
+async function stageRequestedBilibiliSubtitles(probed, target, staging, signal, { referer, userAgent }) {
+  const available = (probed.subtitles || []).map(s => ({ language: s.language, label: s.label }));
+  if (!target.subtitles) {
+    return {
+      requested: false,
+      status: available.length ? 'available-not-requested' : (probed.subtitleInfo?.status ?? 'none-available'),
+      available,
+      downloaded: [],
+      sidecarFiles: [],
+      embeddedTracks: 0,
+      verified: false,
+      reason: null,
+      _staged: [],
+    };
+  }
+  if (!probed.subtitles?.length) {
+    const needLogin = Boolean(probed.subtitleInfo?.needLogin);
+    return {
+      requested: true,
+      status: needLogin ? 'login-required' : 'none-available',
+      available: [],
+      downloaded: [],
+      sidecarFiles: [],
+      embeddedTracks: 0,
+      verified: false,
+      reason: needLogin
+        ? '该 Bilibili 视频的 CC/AI 字幕需要登录后才可由官方接口返回，当前未登录故未下载字幕。'
+        : '该 Bilibili 视频官方接口未提供可用的公开字幕轨。',
+      _staged: [],
+    };
+  }
+  const selectedSubs = selectSubtitleTracks(probed.subtitles, target.subtitleLanguages, 3);
+  if (!selectedSubs.length) {
+    return {
+      requested: true,
+      status: 'language-not-found',
+      available,
+      downloaded: [],
+      sidecarFiles: [],
+      embeddedTracks: 0,
+      verified: false,
+      reason: `请求的字幕语言 ${JSON.stringify(target.subtitleLanguages)} 在可用列表中不存在。`,
+      _staged: [],
+    };
+  }
+  const format = ['vtt', 'srt', 'both'].includes(target.subtitleFormat) ? target.subtitleFormat : 'both';
+  const staged = [];
+  for (let i = 0; i < selectedSubs.length; i++) {
+    const sub = selectedSubs[i];
+    const safeLang = String(sub.language || `sub${i}`).replace(/[^A-Za-z0-9_-]/g, '_');
+    const baseDest = path.join(staging, `sub-${i}-${safeLang}`);
+    const dl = await downloadBilibiliSubtitleFiles(sub, baseDest, signal, { referer, userAgent, format }).catch(() => null);
+    if (dl) staged.push(dl);
+  }
+  if (!staged.length) {
+    return {
+      requested: true,
+      status: 'download-failed',
+      available,
+      downloaded: [],
+      sidecarFiles: [],
+      embeddedTracks: 0,
+      verified: false,
+      reason: '字幕文件获取失败或不包含有效时间轴内容。',
+      _staged: [],
+    };
+  }
+  return {
+    requested: true,
+    status: 'downloaded',
+    available,
+    downloaded: staged.map(s => ({
+      language: s.language,
+      label: s.label,
+      cueCount: s.cueCount,
+      firstCueSec: s.firstCueSec,
+      lastCueSec: s.lastCueSec,
+      timelineValid: s.timelineValid,
+      formats: [s.vttPath ? 'vtt' : null, s.srtPath ? 'srt' : null].filter(Boolean),
+    })),
+    sidecarFiles: [],
+    embeddedTracks: 0,
+    verified: staged.every(s => s.timelineValid && s.cueCount > 0),
+    reason: null,
+    _staged: staged,
+  };
+}
+
 export async function stageBilibili(video, target, staging, connections, signal, onProgress, {
   headers = {},
   cookies = [],
   recovery = null,
   onQualityNegotiated,
+  onSubtitles,
 } = {}) {
   const probed = await probeBilibili(video, signal, { headers, cookies });
   const meta = probed._resolvedMeta;
@@ -851,29 +1111,54 @@ export async function stageBilibili(video, target, staging, connections, signal,
     });
     const outAudio = path.join(staging, 'platform.m4a');
     await runMedia(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', aRes.file, '-vn', '-c:a', 'copy', '-movflags', '+faststart', outAudio], signal);
+    onQualityNegotiated?.(buildQualityNegotiationReport({
+      requestedQuality: qualitySpec ?? 'best',
+      availableQualities: probed.qualities,
+      declaredQuality: { height: null, width: null, codec: audioTrack.codec, formatKind: 'audio-only' },
+      selectedQuality: { height: null, width: null, codec: audioTrack.codec, formatKind: 'audio-only' },
+      fallbackApplied: false,
+      reason: 'audio-only-highest-bitrate',
+      verificationStatus: 'pending',
+    }));
+    const subReport = await stageRequestedBilibiliSubtitles(probed, target, staging, signal, { referer: meta.canonicalUrl, userAgent });
+    onSubtitles?.(subReport);
     return outAudio;
   }
 
-  const pick = selectBilibiliVideoTrack(tracks.videoTracks, tracks.durlTracks, qualitySpec);
+  const pick = selectBilibiliVideoTrack(tracks.videoTracks, tracks.durlTracks, qualitySpec, { durationSec: meta.duration });
   if (!pick?.selected) {
     throw new ApiError('NO_MEDIA', '未找到符合要求的 Bilibili 视频轨道', 422, { platform: 'bilibili' });
   }
   const vTrack = pick.selected;
-  onQualityNegotiated?.({
-    requested: qualitySpec ?? 'best',
-    selectedHeight: vTrack.height,
-    selectedWidth: vTrack.width,
-    selectedCodec: vTrack.codec,
-    formatKind: vTrack.formatKind,
-    available: probed.qualities,
+  onQualityNegotiated?.(buildQualityNegotiationReport({
+    requestedQuality: qualitySpec ?? 'best',
+    availableQualities: pick.availableHeights,
+    declaredQuality: {
+      height: vTrack.declaredHeight ?? vTrack.height,
+      width: vTrack.width,
+      codec: vTrack.codec,
+      formatKind: vTrack.formatKind,
+    },
+    selectedQuality: {
+      height: vTrack.height,
+      width: vTrack.width,
+      codec: vTrack.codec,
+      formatKind: vTrack.formatKind,
+    },
     fallbackApplied: pick.fallbackApplied,
+    fallbackReason: pick.fallbackApplied ? pick.reason : null,
     reason: pick.reason,
-  });
+    verificationStatus: 'pending',
+  }));
 
-  // Progressive single-file durl MP4 path
+  const subReport = await stageRequestedBilibiliSubtitles(probed, target, staging, signal, { referer: meta.canonicalUrl, userAgent });
+  const embedSubs = subReport._staged.filter(s => s.vttPath);
+
+  // Progressive single-file durl MP4 path (supports subtitle embedding too!)
   if (vTrack.formatKind === 'durl') {
+    const rawMp4 = path.join(staging, 'bili-durl.mp4');
     const outMp4 = path.join(staging, 'platform.mp4');
-    const dl = await downloadTrackWithMirrors(vTrack.mirrors, outMp4, {
+    const dl = await downloadTrackWithMirrors(vTrack.mirrors, rawMp4, {
       headers: mediaHeaders,
       connections: Math.min(connections || 6, 6),
       signal,
@@ -881,9 +1166,19 @@ export async function stageBilibili(video, target, staging, connections, signal,
       trackKey: `${meta.bvid}-${meta.cid}-durl${vTrack.qn}`,
       onProgress: (done, total) => onProgress?.(total ? done / total : null, done, total),
     });
-    if (dl.file !== outMp4) {
-      await runMedia(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', dl.file, '-c', 'copy', '-movflags', '+faststart', outMp4], signal);
+    const ffmpegArgs = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', dl.file];
+    for (const sf of embedSubs) ffmpegArgs.push('-i', sf.vttPath);
+    ffmpegArgs.push('-map', '0:v:0', '-map', '0:a?');
+    for (let i = 0; i < embedSubs.length; i++) {
+      ffmpegArgs.push('-map', `${1 + i}:0`);
+      if (embedSubs[i].language) ffmpegArgs.push(`-metadata:s:s:${i}`, `language=${embedSubs[i].language.slice(0, 12)}`);
     }
+    ffmpegArgs.push('-c:v', 'copy', '-c:a', 'copy');
+    if (embedSubs.length) ffmpegArgs.push('-c:s', 'mov_text');
+    ffmpegArgs.push('-movflags', '+faststart', outMp4);
+    await runMedia(FFMPEG, ffmpegArgs, signal);
+    subReport.embeddedTracks = embedSubs.length;
+    onSubtitles?.(subReport);
     return outMp4;
   }
 
@@ -926,31 +1221,21 @@ export async function stageBilibili(video, target, staging, connections, signal,
 
   const [vRes, aRes] = await Promise.all(jobs);
 
-  // Download optional legal public subtitles if requested
-  const subFiles = [];
-  if (target.subtitles && probed.subtitles?.length) {
-    for (let i = 0; i < Math.min(probed.subtitles.length, 3); i++) {
-      const sub = probed.subtitles[i];
-      const subPath = path.join(staging, `sub-${i}.vtt`);
-      const ok = await downloadBilibiliSubtitleVtt(sub, subPath, signal, { referer: meta.canonicalUrl, userAgent }).catch(() => null);
-      if (ok) subFiles.push({ path: ok, language: sub.language });
-    }
-  }
-
   // Lossless mux via FFmpeg into MP4 (faststart enabled)
   const outMp4 = path.join(staging, 'platform.mp4');
   const ffmpegArgs = ['-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-i', vRes.file];
   if (aRes) ffmpegArgs.push('-i', aRes.file);
-  for (const sf of subFiles) ffmpegArgs.push('-i', sf.path);
+  for (const sf of embedSubs) ffmpegArgs.push('-i', sf.vttPath);
   ffmpegArgs.push('-map', '0:v:0');
   if (aRes) ffmpegArgs.push('-map', '1:a:0');
   const subOffset = aRes ? 2 : 1;
-  for (let i = 0; i < subFiles.length; i++) {
+  for (let i = 0; i < embedSubs.length; i++) {
     ffmpegArgs.push('-map', `${subOffset + i}:0`);
+    if (embedSubs[i].language) ffmpegArgs.push(`-metadata:s:s:${i}`, `language=${embedSubs[i].language.slice(0, 12)}`);
   }
   ffmpegArgs.push('-c:v', 'copy');
   if (aRes) ffmpegArgs.push('-c:a', 'copy');
-  if (subFiles.length) ffmpegArgs.push('-c:s', 'mov_text');
+  if (embedSubs.length) ffmpegArgs.push('-c:s', 'mov_text');
   ffmpegArgs.push('-movflags', '+faststart', outMp4);
 
   await runMedia(FFMPEG, ffmpegArgs, signal);
@@ -958,5 +1243,7 @@ export async function stageBilibili(video, target, staging, connections, signal,
   if (!outStat?.isFile() || outStat.size < 1024) {
     throw new ApiError('PLATFORM_DOWNLOAD_FAILED', 'FFmpeg 封装 Bilibili 音视频失败', 502, { platform: 'bilibili' });
   }
+  subReport.embeddedTracks = embedSubs.length;
+  onSubtitles?.(subReport);
   return outMp4;
 }

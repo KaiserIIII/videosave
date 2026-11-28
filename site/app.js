@@ -64,7 +64,7 @@ const translations = {
     'bench.inspectorTitle': '原始 JSON 报告浏览器',
     'dsh.kicker': '真实用户反馈闭环',
     'dsh.title': '深度打磨 DeepSeek Harness (DSH) 使用体验',
-    'dsh.desc': 'VideoSave v1.2.0 针对 DSH 反馈的 12 类真实问题完成源码修复与实测验证（其中 DSH-12 已实装 OS 级文件写入监控与软链逃逸拦截，状态保持待独立用户复测验收）。',
+    'dsh.desc': 'VideoSave v1.3.1 针对 DSH 反馈的 12 类真实问题完成源码修复与实测验证，新增原生 Bilibili 裸 BV 下载与画质一致性模型（DSH-12 已升级递归 OS 监控与不完整失败门禁，仍保持待独立用户复测验收）。',
     'dsh.doc1Title': 'DSH 接入与升级指南',
     'dsh.doc1Desc': '涵盖一键配置、get_version 旧版检测、Netscape Cookie 导入与串行批量下载示例。',
     'dsh.doc2Title': '12 项反馈追踪表',
@@ -105,7 +105,7 @@ themeToggle.addEventListener('click', () => {
 function renderConfig() {
   const client = document.getElementById('cfg-client').value;
   const mode = document.getElementById('cfg-mode').value;
-  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.3.0';
+  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.3.1';
   const entry = rawPath.replace(/\\/g, '/') + '/tools/mcp-server.mjs';
   const clientId = document.getElementById('cfg-client-id').value.trim() || 'dsh-main';
   document.getElementById('cfg-client-id-wrap').hidden = mode !== 'managed';
@@ -187,6 +187,11 @@ async function loadReports() {
   const metricsEl = document.getElementById('summary-metrics');
 
   const preferredOrder = [
+    'v1.3.1-bilibili-public.json',
+    'v1.3.1-platforms-public.json',
+    'v1.3.1-competitor-benchmark.json',
+    'v1.3.1-dsh-acceptance.json',
+    'v1.3.1-android-runtime.json',
     'v1.3.0-bilibili-public.json',
     'v1.3.0-platforms-public.json',
     'v1.3.0-competitor-benchmark.json',
@@ -353,27 +358,24 @@ async function loadReports() {
     || loaded.find(r => r.name.includes('v1.1.0-mcp-edge'))
     || loaded.find(r => r.name.includes('mcp-edge'));
   const latestEdge = loaded.find(r => r.name.includes('v1.1.0-edge')) || loaded.find(r => r.name.includes('edge'));
-  const dshReport = loaded.find(r => r.name.includes('v1.3.0-dsh-acceptance'))
+  const biliReport = loaded.find(r => r.name.includes('v1.3.1-bilibili-public'))
+    || loaded.find(r => r.name.includes('bilibili-public'));
+  const dshReport = loaded.find(r => r.name.includes('v1.3.1-dsh-acceptance'))
+    || loaded.find(r => r.name.includes('v1.3.0-dsh-acceptance'))
     || loaded.find(r => r.name.includes('v1.2.0-dsh-acceptance'))
     || loaded.find(r => r.name.includes('v1.1.0-dsh-acceptance'))
     || loaded.find(r => r.name.includes('dsh-acceptance'));
-  const benchReport = loaded.find(r => r.name.includes('benchmark'));
+  const benchReport = loaded.find(r => r.name.includes('v1.3.1-competitor-benchmark'))
+    || loaded.find(r => r.name.includes('competitor-benchmark'))
+    || loaded.find(r => r.name.includes('benchmark'));
 
   const cards = [];
-  if (latestEdge?.data?.count) {
-    const c = latestEdge.data.count;
+  if (biliReport?.data?.summary) {
+    const bs = biliReport.data.summary;
     cards.push({
-      label: 'Edge Fixtures',
-      value: `${c.detected}/${c.positive}`,
-      sub: `0 false positives · median ${c.firstProbeMedianMs ?? '—'} ms`,
-    });
-  }
-  if (latestMcp?.data?.count) {
-    const c = latestMcp.data.count;
-    cards.push({
-      label: 'MCP Fixtures',
-      value: `${c.detected}/${c.positive}`,
-      sub: `${c.downloaded}/${c.downloads} verified downloads · ${c.casesWithFalsePositives} FP`,
+      label: 'Native Bilibili Public',
+      value: `${bs.verified}/${bs.total} (${bs.successRatePct}%)`,
+      sub: `Zero yt-dlp · ${bs.qualityConsistent ?? bs.verified}/${bs.total} quality-consistent · decoded`,
     });
   }
   if (dshReport?.data?.summary) {
@@ -384,19 +386,20 @@ async function loadReports() {
       sub: s.sandboxEnforced ? 'Release ZIP · OS FS audit: 0 OOB' : `Release ZIP · real dir delta: ${s.realDownloadDirDelta ?? 0}`,
     });
   }
-  if (benchReport?.data?.stress2000Segments) {
-    const st = benchReport.data.stress2000Segments;
-    const cmp = benchReport.data.hls120x15msComparison;
+  if (benchReport?.data?.rankedQualifiedTools?.length) {
+    const top = benchReport.data.rankedQualifiedTools[0];
     cards.push({
-      label: '2,000-Seg Resume & Speed',
-      value: `${st.restoredSegments}/${st.totalSegments / 2} reused`,
-      sub: cmp ? `${cmp.speedupFactor}x vs serial FFmpeg · 0 dupes` : `${st.finalDurationSec}s verified`,
+      label: 'Controlled 120s HLS Bench',
+      value: `${top.medianMs} ms`,
+      sub: `${top.tool} · ${top.durationSec}s decoded`,
     });
-  } else {
+  }
+  if (latestEdge?.data?.count) {
+    const c = latestEdge.data.count;
     cards.push({
-      label: 'Published JSON Reports',
-      value: String(allFiles.length),
-      sub: 'Unmodified historical & release records',
+      label: 'Edge Fixtures',
+      value: `${c.detected}/${c.positive}`,
+      sub: `0 false positives · median ${c.firstProbeMedianMs ?? '—'} ms`,
     });
   }
 

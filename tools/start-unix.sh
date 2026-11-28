@@ -18,6 +18,12 @@ YTDLP_SHA_MACOS="57654854886d0398a798895aadf5173e2749fbb5e249b9f3728022ab376e11f
 YTDLP_SHA_LINUX_X64="249ddb058234276bc449b9cd9492aad9f133bda5923c61a9e39983ae114ef17d"
 YTDLP_SHA_LINUX_ARM64="fb847a2e4a9ddc8cf5fcfb4bb7f42ba8969ecf72068def0278074f9d300bd13c"
 
+FFMPEG_BTBN_TAG="autobuild-2026-11-27-12-42"
+FFMPEG_LINUX_X64_ARCHIVE="ffmpeg-n8.1.3-41-ga8029b6528-linux64-gpl-8.1.tar.xz"
+FFMPEG_LINUX_X64_SHA="a6c7acd3f9e883d49b4f2b0c6dfccd4d70f9c7497f67348de2782c3ec26169ca"
+FFMPEG_LINUX_ARM64_ARCHIVE="ffmpeg-n8.1.3-41-ga8029b6528-linuxarm64-gpl-8.1.tar.xz"
+FFMPEG_LINUX_ARM64_SHA="59a1cd08a0c87bb76a7326934e252ed37d73f734275fbf8beb557aeb49cbc910"
+
 MODE="server"
 CLIENT=""
 SHARED_QUEUE=0
@@ -178,8 +184,79 @@ bootstrap_ytdlp() {
   return 0
 }
 
+bootstrap_ffmpeg() {
+  if [[ -n "${FFMPEG_BIN:-}" && -x "${FFMPEG_BIN:-}" && -n "${FFPROBE_BIN:-}" && -x "${FFPROBE_BIN:-}" ]]; then
+    return 0
+  fi
+  # Reuse system / Homebrew FFmpeg + FFprobe if already present
+  local sys_ff sys_fp
+  sys_ff="$(command -v ffmpeg || true)"
+  sys_fp="$(command -v ffprobe || true)"
+  if [[ -z "$sys_ff" && -x "/opt/homebrew/bin/ffmpeg" && -x "/opt/homebrew/bin/ffprobe" ]]; then
+    sys_ff="/opt/homebrew/bin/ffmpeg"; sys_fp="/opt/homebrew/bin/ffprobe"
+  elif [[ -z "$sys_ff" && -x "/usr/local/bin/ffmpeg" && -x "/usr/local/bin/ffprobe" ]]; then
+    sys_ff="/usr/local/bin/ffmpeg"; sys_fp="/usr/local/bin/ffprobe"
+  fi
+  if [[ -n "$sys_ff" && -n "$sys_fp" ]]; then
+    export FFMPEG_BIN="$sys_ff"
+    export FFPROBE_BIN="$sys_fp"
+    return 0
+  fi
+
+  local os_name arch_name archive expected_sha
+  os_name="$(uname -s)"
+  arch_name="$(uname -m)"
+  if [[ "$os_name" == "Darwin" ]]; then
+    if command -v brew >/dev/null 2>&1; then
+      echo "FFmpeg/FFprobe not found on macOS. Install verified FFmpeg via: brew install ffmpeg" >&2
+    else
+      echo "FFmpeg/FFprobe not found on macOS. Install Homebrew (https://brew.sh) and run: brew install ffmpeg" >&2
+    fi
+    return 0
+  fi
+
+  case "${os_name}:${arch_name}" in
+    Linux:x86_64) archive="$FFMPEG_LINUX_X64_ARCHIVE"; expected_sha="$FFMPEG_LINUX_X64_SHA" ;;
+    Linux:aarch64|Linux:arm64) archive="$FFMPEG_LINUX_ARM64_ARCHIVE"; expected_sha="$FFMPEG_LINUX_ARM64_SHA" ;;
+    *) return 0 ;;
+  esac
+
+  local folder="${archive%.tar.xz}"
+  local target_dir="${TOOLS_DIR}/${folder}"
+  if [[ -x "${target_dir}/bin/ffmpeg" && -x "${target_dir}/bin/ffprobe" ]]; then
+    export FFMPEG_BIN="${target_dir}/bin/ffmpeg"
+    export FFPROBE_BIN="${target_dir}/bin/ffprobe"
+    return 0
+  fi
+
+  mkdir -p "$TOOLS_DIR"
+  local staging
+  staging="$(mktemp -d "${TOOLS_DIR}/ffmpeg-setup-XXXXXX")"
+  trap 'rm -rf "$staging"' RETURN
+  local dl_file="${staging}/${archive}"
+  local url="https://github.com/BtbN/FFmpeg-Builds/releases/download/${FFMPEG_BTBN_TAG}/${archive}"
+  echo "Downloading SHA-256 verified FFmpeg + FFprobe (${arch_name}) into ${TOOLS_DIR}..." >&2
+  if curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 300 --output "$dl_file" "$url"; then
+    local actual_sha
+    actual_sha="$(sha256_file "$dl_file")"
+    if [[ "$actual_sha" == "$expected_sha" ]]; then
+      tar -xJf "$dl_file" -C "$staging"
+      mv "${staging}/${folder}" "$target_dir"
+      chmod 755 "${target_dir}/bin/ffmpeg" "${target_dir}/bin/ffprobe"
+      export FFMPEG_BIN="${target_dir}/bin/ffmpeg"
+      export FFPROBE_BIN="${target_dir}/bin/ffprobe"
+      return 0
+    fi
+    echo "SHA-256 verification failed for ${archive}! Expected ${expected_sha}, got ${actual_sha}." >&2
+  fi
+  return 0
+}
+
 NODE_BIN="$(resolve_node)"
 mkdir -p "$TOOLS_DIR"
+if [[ "$MODE" == "setup" || "$MODE" == "server" || "$MODE" == "mcp" || "$MODE" == "cli" ]]; then
+  bootstrap_ffmpeg || true
+fi
 if [[ "$MODE" == "setup" || "$MODE" == "server" ]]; then
   MANAGED_YTDLP="$(bootstrap_ytdlp || true)"
   if [[ -n "${MANAGED_YTDLP:-}" && -x "${MANAGED_YTDLP:-}" ]]; then

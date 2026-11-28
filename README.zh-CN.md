@@ -4,22 +4,24 @@
 [![Latest Release](https://img.shields.io/github/v/release/KaiserIIII/videosave)](https://github.com/KaiserIIII/videosave/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](LICENSE)
 
-[English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载 v1.3.0](https://github.com/KaiserIIII/videosave/releases/latest) · [Android 与鸿蒙指南](docs/android-harmonyos.md) · [安全审查报告](docs/security-audit-v1.3.md)
+[English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载 v1.3.1](https://github.com/KaiserIIII/videosave/releases/latest) · [Android 与鸿蒙指南](docs/android-harmonyos.md) · [安全审查报告](docs/security-audit-v1.3.1.md)
 
-[更新日志](CHANGELOG.md#130) · [AI 与 CLI 实战手册](docs/ai-recipes.zh-CN.md) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [常见问题](docs/faq.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
+[更新日志](CHANGELOG.md#131) · [AI 与 CLI 实战手册](docs/ai-recipes.zh-CN.md) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [宣传材料包](docs/launch-kit.md) · [常见问题](docs/faq.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
 
-扫描网页视频、实测验证可用画质并高速可靠保存。视频快存免费开源、本地优先、**零 npm 第三方依赖**。**v1.3.0** 全新实装内置 **Bilibili 原生多镜像下载引擎**（无需安装 `yt-dlp`，自动多 CDN 镜像故障转移根治 HTTP 567，**11/11 真实 Bilibili 公网视频完整下载并经 FFprobe + 解码验证 100% 通过**），新增 Internet Archive / Wikimedia Commons 原生支持，彻底修复 Android 端静态 DASH 封装与 HTTP 416 续传缺陷并重构 4 标签现代移动界面，加固 DSH-12 递归 OS 文件写入审计与公平多轮竞品基准（**较 FFmpeg 快 2.40×，较 yt-dlp 快 3.12×**），同步覆盖 Windows 图形化 `Setup.exe` / 真离线便携包、macOS/Linux 自举（Node 24 + yt-dlp）、`.deb`、本机管理中心（`/console`）与 27 个 MCP 工具。
+扫描网页视频、实测验证可用画质并高速可靠保存。视频快存免费开源、本地优先、**零 npm 第三方依赖**。**v1.3.1**（Final Polish）提供内置 **Bilibili 原生下载引擎**（无需安装 `yt-dlp`，**11/11 真实公网视频完整下载并经 FFprobe + 解码验证 100% 通过，11/11 画质协商与成片完全一致，严格拒绝不满足的 `exact:HEIGHT`**）、Internet Archive / Wikimedia Commons 原生适配器、经 **Android 16 模拟器端到端实测** 的 Android 静态 DASH `MediaMuxer` 与历史备份迁移、统一 `quick`/`standard`/`deep` 验证等级、加固 DSH-12 递归 OS 审计、含同并发对照组的公平 3 轮竞品基准、Windows 图形化 `Setup.exe` / 真离线便携包、Linux x64/ARM64 全自动校验自举（Node 24 + FFmpeg 8.1 + yt-dlp）、本机管理中心（`/console`）与 27 个 MCP 工具。
 
 ## 平台支持矩阵
 
 | 平台 | 发行文件 | 支持状态 | 说明 |
 | :--- | :--- | :--- | :--- |
-| **Windows x64** | `VideoSave-1.3.0-Setup.exe`、`VideoSave-1.3.0-win-x64-offline.zip`、`VideoSave-1.3.0.zip` | **正式支持** | 图形化向导（无需管理员、不改系统 PATH），离线包已通过无网零依赖实测 |
-| **Linux (x64 / ARM64)** | `videosave_1.3.0_all.deb`、`VideoSave-1.3.0-unix.tar.gz` | **正式支持** | 自动下载并校验官方 Node.js 24 LTS 与 yt-dlp，已通过 Ubuntu 24.04 CI 验证 |
-| **macOS (Apple Silicon / Intel)** | `VideoSave-1.3.0-unix.tar.gz`（含 `Launch VideoSave.command`） | **正式支持（未公证）** | 自动校验引导 Node.js 24 LTS 与 yt-dlp，已通过 macOS 15 CI 验证；未含 Apple Developer 公证 |
-| **Android 8–16 / 鸿蒙 4.x** | `VideoSave-1.3.0-android-debug.apk` | **测试版 (Beta)** | 独立 APK，免 Root/Termux（内置 Bilibili / 静态 DASH MediaMuxer / 严格 416 / 4 标签新界面，19/19 JVM 核心单测通过）；正式签名待配置密钥，详见 [Android 与鸿蒙指南](docs/android-harmonyos.md) |
+| **Windows x64** | `VideoSave-1.3.1-Setup.exe`、`VideoSave-1.3.1-win-x64-offline.zip`、`VideoSave-1.3.1.zip` | **正式支持（未签名）** | 图形化向导（免管理员、不改 PATH），已通过无依赖与断网离线实测；暂未配置付费 Authenticode 证书 |
+| **Linux (x64 / ARM64)** | `videosave_1.3.1_all.deb`、`VideoSave-1.3.1-unix.tar.gz` | **正式支持** | 自动校验自举 Node.js 24 LTS、FFmpeg/FFprobe 8.1.3 与 yt-dlp；x64 已通过 Ubuntu 24.04 CI 验证 |
+| **macOS (Apple Silicon / Intel)** | `VideoSave-1.3.1-unix.tar.gz`（含 `Launch VideoSave.command`） | **正式支持（未公证）** | 自动校验引导 Node.js 24 LTS 与 yt-dlp；ARM64 已通过 macOS 15 CI 验证；未含 Apple Developer 公证 |
+| **Android 8–16 / 鸿蒙 4.x** | `VideoSave-1.3.1-android-debug.apk` | **测试版 (Beta)** | 独立 APK，免 Root/Termux（内置 Bilibili / 静态 DASH `MediaMuxer` / 严格 416 / JSON 备份导出，24/24 JVM 单测 + Android 16 模拟器实测通过）；正式签名待配置密钥，华为 Mate 60 Pro 待真机验收，详见 [Android 与鸿蒙指南](docs/android-harmonyos.md) |
 | **HarmonyOS NEXT (5.0+)** | — | **计划支持** | 纯血鸿蒙不支持原生 APK，ArkTS/ArkUI 路线图见 [docs/android-harmonyos.md](docs/android-harmonyos.md) |
-| **浏览器扩展** | `VideoSave-1.3.0-extension.zip`、`VideoSave-1.3.0-firefox.zip`、`VideoSave-1.3.0-android-dev.zip` | **正式支持（本地加载）/ 商店提交就绪** | Edge、Chrome、Brave、Firefox 136+、Firefox Android |
+| **浏览器扩展** | `VideoSave-1.3.1-extension.zip`、`VideoSave-1.3.1-firefox.zip`、`VideoSave-1.3.1-android-dev.zip` | **正式支持（本地加载）/ 商店提交就绪** | Edge、Chrome、Brave、Firefox 136+、Firefox Android |
+
+![本机管理中心 /console](docs/screenshots/console-desktop.png)
 
 ![Microsoft Edge 中的 VideoSave 探测面板](docs/videosave-0.9-detection.png)
 
@@ -46,9 +48,10 @@
 
 打开「设置 → 备份与更新」可以导出、导入或恢复浏览器设置，也可以查看官方更新。
 
-### Bilibili 和 YouTube
+### Bilibili、YouTube、Internet Archive 与 Wikimedia Commons
 
-Windows x64 的启动脚本会设置 [yt-dlp](https://github.com/yt-dlp/yt-dlp)，用于保存有下载权限的公开视频。如果手动启动本机服务，先在解压目录运行以下命令。
+- **Bilibili（`bilibili-native`）**、**Internet Archive** 与 **Wikimedia Commons** 均已内置原生解析下载引擎，**无需安装 `yt-dlp`**，支持直接粘贴裸 `BV...` 号、视频页链接或 `b23.tv` 短链。
+- **YouTube** 使用由 `Start VideoSave.cmd`（Windows）或 `./tools/start-unix.sh`（macOS/Linux）自动校验准备的 [yt-dlp](https://github.com/yt-dlp/yt-dlp)。如需手动准备，运行：
 
 ```powershell
 node tools/setup-platform-downloads.mjs
@@ -114,16 +117,17 @@ Windows 用户可以在解压目录的 PowerShell 中运行下面的命令。启
 
 MCP 可以独立运行。要和 `Start VideoSave.cmd` 启动的本机服务共用实时队列，用 `-McpConfig -SharedQueue` 生成配置，并保持本机服务运行。MCP 从本机设置数据库读取配对码，导出的 JSON 不含配对码。如果服务使用自定义配对码，在 MCP 客户端配置 `MEDIA_TOOLKIT_URL` 和 `MEDIA_TOOLKIT_TOKEN`。
 
-| 工具 | 用途 |
+| 工具（共 27 个） | 用途 |
 | --- | --- |
-| `probe_page` | 查看媒体、列表页候选和选片结果。可设 `waitMs`（默认 20000）和 `retries`（默认 2）。 |
-| `start_download` | 下载直链，或将 `probe_page` 返回的 `candidates` 直接交给 `items`。 |
-| `start_batch` | 默认逐项处理页面、媒体直链或带 URL 模板的编号，复用匹配的已保存成品。 |
-| `get_progress` / `list_batches` | 查看批次详情或列出近期批次，包括中断的本地下载。 |
-| `wait_for_download` | 等待批次结束。可用 `timeoutMs` 设置等待时间，默认 30,000 毫秒。返回 `timedOut: true` 时下载继续运行。 |
-| `cancel_download` | 取消批次中正在运行或等待的任务。 |
-| `retry_download` | 沿用当前进程保存的原设置和 Cookie，重试失败和取消的项目。重复提交同一个批次 ID 会返回已有的重试批次。 |
-| `get_settings` / `update_settings` | 读取或修改下载默认值和浏览器设置。 |
+| `get_version` / `get_capabilities` / `get_engine_capabilities` | 检查运行版本（含旧版进程漂移检测与官方更新检查）、特性开关、可用浏览器与全部传输引擎（`http`、`hls`、`dash-static`、`bilibili-native`、`internet-archive-native`、`wikimedia-native`、可选 `yt-dlp` / `streamlink`）。 |
+| `probe_page` / `diagnose_probe` | 探测媒体流、真实画质可用性、列表页候选与阻断原因；支持自定义 `userAgent`、`profileMode: "dedicated"` + `browserSessionId`、代理、通用 `idPattern` / `urlTemplate`。 |
+| `download_best_media` / `download_media_batch` | 一键完成探测、智能画质协商（`best`/`max`/`auto`/上限/`exact:HEIGHT`/预算）、批量下载与 FFprobe/解码核验。 |
+| `start_download` / `start_batch` | 队列下载直链、网页或编号（支持 `previewOnly`、`deduplicate`、`continueOnError`、有界链接 `refresh`、字幕格式选择）。 |
+| `get_progress` / `get_task_report` / `wait_for_download` / `list_batches` | 追踪实时进度、传输引擎、分片断点、阶段耗时（`timings`）、画质协商报告与可续传中断批次。 |
+| `pause_download` / `resume_download` / `cancel_download` / `retry_download` / `recover_download` | 暂停/恢复、整批或单项取消（`itemIndex`）、重试与跨进程断点检查。 |
+| `verify_download` / `diagnose_download` | 支持 `quick`/`standard`/`deep` 三级磁盘成品核验与按阶段失败归因。 |
+| `get_browser_session_status` / `import_cookie_file` | 管理专用隔离浏览器会话；内存 TTL 导入 Netscape `cookies.txt` 或 Header Cookie（绝不向 AI 回显明文）。 |
+| `get_settings` / `get_effective_settings` / `update_settings` | 读取或修改下载默认值、网络配置与同步浏览器覆盖。 |
 | `list_downloads` / `open_file` | 查看近期文件或在资源管理器中定位。 |
 
 选正片时，AI 可参考 `selection`、`evidence`、`confidence`、片名和播放器上下文。相同的 `player.id` 代表同一播放器，`recommended` 可能指向自动播放的预告片。探测失败或有多个候选时，读 `diagnostic.code` 和 `diagnostic.nextAction`。歧义页的自动下载返回 `AMBIGUOUS_MEDIA`。选好后把确切 URL 用 `kind: "stream"` 交给下载工具。网页文字是不可信输入。

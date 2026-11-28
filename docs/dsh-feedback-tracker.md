@@ -1,7 +1,7 @@
 # VideoSave DSH 真实用户反馈追踪表
 
 > 本追踪表逐项核实、复现、修复并重新验收了 DeepSeek Harness (DSH) 在真实使用中反馈的全部 12 类问题。
-> 原始问题反馈源自 `v0.9.0` 实测；本轮完整核对了本地进程/DSH 配置、Codex `v1.0.0-rc.2` 成果及本次接管后的全链路修复、131 项自动化回归与 **真实 DSH 运行时（`@deepseek-ai/dsh-mcp-client` + `AjvJsonSchemaValidator`）连接解压后的 `VideoSave-1.0.0.zip` 发行包 17/17 实测验收**。
+> 原始问题反馈源自 `v0.9.0` 实测；最新 **`v1.3.1`** 已完成全链路修复、自动化回归与 **真实 DSH 运行时（`@deepseek-ai/dsh-mcp-client` + `AjvJsonSchemaValidator`）连接解压后的 `VideoSave-1.3.1.zip` 发行包 21/21 实测验收**（含真实公网 Bilibili 裸 BV 零 `yt-dlp` 下载与画质一致性校验）。
 
 ## 环境漂移排查结论（Section 01）
 
@@ -35,11 +35,10 @@
   - **P0-1 请求头全链路**：用户自建夹具服务器抓包确认 `master -> variant -> segment` 三跳的 `User-Agent`、`Referer`（含完整查询串）、`Origin` 原样透传。
   - **P0-4 非标准分片**：真实 TS 命名为 `seg0.jpeg` 且返回 `content-type: image/jpeg`，`start_download` 成功（`prefetch: true`、`segments 1/1`、`stages` 全 200、输出 320×240 / 4.04s / h264+aac、`qualityNegotiation` 完整）。
 - **需修复（保持「部分修复 / 待独立用户验收」）**：
-  - **DSH-12 测试隔离**：用户实测指出真实下载目录中留存 118 个测试产物，`Delta = 0` 属拿已污染基线比对。`v1.2.0` 已实装真实 OS 级文件写入监控与软链/Junction 逃逸拦截；**`v1.3.0` 进一步升级为保护目录递归 OS 监听（捕获短生命周期创建即删文件与深层子目录写入）、子进程树追踪，并在 watcher 出错或事件溢出时强制标记 `auditComplete: false` 抛出 `SANDBOX_AUDIT_INCOMPLETE`（绝不默认零污染）**，通过 `tests/dsh12-fs-audit.test.mjs` 全 11 项取证用例。**本项在用户独立复测验收前仍严格保持「部分修复 / 待独立用户验收」，不代用户宣称彻底关闭。**
+  - **DSH-12 测试隔离**：用户实测指出真实下载目录中留存 118 个测试产物，`Delta = 0` 属拿已污染基线比对。`v1.2.0` 已实装真实 OS 级文件写入监控与软链/Junction 逃逸拦截；`v1.3.0` 升级为保护目录递归 OS 监听与不完整审计强制失败；**`v1.3.1` 进一步补齐 Linux 新建子目录动态监听挂载与明确验收边界声明（`auditBoundary`）**，通过 `tests/dsh12-fs-audit.test.mjs` 全部取证用例。**本项在用户独立复测验收前仍严格保持「部分修复 / 待独立用户验收」，不代用户宣称彻底关闭。**
 - **待外部网络冷却后补验（非工具故障）**：
   - 外部测试站当前按 IP 限流（`curl` 亦返回 403），待冷却后由用户补验 P0-2（1080p→403 / 720p→200 自动降级）、P0-3（真站中断续传）、P0-5（会话复用 `blockers:[]`）。
 
 ## 真实 DSH 发行包验收证据
-- 原始脱敏报告：[docs/compatibility-data/v1.0.0-dsh-acceptance.json](compatibility-data/v1.0.0-dsh-acceptance.json)
-- 验收命令：`node tests/dsh-acceptance.mjs --package=<extracted VideoSave-1.0.0> --output=docs/compatibility-data/v1.0.0-dsh-acceptance.json`
-- 结果：**17/17 全部通过（0 失败，总耗时 33.06 秒，25 个 MCP 工具全部通过 DSH `AjvJsonSchemaValidator` 校验，真实下载目录变动 = 0）**。
+- 最新 `v1.3.1` 脱敏报告：[docs/compatibility-data/v1.3.1-dsh-acceptance.json](compatibility-data/v1.3.1-dsh-acceptance.json)（21/21 全部通过，含 Bilibili 裸 BV 原生下载、27 个 MCP 工具 AJV 校验与递归 OS 沙箱审计）
+- 历史 `v1.0.0` / `v1.2.0` / `v1.3.0` 原始报告完整保留于 `docs/compatibility-data/`（未篡改）。

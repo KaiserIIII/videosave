@@ -307,3 +307,94 @@ export function negotiateQuality(candidates, qualityInput, { durationSec = null 
   const ranked = lowest.length ? lowest : sorted;
   return { selected: ranked[0], ranked, requested: spec, fallbackApplied: true, reason: 'fallback-lowest-available' };
 }
+
+function summarizeRequestedQuality(requested) {
+  if (requested === undefined || requested === null) return 'best';
+  if (typeof requested === 'object' && 'raw' in requested) {
+    return requested.raw ?? (requested.mode === 'exact' && requested.height ? `exact:${requested.height}` : requested.height ?? requested.mode ?? 'best');
+  }
+  return requested;
+}
+
+/**
+ * Build or reconcile the unified authoritative quality negotiation model (v1.3.1).
+ * Strictly distinguishes requestedQuality, availableQualities, declaredQuality,
+ * selectedQuality, and post-FFprobe actualQuality so reports can never contradict outputs.
+ */
+export function buildQualityNegotiationReport({
+  requestedQuality,
+  availableQualities = [],
+  declaredQuality = null,
+  selectedQuality = null,
+  actualQuality = null,
+  scaledByFfmpeg = false,
+  fallbackApplied = false,
+  fallbackReason = null,
+  reason = null,
+  verificationLevel = 'standard',
+  verificationStatus = 'verified',
+} = {}) {
+  const reqSummary = summarizeRequestedQuality(requestedQuality);
+  const avail = [...new Set((Array.isArray(availableQualities) ? availableQualities : [])
+    .map(v => (typeof v === 'object' && v ? Number(v.height) : Number(v)))
+    .filter(h => Number.isFinite(h) && h > 0))].sort((a, b) => b - a);
+
+  const selected = selectedQuality ? {
+    height: selectedQuality.height ?? null,
+    width: selectedQuality.width ?? null,
+    codec: selectedQuality.codec ?? null,
+    formatKind: selectedQuality.formatKind ?? null,
+  } : null;
+
+  const declared = declaredQuality ? {
+    height: declaredQuality.height ?? selected?.height ?? null,
+    width: declaredQuality.width ?? selected?.width ?? null,
+    codec: declaredQuality.codec ?? selected?.codec ?? null,
+    formatKind: declaredQuality.formatKind ?? selected?.formatKind ?? null,
+  } : selected ? { ...selected } : null;
+
+  const actual = actualQuality ? {
+    height: actualQuality.height ?? null,
+    width: actualQuality.width ?? null,
+    videoCodec: actualQuality.videoCodec ?? actualQuality.codec ?? null,
+    audioCodec: actualQuality.audioCodec ?? null,
+    duration: actualQuality.duration ?? null,
+  } : null;
+
+  let finalFallback = Boolean(fallbackApplied);
+  let finalFallbackReason = fallbackReason ?? (finalFallback ? reason : null);
+  let finalReason = reason || 'verified-output';
+
+  if (scaledByFfmpeg) {
+    finalFallback = true;
+    finalFallbackReason = finalFallbackReason || 'downscaled-by-ffmpeg';
+    finalReason = `downscaled-to-${actual?.height ?? 'target'}p`;
+  } else if (selected?.height && actual?.height && selected.height !== actual.height) {
+    finalFallback = true;
+    finalFallbackReason = `actual-stream-height-${actual.height}p-differs-from-declared-${selected.height}p`;
+    finalReason = `${finalReason}:actual-${actual.height}p`;
+  }
+
+  return {
+    requestedQuality: reqSummary,
+    availableQualities: avail,
+    declaredQuality: declared,
+    selectedQuality: selected,
+    actualQuality: actual,
+    // Consistent back-compat flat fields
+    requested: reqSummary,
+    available: avail,
+    selectedHeight: selected?.height ?? actual?.height ?? null,
+    selectedWidth: selected?.width ?? actual?.width ?? null,
+    selectedCodec: selected?.codec ?? actual?.videoCodec ?? null,
+    formatKind: selected?.formatKind ?? declared?.formatKind ?? null,
+    actualHeight: actual?.height ?? null,
+    actualWidth: actual?.width ?? null,
+    scaledByFfmpeg: Boolean(scaledByFfmpeg),
+    fallbackApplied: finalFallback,
+    fallbackReason: finalFallback ? (finalFallbackReason || finalReason) : null,
+    reason: finalReason,
+    verificationLevel,
+    verificationStatus,
+  };
+}

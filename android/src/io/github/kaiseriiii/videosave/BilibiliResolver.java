@@ -138,6 +138,9 @@ public final class BilibiliResolver {
             long cid = data.optLong("cid", 0);
             int totalPages = 1;
             String title = baseTitle;
+            int sourceDimHeight = 0;
+            JSONObject dimObj = data.optJSONObject("dimension");
+            if (dimObj != null) sourceDimHeight = dimObj.optInt("height", 0);
             JSONArray pages = data.optJSONArray("pages");
             if (pages != null && pages.length() > 0) {
                 totalPages = pages.length();
@@ -145,6 +148,10 @@ public final class BilibiliResolver {
                     JSONObject pg = pages.getJSONObject(i);
                     if (pg.optInt("page", i + 1) == partIndex) {
                         cid = pg.optLong("cid", cid);
+                        JSONObject pgDim = pg.optJSONObject("dimension");
+                        if (pgDim != null && pgDim.optInt("height", 0) > 0) {
+                            sourceDimHeight = pgDim.optInt("height", 0);
+                        }
                         String partName = pg.optString("part", "");
                         if (totalPages > 1 && !partName.isEmpty() && !partName.equals(baseTitle)) {
                             title = baseTitle + " - P" + partIndex + " " + partName;
@@ -164,28 +171,10 @@ public final class BilibiliResolver {
                         canonical);
             } catch (Exception ignored) {}
 
-            List<MediaProbeEngine.QualityCandidate> candidates = new ArrayList<MediaProbeEngine.QualityCandidate>();
+            List<MediaProbeEngine.QualityCandidate> dashCandidates = new ArrayList<MediaProbeEngine.QualityCandidate>();
+            int maxDashHeight = 0;
 
-            // 1. Progressive MP4 (durl) if available (often 720p for anonymous users; plays natively on every Android device)
-            if (mp4Res != null && mp4Res.optInt("code", -1) == 0) {
-                JSONObject mp4Data = mp4Res.optJSONObject("data");
-                JSONArray durl = mp4Data != null ? mp4Data.optJSONArray("durl") : null;
-                if (durl != null && durl.length() == 1) {
-                    JSONObject d0 = durl.getJSONObject(0);
-                    List<String> mirrors = collectMirrors(d0, "url", "backup_url");
-                    if (!mirrors.isEmpty()) {
-                        int qn = mp4Data.optInt("quality", 64);
-                        int height = qn >= 80 ? 1080 : qn >= 64 ? 720 : qn >= 32 ? 480 : 360;
-                        long size = d0.optLong("size", -1);
-                        String label = "Bilibili " + height + "p MP4" + (size > 0 ? " · " + MediaProbeEngine.formatSize(size) : "");
-                        candidates.add(new MediaProbeEngine.QualityCandidate(
-                                label, mirrors.get(0), "bilibili-mp4", height, 0, size, "available", 200,
-                                null, mirrors, Collections.<String>emptyList(), canonical));
-                    }
-                }
-            }
-
-            // 2. Separate DASH Video + Audio tracks (muxed via Android MediaMuxer!)
+            // 1. Parse DASH Video + Audio tracks FIRST to establish true pixel heights (never inflated by nominal qn)
             if (dashRes.optInt("code", -1) == 0) {
                 JSONObject dash = dashRes.optJSONObject("data") != null ? dashRes.getJSONObject("data").optJSONObject("dash") : null;
                 if (dash != null) {
@@ -210,7 +199,6 @@ public final class BilibiliResolver {
                     JSONArray videos = dash.optJSONArray("video");
                     Set<Integer> seenHeights = new LinkedHashSet<Integer>();
                     if (videos != null) {
-                        // Prefer H.264 (avc1) for widest Android MediaMuxer + hardware playback compatibility
                         List<JSONObject> vList = new ArrayList<JSONObject>();
                         for (int i = 0; i < videos.length(); i++) vList.add(videos.getJSONObject(i));
                         Collections.sort(vList, new Comparator<JSONObject>() {
@@ -230,24 +218,50 @@ public final class BilibiliResolver {
                             List<String> vm = collectMirrors(v, "baseUrl", "backupUrl");
                             if (vm.isEmpty()) vm = collectMirrors(v, "base_url", "backup_url");
                             if (vm.isEmpty()) continue;
+                            if (h > maxDashHeight) maxDashHeight = h;
                             seenHeights.add(h);
                             long bw = v.optLong("bandwidth", 0);
                             String codec = v.optString("codecs", "").split("\\.")[0];
                             String audioPrimary = bestAudioMirrors.isEmpty() ? null : bestAudioMirrors.get(0);
                             String label = "Bilibili " + h + "p DASH (" + codec + ") · " + (bw / 1000) + " kbps";
-                            candidates.add(new MediaProbeEngine.QualityCandidate(
+                            dashCandidates.add(new MediaProbeEngine.QualityCandidate(
                                     label, vm.get(0), "bilibili-dash", h, bw, -1, "available", 200,
                                     audioPrimary, vm, bestAudioMirrors, canonical));
                         }
                     }
                     if (!bestAudioMirrors.isEmpty()) {
-                        candidates.add(new MediaProbeEngine.QualityCandidate(
+                        dashCandidates.add(new MediaProbeEngine.QualityCandidate(
                                 "Bilibili Audio Only (M4A · " + (bestAudioBw / 1000) + " kbps)",
                                 bestAudioMirrors.get(0), "audio", 0, bestAudioBw, -1, "available", 200,
                                 null, bestAudioMirrors, Collections.<String>emptyList(), canonical));
                     }
                 }
             }
+
+            List<MediaProbeEngine.QualityCandidate> candidates = new ArrayList<MediaProbeEngine.QualityCandidate>();
+            // 2. Add progressive MP4 (durl) with height clamped to real source/DASH ceiling so nominal qn=64 never misreports 384p as 720p
+            if (mp4Res != null && mp4Res.optInt("code", -1) == 0) {
+                JSONObject mp4Data = mp4Res.optJSONObject("data");
+                JSONArray durl = mp4Data != null ? mp4Data.optJSONArray("durl") : null;
+                if (durl != null && durl.length() == 1) {
+                    JSONObject d0 = durl.getJSONObject(0);
+                    List<String> mirrors = collectMirrors(d0, "url", "backup_url");
+                    if (!mirrors.isEmpty()) {
+                        int qn = mp4Data.optInt("quality", 64);
+                        int nominalHeight = qn >= 80 ? 1080 : qn >= 64 ? 720 : qn >= 32 ? 480 : 360;
+                        int ceiling = Math.max(sourceDimHeight, maxDashHeight);
+                        int resolvedHeight = ceiling > 0 ? Math.min(nominalHeight, ceiling) : nominalHeight;
+                        long size = d0.optLong("size", -1);
+                        if (dashCandidates.isEmpty() || resolvedHeight > maxDashHeight) {
+                            String label = "Bilibili " + resolvedHeight + "p MP4" + (size > 0 ? " · " + MediaProbeEngine.formatSize(size) : "");
+                            candidates.add(new MediaProbeEngine.QualityCandidate(
+                                    label, mirrors.get(0), "bilibili-mp4", resolvedHeight, 0, size, "available", 200,
+                                    null, mirrors, Collections.<String>emptyList(), canonical));
+                        }
+                    }
+                }
+            }
+            candidates.addAll(dashCandidates);
 
             if (candidates.isEmpty()) {
                 return new MediaProbeEngine.ProbeResult(canonical, title, "no-media",

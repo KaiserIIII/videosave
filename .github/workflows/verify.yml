@@ -49,6 +49,7 @@ jobs:
           printf '%s\n' "$codex_cfg" | grep -q '\[mcp_servers.videosave\]'
           python3 tools/build_release.py
           python3 tools/verify_release.py
+          node tools/check_doc_consistency.mjs
           python3 tools/build_deb.py
           dpkg-deb --info dist/videosave_*_all.deb
           dpkg-deb --contents dist/videosave_*_all.deb | grep -q '/usr/bin/videosave'
@@ -270,8 +271,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
+          node tools/extract_release_notes.mjs "$TAG" > release-notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" release/* --clobber
+            gh release edit "$TAG" --notes-file release-notes.md
           else
-            gh release create "$TAG" release/* --title "VideoSave $TAG" --generate-notes --verify-tag
+            gh release create "$TAG" release/* --title "VideoSave $TAG" --notes-file release-notes.md --verify-tag
           fi

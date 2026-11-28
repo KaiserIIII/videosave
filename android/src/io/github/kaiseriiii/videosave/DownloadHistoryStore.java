@@ -102,4 +102,70 @@ public final class DownloadHistoryStore {
             }
         } catch (Exception ignored) {}
     }
+
+    /**
+     * Serialize download history + queue snapshot to portable JSON so users migrating from
+     * an ephemeral debug APK to a formally signed release APK never lose download history.
+     */
+    public static synchronized String exportMigrationJson(Context ctx) throws Exception {
+        JSONObject root = new JSONObject();
+        root.put("schema", "videosave-android-backup-v1");
+        root.put("exportedAt", System.currentTimeMillis());
+        JSONArray histArr = new JSONArray();
+        for (Record r : load(ctx)) {
+            JSONObject o = new JSONObject();
+            o.put("id", r.id);
+            o.put("title", r.title);
+            o.put("url", r.url);
+            o.put("kind", r.kind);
+            o.put("status", r.status);
+            o.put("contentUri", r.contentUri);
+            o.put("displayPath", r.displayPath);
+            o.put("bytes", r.bytes);
+            o.put("completedAt", r.completedAt);
+            histArr.put(o);
+        }
+        root.put("history", histArr);
+        JSONArray queueArr = new JSONArray();
+        for (DownloadQueueStore.QueuedTask t : DownloadQueueStore.load(ctx)) {
+            JSONObject o = new JSONObject();
+            o.put("id", t.id);
+            o.put("url", t.url);
+            o.put("audioUrl", t.audioUrl == null ? "" : t.audioUrl);
+            o.put("title", t.title);
+            o.put("kind", t.kind);
+            o.put("status", t.status);
+            o.put("folder", t.folder == null ? "VideoSave" : t.folder);
+            queueArr.put(o);
+        }
+        root.put("queue", queueArr);
+        return root.toString(2);
+    }
+
+    public static synchronized int importMigrationJson(Context ctx, String jsonText) throws Exception {
+        JSONObject root = new JSONObject(jsonText);
+        if (!"videosave-android-backup-v1".equals(root.optString("schema"))) {
+            throw new IllegalArgumentException("Unsupported VideoSave Android backup schema");
+        }
+        int imported = 0;
+        JSONArray histArr = root.optJSONArray("history");
+        if (histArr != null) {
+            List<Record> existing = load(ctx);
+            java.util.Set<String> seenIds = new java.util.HashSet<String>();
+            for (Record r : existing) seenIds.add(r.id);
+            for (int i = histArr.length() - 1; i >= 0; i--) {
+                JSONObject o = histArr.getJSONObject(i);
+                String id = o.optString("id", "");
+                if (!id.isEmpty() && !seenIds.contains(id)) {
+                    append(ctx, new Record(
+                            id, o.optString("title"), o.optString("url"), o.optString("kind"),
+                            o.optString("status"), o.optString("contentUri"), o.optString("displayPath"),
+                            o.optLong("bytes", 0), o.optLong("completedAt", System.currentTimeMillis())));
+                    seenIds.add(id);
+                    imported++;
+                }
+            }
+        }
+        return imported;
+    }
 }

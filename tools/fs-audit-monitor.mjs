@@ -114,6 +114,7 @@ export async function startFsAuditMonitor({
   }
 
   const watchers = [];
+  const watchedDirs = new Set();
   const watcherErrors = [];
   const osSandboxEvents = [];
   const osProtectedEvents = [];
@@ -124,6 +125,13 @@ export async function startFsAuditMonitor({
   const startedAt = new Date().toISOString();
 
   function attachSingleWatcher(dir, bucket, kind, useRecursive) {
+    const normKey = `${kind}:${process.platform === 'win32' ? dir.toLowerCase() : dir}`;
+    if (watchedDirs.has(normKey)) return;
+    if (!useRecursive && kind === 'protected' && watchedDirs.size >= 400) {
+      recursiveCoverageIncomplete = true;
+      return;
+    }
+    watchedDirs.add(normKey);
     try {
       const w = watch(dir, { recursive: useRecursive, persistent: false }, (eventType, filename) => {
         const nameStr = filename ? String(filename).replaceAll('\\', '/') : null;
@@ -135,6 +143,7 @@ export async function startFsAuditMonitor({
           else droppedSandboxEvents += 1;
           return;
         }
+        const fullPath = filename ? path.resolve(dir, String(filename)) : dir;
         bucket.push({
           ts: new Date().toISOString(),
           osMechanism: process.platform === 'win32' ? 'ReadDirectoryChangesW' : process.platform === 'darwin' ? 'FSEvents' : 'inotify',
@@ -142,8 +151,16 @@ export async function startFsAuditMonitor({
           recursive: useRecursive,
           eventType,
           filename: nameStr,
-          fullPath: filename ? path.resolve(dir, String(filename)) : dir,
+          fullPath,
         });
+        // On Linux (non-recursive inotify), dynamically attach watchers to newly created subdirectories
+        if (!useRecursive && filename) {
+          void lstat(fullPath).then(st => {
+            if (st.isDirectory() && !st.isSymbolicLink() && !SKIP_CACHE_DIRS.has(path.basename(fullPath))) {
+              attachSingleWatcher(fullPath, bucket, kind, false);
+            }
+          }).catch(() => {});
+        }
       });
       w.on('error', err => watcherErrors.push({ kind, dir, message: err.message }));
       watchers.push(w);
@@ -228,7 +245,15 @@ export async function startFsAuditMonitor({
         ? 'ReadDirectoryChangesW(recursive)+TreeDiff'
         : process.platform === 'darwin'
           ? 'FSEvents(recursive)+TreeDiff'
-          : 'inotify(recursive-walk)+TreeDiff',
+          : 'inotify(recursive-walk+dynamic-subdir)+TreeDiff',
+      auditBoundary: {
+        preventionEnforced: Boolean(process.env.VIDEOSAVE_TEST_SANDBOX && process.env.VIDEOSAVE_NO_USER_SETTINGS === '1'),
+        monitoredScope: 'sandboxRoot + configured protected user directories (Downloads, VideoSave appdata, user outDir)',
+        limitations: [
+          'OS filesystem watchers observe monitored directories only (not system-wide kernel ETW/auditd across unrelated volumes).',
+          'Independent user re-verification on a separate user environment remains required before closing DSH-12.',
+        ],
+      },
       sandboxRoot: resolvedSandbox,
       protectedDirCount: uniqueProtected.length,
       protectedRecursiveWatched: nativeRecursive || !recursiveCoverageIncomplete,

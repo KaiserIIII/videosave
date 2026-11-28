@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createTestSandbox } from './test-sandbox.mjs';
 
 const option = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
-const outputPath = option('output') || 'docs/compatibility-data/v1.3.0-platforms-public.json';
+const outputPath = option('output') || 'docs/compatibility-data/v1.3.1-platforms-public.json';
 const ytdlp = option('yt-dlp') || process.env.YTDLP_BIN || null;
 const ffmpeg = process.env.FFMPEG_BIN || 'ffmpeg';
 const ffprobe = process.env.FFPROBE_BIN || 'ffprobe';
@@ -138,7 +138,7 @@ try {
   const actualWritePaths = await sandbox.collectActualWritePaths({ label: 'platforms-public-v13' });
   const report = {
     recordedAt: new Date().toISOString(),
-    version: '1.3.0',
+    version: '1.3.1',
     platform: `${process.platform}-${process.arch}`,
     node: process.version,
     ytdlpConfigured: downloads.platformDownloadsEnabled(),

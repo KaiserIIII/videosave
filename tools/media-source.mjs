@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
+import { open, stat } from 'node:fs/promises';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { BrowserTransportError, connectCdp, withChromium } from './edge-session.mjs';
@@ -727,14 +728,51 @@ export async function probeStream(url, cookies, signal, tracks = false, kind, he
   }
 }
 
-export async function inspectOutput(file, signal, expectedTrack, expectedDuration) {
+async function checkMediaContainerMagic(file) {
+  const info = await stat(file).catch(() => null);
+  if (!info?.isFile() || info.size < 32) {
+    throw new ApiError('INCOMPLETE_OUTPUT', '落盘文件不存在或大小异常过小', 502);
+  }
+  const fh = await open(file, 'r');
+  try {
+    const buf = Buffer.alloc(Math.min(512, info.size));
+    const { bytesRead } = await fh.read(buf, 0, buf.length, 0);
+    const headTxt = buf.subarray(0, bytesRead).toString('utf8').trimStart().toLowerCase();
+    if (headTxt.startsWith('<!doctype') || headTxt.startsWith('<html') || headTxt.startsWith('<?xml')
+      || headTxt.startsWith('<mpd') || headTxt.startsWith('{') || headTxt.startsWith('#extm3u')) {
+      throw new ApiError('INVALID_MEDIA_CONTENT', '落盘文件为错误页面或播放清单，不是有效音视频容器', 422);
+    }
+    return { size: info.size };
+  } finally {
+    await fh.close();
+  }
+}
+
+export async function inspectOutput(file, signal, expectedTrack, expectedDuration, { level = 'standard', decodeSeconds = 0 } = {}) {
+  const normalizedLevel = ['quick', 'standard', 'deep'].includes(level) ? level : 'standard';
+  const quickCheck = await checkMediaContainerMagic(file);
   const extension = file.split('.').at(-1).toLowerCase();
+  if (normalizedLevel === 'quick') {
+    return {
+      duration: null,
+      size: quickCheck.size,
+      width: null,
+      height: null,
+      codec: null,
+      audioCodec: null,
+      container: extension || null,
+      subtitleTracks: 0,
+      verificationLevel: 'quick',
+      verificationStatus: 'verified',
+      playableDecodeOk: null,
+    };
+  }
   const container = {mp4:'mov',m4a:'mov',mkv:'matroska',mp3:'mp3'}[extension];
   const raw = await runMedia(FFPROBE, ['-v','error','-count_packets','-show_entries',
     'format=duration,size,format_name:stream=codec_type,codec_name,width,height,nb_read_packets',
     '-of','json',...(container ? ['-f',container] : []),...mediaInput(file, [])], signal, undefined, {strict:true});
   const {format,streams = []} = JSON.parse(raw);
-  const video = streams.find(track => track.codec_type === 'video');
+  const video = streams.find(track => track.codec_type === 'video' && !track.disposition?.attached_pic);
   const audio = streams.find(track => track.codec_type === 'audio');
   const duration = Number(format?.duration);
   const size = Number(format?.size);
@@ -744,9 +782,26 @@ export async function inspectOutput(file, signal, expectedTrack, expectedDuratio
       expectedDuration > 0 && duration + Math.max(1, expectedDuration * 0.02) < expectedDuration) {
     throw new ApiError('INCOMPLETE_OUTPUT', '落盘文件缺少所需轨道、数据或时长不足', 502);
   }
-  return {duration,size,width:video?.width ?? null,height:video?.height ?? null,codec:video?.codec_name ?? audio?.codec_name ?? null,
-    audioCodec:audio?.codec_name ?? null,container:formats.includes(extension) ? extension : formats[0] || null,
-    subtitleTracks:streams.filter(track => track.codec_type === 'subtitle').length};
+  let playableDecodeOk = null;
+  if (normalizedLevel === 'deep') {
+    const decodeArgs = ['-hide_banner', '-v', 'error', '-nostdin', '-i', file,
+      ...(decodeSeconds > 0 ? ['-t', String(decodeSeconds)] : []), '-f', 'null', '-'];
+    await runMedia(FFMPEG, decodeArgs, signal, undefined, { strict: true });
+    playableDecodeOk = true;
+  }
+  return {
+    duration,
+    size,
+    width: video?.width ?? null,
+    height: video?.height ?? null,
+    codec: video?.codec_name ?? audio?.codec_name ?? null,
+    audioCodec: audio?.codec_name ?? null,
+    container: formats.includes(extension) ? extension : formats[0] || null,
+    subtitleTracks: streams.filter(track => track.codec_type === 'subtitle').length,
+    verificationLevel: normalizedLevel,
+    verificationStatus: 'verified',
+    playableDecodeOk,
+  };
 }
 
 export function mediaInput(source, cookies, headers, ...beforeSource) {

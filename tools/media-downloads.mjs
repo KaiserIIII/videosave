@@ -20,7 +20,7 @@ import { platformDownloadsEnabled, platformEngineName, platformSupported, probeP
 import { getPlatformCapabilitySummary } from './platform-registry.mjs';
 import { getOriginCompatibilityRule, preferredProbeStrategy, probeModes, probePlan, recordCompatibility } from './compatibility-policy.mjs';
 import { createRequestContext } from './request-context.mjs';
-import { legacyQualityCap, normalizeQualitySpec } from './quality-negotiator.mjs';
+import { buildQualityNegotiationReport, legacyQualityCap, normalizeQualitySpec } from './quality-negotiator.mjs';
 import { detectAvailableBrowsers } from './edge-session.mjs';
 import { getBrowserSessionStatus, recordDedicatedOrigin, resetBrowserSession } from './browser-sessions.mjs';
 import { filterAndParseCookieHeader, importCookieSession, listCookieSessions, resolveCookieSession, revokeCookieSession } from './cookie-store.mjs';
@@ -92,7 +92,7 @@ export async function getVersionInfo() {
     version: VERSION,
     browserVersion: manifest.version,
     installedVersion,
-    schemaVersion: '1.3.0',
+    schemaVersion: '1.3.1',
     channel: /-rc\./.test(VERSION) ? 'rc' : 'stable',
     versionMismatch,
     mismatch: versionMismatch,
@@ -645,11 +645,12 @@ async function checkedBatchOutput(batch,file) {
   return actual;
 }
 
-export async function verifyBatchFiles(id, signal, { durationToleranceSec = 1.0 } = {}) {
+export async function verifyBatchFiles(id, signal, { durationToleranceSec = 1.0, level = 'standard', decodeSeconds = 15 } = {}) {
   const batch = lookup(id);
   const result = snapshot(batch);
   const tolerance = Number.isFinite(durationToleranceSec) && durationToleranceSec >= 0 ? durationToleranceSec : 1.0;
-  const budget = AbortSignal.any([signal, AbortSignal.timeout(25_000)]);
+  const verifyLevel = ['quick', 'standard', 'deep'].includes(level) ? level : 'standard';
+  const budget = AbortSignal.any([signal, AbortSignal.timeout(verifyLevel === 'deep' ? 45_000 : 25_000)]);
   for (const item of result.items) {
     item.verification = [];
     for (const output of item.outputs ?? []) {
@@ -657,13 +658,16 @@ export async function verifyBatchFiles(id, signal, { durationToleranceSec = 1.0 
       try {
         budget.throwIfAborted();
         const actual = await checkedBatchOutput(batch, file);
-        const current = await inspectOutput(actual, budget, /\.(mp3|m4a)$/i.test(file) ? 'audio' : 'video', info?.duration);
+        const current = await inspectOutput(actual, budget, /\.(mp3|m4a)$/i.test(file) ? 'audio' : 'video', info?.duration, {
+          level: verifyLevel,
+          decodeSeconds,
+        });
         const savedFields = ['size', 'audioCodec', 'codec', 'width', 'height', 'container', 'subtitleTracks'];
         const durationDiffSec = info?.duration != null && current?.duration != null
           ? Number(Math.abs(info.duration - current.duration).toFixed(3))
           : 0;
-        if (!info || savedFields.some(key => info[key] !== undefined && info[key] !== current[key]) ||
-            durationDiffSec > tolerance) {
+        if (verifyLevel !== 'quick' && (!info || savedFields.some(key => info[key] !== undefined && info[key] !== current[key]) ||
+            durationDiffSec > tolerance)) {
           throw new ApiError('OUTPUT_CHANGED', 'The output differs from its saved media properties', 409, {
             durationDiffSec,
             durationToleranceSec: tolerance,
@@ -671,6 +675,8 @@ export async function verifyBatchFiles(id, signal, { durationToleranceSec = 1.0 
         }
         item.verification.push({
           status: 'verified',
+          verificationLevel: current.verificationLevel,
+          playableDecodeOk: current.playableDecodeOk,
           durationDiffSec,
           durationToleranceSec: tolerance,
           info: {
@@ -681,7 +687,7 @@ export async function verifyBatchFiles(id, signal, { durationToleranceSec = 1.0 
       } catch (error) {
         signal.throwIfAborted();
         const errorCode = budget.aborted ? 'VERIFY_TIMEOUT' : error.code === 'ENOENT' ? 'FILE_NOT_FOUND' : errorDetails(error).code;
-        item.verification.push({ status: 'error', errorCode });
+        item.verification.push({ status: 'error', verificationLevel: verifyLevel, errorCode });
       }
     }
   }
@@ -1022,6 +1028,15 @@ function getTargets(values, defaults) {
     if (value.subtitles !== undefined && typeof value.subtitles !== 'boolean') {
       throw new ApiError('INVALID_SUBTITLES', '字幕选项应为布尔值');
     }
+    if (value.subtitleFormat !== undefined && !['vtt', 'srt', 'both'].includes(value.subtitleFormat)) {
+      throw new ApiError('INVALID_SUBTITLES', 'subtitleFormat 应为 vtt、srt 或 both');
+    }
+    if (value.subtitleLanguages !== undefined && (!Array.isArray(value.subtitleLanguages) || value.subtitleLanguages.some(l => typeof l !== 'string' || !l.trim() || l.length > 24))) {
+      throw new ApiError('INVALID_SUBTITLES', 'subtitleLanguages 应为语言代码数组');
+    }
+    if (value.verificationLevel !== undefined && !['quick', 'standard', 'deep'].includes(value.verificationLevel)) {
+      throw new ApiError('INVALID_VERIFICATION_LEVEL', 'verificationLevel 应为 quick、standard 或 deep');
+    }
     if (value.sourceKind !== undefined && !['m3u8','mpd'].includes(value.sourceKind)) {
       throw new ApiError('INVALID_SOURCE_KIND', '流类型应为 m3u8 或 mpd');
     }
@@ -1067,6 +1082,9 @@ function getTargets(values, defaults) {
       quality: typeof resolvedQuality === 'number' || resolvedQuality === null ? resolvedQuality : legacyQualityCap(resolvedQuality),
       qualitySpec: value.quality !== undefined ? value.quality : (defaults.quality ?? null),
       audioFormat: value.audioFormat ?? defaults.audioFormat, subtitles: value.subtitles ?? defaults.subtitles,
+      ...(value.subtitleFormat && { subtitleFormat: value.subtitleFormat }),
+      ...(value.subtitleLanguages && { subtitleLanguages: value.subtitleLanguages }),
+      ...(value.verificationLevel && { verificationLevel: value.verificationLevel }),
       sourceKind:value.sourceKind, fastStart:value.fastStart ?? defaults.fastStart,
       conflictAction,
       ...(filenameTemplate && { filenameTemplate }),
@@ -1705,6 +1723,8 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
       if (fraction != null) updateProgress(Math.min(90, Math.floor(fraction * 90)));
     };
     const effectiveQuality = target.qualitySpec ?? target.quality;
+    const downloadStarted = performance.now();
+    let stagedSubtitles = null;
     let staged;
     if (authorization) {
       const transport = authorization.transportFor(source);
@@ -1735,6 +1755,7 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
         cookies: scopedCookies,
         recovery,
         onQualityNegotiated: q => { item.qualityNegotiation = q; },
+        onSubtitles: sub => { stagedSubtitles = sub; },
       });
     } else if (batch.request.prefetch) {
       if (sourceKind !== 'm3u8' && sourceKind !== 'mpd') {
@@ -1864,19 +1885,22 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
       await sleep(300, undefined, { signal });
       await encode();
     }
+    const downloadElapsedMs = Math.round(performance.now() - downloadStarted);
     signal.throwIfAborted();
     item.status = 'verifying';
     item.phase = 'verifying';
     item.speed = 0;
     item.etaSec = null;
+    const muxElapsedMs = Math.round(performance.now() - muxStarted);
     const verifyStarted = performance.now();
+    const verifyLevel = target.verificationLevel ?? 'standard';
     if (batch.delivery === 'browser') {
       if (staged) {
         const stagedInput = sourceKind === 'm3u8' ? path.join(staging, 'segments') : staged;
         await rm(stagedInput, { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
       }
       for (const output of outputs) {
-        await inspectOutput(output.file, signal, ['mp3', 'm4a'].includes(output.extension) ? 'audio' : 'video', expected);
+        await inspectOutput(output.file, signal, ['mp3', 'm4a'].includes(output.extension) ? 'audio' : 'video', expected, { level: verifyLevel });
       }
       await holdBrowserFiles(batch, item, staging, outputs.map(({ file }) => ({ file })), signal);
       held = true;
@@ -1887,21 +1911,113 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
         const file = savedResult.file;
         const record = { file, name: path.basename(file), ...(savedResult.skipped && { skipped: true }) };
         saved.push(record);
-        record.info = await inspectOutput(file, signal, ['mp3', 'm4a'].includes(output.extension) ? 'audio' : 'video', expected);
+        record.info = await inspectOutput(file, signal, ['mp3', 'm4a'].includes(output.extension) ? 'audio' : 'video', expected, { level: verifyLevel });
         if (savedResult.skipped) {
           item.skipped = true;
           item.alreadySaved = true;
         }
       }
       signal.throwIfAborted();
+      // Persist any verified standalone subtitle sidecar files (.vtt / .srt) alongside the video
+      if (stagedSubtitles && Array.isArray(stagedSubtitles._staged) && stagedSubtitles._staged.length) {
+        const sidecarFiles = [];
+        for (const sub of stagedSubtitles._staged) {
+          const safeLang = String(sub.language || 'und').replace(/[^A-Za-z0-9_-]/g, '_');
+          if (sub.vttPath) {
+            const savedVtt = await save(directory, sub.vttPath, `${name}.${safeLang}`, 'vtt', { conflictAction: target.conflictAction });
+            sidecarFiles.push(savedVtt.file);
+          }
+          if (sub.srtPath) {
+            const savedSrt = await save(directory, sub.srtPath, `${name}.${safeLang}`, 'srt', { conflictAction: target.conflictAction });
+            sidecarFiles.push(savedSrt.file);
+          }
+        }
+        stagedSubtitles.sidecarFiles = sidecarFiles;
+      }
       item.file = saved[0].file;
       item.outputs = saved;
       item.info = saved[0].info;
-      if (target.subtitles) item.subtitleTracks = saved.reduce((total, output) => total + output.info.subtitleTracks, 0);
+      const embeddedSubs = saved.reduce((total, output) => total + (output.info.subtitleTracks || 0), 0);
+      if (target.subtitles) item.subtitleTracks = embeddedSubs;
+      if (stagedSubtitles) {
+        const { _staged: _drop, ...cleanSubs } = stagedSubtitles;
+        cleanSubs.embeddedTracks = embeddedSubs;
+        if (cleanSubs.requested && cleanSubs.status === 'downloaded') {
+          cleanSubs.verified = Boolean(cleanSubs.verified && (cleanSubs.sidecarFiles.length > 0 || embeddedSubs > 0));
+        }
+        item.subtitles = cleanSubs;
+      } else if (target.subtitles) {
+        item.subtitles = {
+          requested: true,
+          status: embeddedSubs > 0 ? 'downloaded' : 'none-available',
+          available: [],
+          downloaded: [],
+          sidecarFiles: [],
+          embeddedTracks: embeddedSubs,
+          verified: embeddedSubs > 0,
+          reason: embeddedSubs > 0 ? null : '媒体流中未包含可封装的字幕轨。',
+        };
+      }
       const outputBytes = saved.reduce((total, output) => total + output.info.size, 0);
       item.bytes = Math.max(item.bytes, outputBytes);
     }
-    requestContext?.recordStage('verification', { status: 200, elapsedMs: performance.now() - verifyStarted, engine: 'ffprobe' });
+    const verifyElapsedMs = Math.round(performance.now() - verifyStarted);
+    const primaryInfo = item.info ?? {};
+    const requestedSpec = normalizeQualitySpec(effectiveQuality);
+    // Strict exact:HEIGHT enforcement against actual verified FFprobe height
+    if (target.mode !== 'audio' && requestedSpec.mode === 'exact' && requestedSpec.fallback === 'fail' &&
+        primaryInfo.height && primaryInfo.height !== requestedSpec.height) {
+      throw new ApiError(
+        'QUALITY_UNAVAILABLE',
+        `请求精确画质 ${requestedSpec.height}p，但实际媒体流验证高度为 ${primaryInfo.height}p，拒绝静默降级`,
+        422,
+        { requestedHeight: requestedSpec.height, actualHeight: primaryInfo.height },
+      );
+    }
+    // Reconcile unified authoritative quality negotiation model using post-FFprobe ground truth
+    const priorQn = item.qualityNegotiation ?? null;
+    item.qualityNegotiation = buildQualityNegotiationReport({
+      requestedQuality: priorQn?.requestedQuality ?? priorQn?.requested ?? effectiveQuality ?? 'best',
+      availableQualities: priorQn?.availableQualities ?? priorQn?.available ?? (primaryInfo.height ? [primaryInfo.height] : []),
+      declaredQuality: priorQn?.declaredQuality ?? (priorQn ? {
+        height: priorQn.selectedHeight ?? priorQn.selectedQuality?.height ?? null,
+        width: priorQn.selectedWidth ?? priorQn.selectedQuality?.width ?? null,
+        codec: priorQn.selectedCodec ?? priorQn.selectedQuality?.codec ?? null,
+        formatKind: priorQn.formatKind ?? priorQn.selectedQuality?.formatKind ?? null,
+      } : null),
+      selectedQuality: priorQn?.selectedQuality ?? (priorQn ? {
+        height: priorQn.selectedHeight ?? null,
+        width: priorQn.selectedWidth ?? null,
+        codec: priorQn.selectedCodec ?? null,
+        formatKind: priorQn.formatKind ?? null,
+      } : {
+        height: primaryInfo.height ?? null,
+        width: primaryInfo.width ?? null,
+        codec: primaryInfo.codec ?? null,
+        formatKind: sourceKind ?? item.engine ?? null,
+      }),
+      actualQuality: {
+        height: primaryInfo.height ?? null,
+        width: primaryInfo.width ?? null,
+        videoCodec: target.mode === 'audio' ? null : (primaryInfo.codec ?? null),
+        audioCodec: primaryInfo.audioCodec ?? null,
+        duration: primaryInfo.duration ?? null,
+      },
+      scaledByFfmpeg: Boolean(scaled),
+      fallbackApplied: Boolean(priorQn?.fallbackApplied),
+      fallbackReason: priorQn?.fallbackReason ?? null,
+      reason: priorQn?.reason ?? (target.mode === 'audio' ? 'audio-only' : 'verified-output'),
+      verificationLevel: primaryInfo.verificationLevel ?? verifyLevel,
+      verificationStatus: primaryInfo.verificationStatus ?? 'verified',
+    });
+    item.verificationLevel = primaryInfo.verificationLevel ?? verifyLevel;
+    item.verificationStatus = primaryInfo.verificationStatus ?? 'verified';
+    item.timings = {
+      downloadMs: downloadElapsedMs,
+      muxMs: muxElapsedMs,
+      verifyMs: verifyElapsedMs,
+    };
+    requestContext?.recordStage('verification', { status: 200, elapsedMs: verifyElapsedMs, engine: verifyLevel === 'deep' ? 'ffprobe+ffmpeg-decode' : 'ffprobe' });
     if (requestContext) item.stages = requestContext.getStageSummary();
     if (batch.delivery === 'local' && !batch.private && !authorization) {
       try {

@@ -1,4 +1,4 @@
-# Install, Upgrade, and Uninstall VideoSave (v1.3.0)
+# Install, Upgrade, and Uninstall VideoSave (v1.3.1)
 
 Download official release packages from the [GitHub Releases page](https://github.com/KaiserIIII/videosave/releases/latest) or the [official website](https://kaiseriiii.github.io/videosave/) (which auto-detects your OS and recommends the right package).
 
@@ -6,47 +6,46 @@ Download official release packages from the [GitHub Releases page](https://githu
 
 Choose one of three official options:
 
-1. **Graphical Installer (Recommended)** — `VideoSave-1.3.0-Setup.exe`
-   - Native Windows wizard; installs to `%LOCALAPPDATA%\Programs\VideoSave` without administrator privileges or `PATH` modifications.
-   - Automatically prepares SHA-256-verified Node.js 24 LTS, FFmpeg 8.1.2, and yt-dlp 2026.11.23, then opens the Local Management Center (`http://127.0.0.1:8765/console`).
-   - Supports silent unattended installs: `VideoSave-1.3.0-Setup.exe /S /D=C:\Path\To\VideoSave`.
-2. **True Offline Portable ZIP** — `VideoSave-1.3.0-win-x64-offline.zip` (~133 MB)
+1. **Graphical Installer (Recommended)** — `VideoSave-1.3.1-Setup.exe`
+   - Native Windows WinForms wizard; installs to `%LOCALAPPDATA%\Programs\VideoSave` without administrator privileges or `PATH` modifications.
+   - Automatically prepares SHA-256-verified Node.js 24.22.3 LTS, FFmpeg 8.1.2, and yt-dlp 2026.11.23, then opens the Local Management Center (`http://127.0.0.1:8765/console`).
+   - Supports silent unattended installs: `VideoSave-1.3.1-Setup.exe /S /D=C:\Path\To\VideoSave`.
+   - *Code-signing disclosure*: `Setup.exe` is currently unsigned (no paid Authenticode EV certificate is configured); Windows SmartScreen may show "More info → Run anyway". Always verify `SHA256SUMS.txt` and `gh attestation verify` first.
+2. **True Offline Portable ZIP** — `VideoSave-1.3.1-win-x64-offline.zip` (~133 MB)
    - Bundles Node.js 24.22.3, FFmpeg/FFprobe 8.1.2, and yt-dlp 2026.11.23 inside `.local-tools/`.
-   - Works in **zero-internet, zero-PATH** environments; just extract and run `Start VideoSave.cmd`.
-3. **Lightweight Portable ZIP** — `VideoSave-1.3.0.zip` (~750 KB)
-   - Extract and double-click `Start VideoSave.cmd`. Bilibili, Internet Archive, Wikimedia Commons, HLS, DASH, and HTTP Range work natively with only FFmpeg; YouTube auto-downloads pinned `yt-dlp` on first setup.
+   - Works in **zero-internet, zero-PATH** clean Windows environments; extract and double-click `Start VideoSave.cmd`.
+3. **Lightweight Portable ZIP** — `VideoSave-1.3.1.zip` (~785 KB)
+   - Extract and double-click `Start VideoSave.cmd`. Bilibili (`bilibili-native`), Internet Archive, Wikimedia Commons, HLS, DASH, and HTTP Range work natively without `yt-dlp`; YouTube uses the managed `yt-dlp` binary.
 
-## 2. macOS (Apple Silicon & Intel) and Linux (x64 & ARM64)
+## 2. Linux (x64 & ARM64) and macOS (Apple Silicon & Intel)
 
-- **Debian / Ubuntu**: Install `videosave_1.3.0_all.deb` via `sudo apt install ./videosave_1.3.0_all.deb` (registers `videosave`, `videosave-cli`, `videosave-mcp`).
-- **macOS & Other Linux Distros**: Extract `VideoSave-1.3.0-unix.tar.gz` and run `./tools/start-unix.sh` (or double-click `Launch VideoSave.command` on macOS).
-  - Automatically downloads and SHA-256-verifies Node.js 24.22.3 LTS and `yt-dlp 2026.11.23` into `~/.local/share/videosave/tools`.
-  - If `ffmpeg`/`ffprobe` is absent on macOS/Linux, install via `brew install ffmpeg` or `sudo apt install ffmpeg`.
-  - *Honesty note*: macOS builds are not yet Apple Developer ID notarized; Gatekeeper may prompt for right-click → Open on first run.
+- **Debian / Ubuntu**: Install `videosave_1.3.1_all.deb` via `sudo apt install ./videosave_1.3.1_all.deb` (registers `videosave`, `videosave-cli`, `videosave-mcp`).
+- **Other Linux Distros & macOS**: Extract `VideoSave-1.3.1-unix.tar.gz` and run `./tools/start-unix.sh` (or double-click `Launch VideoSave.command` on macOS).
+  - **Linux x64 & ARM64**: Automatically downloads and SHA-256-verifies Node.js `24.22.3`, **FFmpeg/FFprobe `8.1.3`** (immutable BtbN release `autobuild-2026-11-27-12-42`), and `yt-dlp 2026.11.23` into `~/.local/share/videosave/tools` if not already installed on the system.
+  - **macOS (Apple Silicon & Intel)**: Automatically downloads and SHA-256-verifies Node.js `24.22.3` and `yt-dlp 2026.11.23`, reuses Homebrew/system FFmpeg (`/opt/homebrew/bin/ffmpeg` or `/usr/local/bin/ffmpeg`), and prints exact `brew install ffmpeg` guidance if FFmpeg is absent.
+  - *Honesty note*: CI verifies Ubuntu 24.04 x64 and macOS 15 ARM64 directly; Linux ARM64 and Intel macOS binaries use pinned official upstream SHA-256 hashes but are not executed on physical ARM64 Linux / Intel Mac CI runners. macOS packages are not Apple Developer ID notarized (right-click → Open on first run).
 
 ## 3. Android 8–16 & Huawei Mate 60 Pro (HarmonyOS 4.x) — Beta APK
 
-- Download `VideoSave-1.3.0-android-debug.apk` (or `VideoSave-1.3.0-android-universal.apk` once release-signed).
-- Zero Root, zero Termux, zero Python. Supports native Bilibili, Static DASH (`MediaMuxer`), Resumable HLS, strict HTTP 416 Range resume, Share Menu intake, and `Downloads/VideoSave`.
-- See [docs/android-harmonyos.md](android-harmonyos.md) for signing status and HarmonyOS 4.x vs HarmonyOS NEXT details.
+- Download `VideoSave-1.3.1-android-debug.apk` (or `VideoSave-1.3.1-android-universal.apk` once persistent release signing Secrets are configured).
+- Zero Root, zero Termux, zero Python. Verified live on Android 16 Emulator (`docs/compatibility-data/v1.3.1-android-runtime.json`); Huawei Mate 60 Pro physical sign-off pending real device.
+- See [docs/android-harmonyos.md](android-harmonyos.md) for signing migration and HarmonyOS 4.x vs HarmonyOS NEXT details.
 
 ## 4. Browser Extensions & MCP (DSH / Codex / Claude / Cursor / Antigravity)
 
-- **Edge / Chrome / Brave**: Load `extension/` from the desktop package or extract `VideoSave-1.3.0-extension.zip` via Developer Mode.
-- **Firefox 136+**: Load `VideoSave-1.3.0-firefox.zip` temporarily via `about:debugging` (permanent store signing pending AMO review).
+- **Edge / Chrome / Brave**: Load `extension/` from the desktop package or extract `VideoSave-1.3.1-extension.zip` via Developer Mode (store listing packages ready; not yet published on Chrome Web Store / Edge Add-ons).
+- **Firefox 136+**: Load `VideoSave-1.3.1-firefox.zip` temporarily via `about:debugging` (AMO submission pending review).
 - **MCP Setup**: Run `.\Start VideoSave.cmd -McpConfig` (Windows) or `./tools/start-unix.sh --mcp-config --client deepseek-harness` (macOS/Linux). See [docs/dsh-guide.md](dsh-guide.md).
 
-## 5. Supply-Chain Verification & Upgrading
-
-Verify every archive before running:
+## 5. Supply-Chain Verification, Upgrading & Uninstalling
 
 ```powershell
-# 1. Verify SHA-256 against SHA256SUMS.txt
-Get-FileHash -Algorithm SHA256 -LiteralPath 'VideoSave-1.3.0-Setup.exe'
+# 1. Verify same-channel SHA-256 digest against SHA256SUMS.txt
+Get-FileHash -Algorithm SHA256 -LiteralPath 'VideoSave-1.3.1-Setup.exe'
 
-# 2. Verify independent GitHub Sigstore OIDC Provenance (recommended)
-gh attestation verify VideoSave-1.3.0-Setup.exe --repo KaiserIIII/videosave
+# 2. Verify independent GitHub Sigstore OIDC Build Provenance (recommended)
+gh attestation verify VideoSave-1.3.1-Setup.exe --repo KaiserIIII/videosave
 ```
 
 - **Upgrading DSH safely**: `node tools/upgrade-dsh.mjs --package="<path>"` (dry-run by default; add `--apply` to create a timestamped `.bak` backup and verify `get_version`).
-- **Uninstalling**: Use Windows Add/Remove Programs (for `Setup.exe`), `Uninstall VideoSave.command` (macOS), `./tools/start-unix.sh --uninstall` (Linux), or delete the extracted portable folder. Your downloaded media folder is never deleted.
+- **Uninstalling**: Use Windows Add/Remove Programs (for `Setup.exe`), `Uninstall VideoSave.command` (macOS), `./tools/start-unix.sh --uninstall` (Linux), or delete the extracted portable folder. Your downloaded videos and history are never deleted.

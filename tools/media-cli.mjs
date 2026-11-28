@@ -44,10 +44,13 @@ const options = {
   'conflict-action': { type: 'string' },
   'filename-template': { type: 'string' },
   subtitles: { type: 'boolean' },
+  'subtitle-format': { type: 'string' },
+  'subtitle-langs': { type: 'string' },
   resume: { type: 'boolean' },
   'no-resume': { type: 'boolean' },
   'json-progress': { type: 'boolean' },
   verify: { type: 'boolean' },
+  'verify-deep': { type: 'boolean' },
   'duration-tolerance': { type: 'string' },
   sandbox: { type: 'boolean' },
   'sandbox-dir': { type: 'string' },
@@ -93,11 +96,14 @@ try {
       '  --conflict-action ACTION     uniquify|skip|overwrite\n' +
       '  --filename-template TPL      Filename template ({id}, {title}, {height}, {date})\n' +
       '  --subtitles                  Include subtitle tracks\n' +
+      '  --subtitle-format vtt|srt|both  Subtitle sidecar format (default both)\n' +
+      '  --subtitle-langs LANGS       Comma-separated subtitle language codes (e.g. zh-CN,en-US)\n' +
       '  --connections 4|8|12         Per-item worker connections\n' +
       '  --concurrency N              Concurrent batch items (default 1)\n' +
       '  --resume / --no-resume       Enable (default) or disable checkpoint resume\n' +
       '  --json-progress              Emit structured JSONL progress every 2s\n' +
-      '  --verify                     Run FFprobe post-save verification\n' +
+      '  --verify                     Run FFprobe standard post-save verification\n' +
+      '  --verify-deep                Run full FFmpeg bitstream decode deep verification\n' +
       '  --duration-tolerance SEC     Allowed duration delta for --verify (default 1.0)\n' +
       '  --sandbox                    Force isolated temp sandbox (forbids reading user settings)\n' +
       '  --sandbox-dir DIR            Force isolated sandbox inside a specific temp directory\n' +
@@ -134,6 +140,9 @@ try {
         ...(values.format && { format: values.format }),
         ...(values.mode && { mode: values.mode }),
         ...(values.subtitles && { subtitles: true }),
+        ...(values['subtitle-format'] && { subtitleFormat: values['subtitle-format'] }),
+        ...(values['subtitle-langs'] && { subtitleLanguages: values['subtitle-langs'].split(',').map(s => s.trim()).filter(Boolean) }),
+        ...(values['verify-deep'] && { verificationLevel: 'deep' }),
         ...(values['conflict-action'] && { conflictAction: values['conflict-action'] }),
         ...(values['filename-template'] && { filenameTemplate: values['filename-template'] }),
       })),

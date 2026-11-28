@@ -15,7 +15,7 @@
       <a class="brand" href="#top">
         <img src="./logo.svg" width="30" height="30" alt="">
         <span>VideoSave</span>
-        <span class="version-pill" id="live-version">v1.3.0</span>
+        <span class="version-pill" id="live-version">v1.3.1</span>
       </a>
       <nav class="nav-links" aria-label="Primary">
         <a href="#downloads" data-i18n="nav.downloads">Download</a>
@@ -57,20 +57,20 @@
           <div class="terminal-card">
             <div class="terminal-head">
               <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-              <span class="terminal-title">MCP · VideoSave v1.3.0</span>
+              <span class="terminal-title">MCP · VideoSave v1.3.1</span>
             </div>
             <pre class="terminal-body"><code><span class="t-muted"># Check live version, install health &amp; official updates</span>
 → get_version({ "checkUpdates": true })
-  { "version": "1.3.0", "schemaVersion": "1.3.0", "mismatch": false }
+  { "version": "1.3.1", "schemaVersion": "1.3.1", "mismatch": false }
 
-<span class="t-muted"># Probe with 2-byte Range quality verification &amp; download best</span>
+<span class="t-muted"># Native Bilibili download (zero yt-dlp, verified actual quality)</span>
 → download_best_media({
-    "url": "https://media.example/watch/101",
+    "url": "BV1J4411v7g6",
     "quality": "best",
     "verify": true
   })
-  { "status": "done", "engine": "hls",
-    "verification": { "ok": true, "height": 1080 } }
+  { "status": "done", "engine": "bilibili-native",
+    "verification": { "ok": true, "height": 720 } }
 
 <span class="t-muted"># Inspect stage diagnostics &amp; SHA-256 checkpoints</span>
 → recover_download({ "id": "batch_…" })
@@ -169,7 +169,7 @@
             </label>
             <label>
               <span data-i18n="mcp.path">Extracted VideoSave Folder</span>
-              <input id="cfg-path" type="text" value="C:/VideoSave/VideoSave-1.3.0" spellcheck="false">
+              <input id="cfg-path" type="text" value="C:/VideoSave/VideoSave-1.3.1" spellcheck="false">
             </label>
             <label id="cfg-client-id-wrap" hidden>
               <span data-i18n="mcp.clientId">Managed Client ID (from AI &amp; MCP panel)</span>
@@ -285,7 +285,7 @@
           <p class="section-kicker" data-i18n="dsh.kicker">Real-User Feedback Remediation</p>
           <h2 data-i18n="dsh.title">Built Around DeepSeek Harness (DSH) Workflows</h2>
           <p class="section-desc" data-i18n="dsh.desc">
-            VideoSave v1.2.0 addresses all 12 real-world workflow findings reported from DSH usage — from stale process drift and HLS 403 header consistency to nonstandard segment extensions, SIGKILL resume, and OS-monitored sandbox isolation (DSH-12 remains open pending independent user re-verification).
+            VideoSave v1.3.1 addresses all 12 real-world workflow findings reported from DSH usage — including native Bilibili bare-BV downloads, unified quality negotiation consistency, nonstandard segment sniffing, SIGKILL resume, and recursive OS-monitored sandbox isolation (DSH-12 remains transparently open pending independent user re-verification).
           </p>
         </div>
         <div class="card-grid three">

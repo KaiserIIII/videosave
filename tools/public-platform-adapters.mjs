@@ -2,9 +2,10 @@ import { createWriteStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { ApiError } from './media-source.mjs';
+import { buildQualityNegotiationReport } from './quality-negotiator.mjs';
 import { paceBandwidth } from './rate-controller.mjs';
 
-const DEFAULT_UA = 'VideoSave/1.3.0 (+https://github.com/KaiserIIII/videosave)';
+const DEFAULT_UA = 'VideoSave/1.3.1 (+https://github.com/KaiserIIII/videosave)';
 
 function mediaExtRank(name = '') {
   const lower = name.toLowerCase();
@@ -143,19 +144,40 @@ export async function probeWikimediaCommons(video, signal) {
   };
 }
 
-export async function stageDirectPublicPlatform(video, target, staging, signal, onProgress) {
+export async function stageDirectPublicPlatform(video, target, staging, signal, onProgress, { onQualityNegotiated } = {}) {
   const probed = video.platform === 'internet-archive'
     ? await probeInternetArchive(video, signal)
     : await probeWikimediaCommons(video, signal);
   target.title ||= probed.title;
   const candidates = probed._candidates || [];
   let chosen = candidates[0];
+  let fallbackApplied = false;
+  let reason = 'highest-available';
   if (target.mode === 'audio') {
     chosen = candidates.find(c => c.isAudio) || chosen;
+    reason = 'audio-only';
   } else if (typeof target.quality === 'number') {
-    chosen = candidates.find(c => c.height > 0 && c.height <= target.quality) || chosen;
+    const within = candidates.find(c => c.height > 0 && c.height <= target.quality);
+    if (within) {
+      chosen = within;
+      fallbackApplied = within.height < target.quality;
+      reason = within.height === target.quality ? 'exact-cap-match' : 'highest-within-cap';
+    } else {
+      fallbackApplied = true;
+      reason = 'fallback-available-source';
+    }
   }
   if (!chosen?.url) throw new ApiError('NO_MEDIA', '未找到可下载的公开媒体文件', 422, { platform: video.platform });
+  onQualityNegotiated?.(buildQualityNegotiationReport({
+    requestedQuality: target.qualitySpec ?? target.quality ?? 'best',
+    availableQualities: probed.qualities ?? [],
+    declaredQuality: { height: chosen.height || null, width: chosen.width || null, codec: chosen.ext || null, formatKind: video.platform },
+    selectedQuality: { height: chosen.height || null, width: chosen.width || null, codec: chosen.ext || null, formatKind: video.platform },
+    fallbackApplied,
+    fallbackReason: fallbackApplied ? reason : null,
+    reason,
+    verificationStatus: 'pending',
+  }));
 
   const res = await fetch(chosen.url, {
     signal,

@@ -4,22 +4,22 @@
 [![Latest Release](https://img.shields.io/github/v/release/KaiserIIII/videosave)](https://github.com/KaiserIIII/videosave/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](LICENSE)
 
-[简体中文](README.zh-CN.md) · [Official Website](https://kaiseriiii.github.io/videosave/) · [Download v1.3.0](https://github.com/KaiserIIII/videosave/releases/latest) · [Android & HarmonyOS](docs/android-harmonyos.md) · [Security Audit](docs/security-audit-v1.3.md)
+[简体中文](README.zh-CN.md) · [Official Website](https://kaiseriiii.github.io/videosave/) · [Download v1.3.1](https://github.com/KaiserIIII/videosave/releases/latest) · [Android & HarmonyOS](docs/android-harmonyos.md) · [Security Audit](docs/security-audit-v1.3.1.md)
 
-[Changelog](CHANGELOG.md#130) · [AI & CLI Cookbook](docs/ai-recipes.md) · [DSH Guide](docs/dsh-guide.md) · [DSH Feedback Tracker](docs/dsh-feedback-tracker.md) · [FAQ](docs/faq.md) · [Compatibility Results](docs/compatibility-report.zh-CN.md)
+[Changelog](CHANGELOG.md#131) · [AI & CLI Cookbook](docs/ai-recipes.md) · [DSH Guide](docs/dsh-guide.md) · [DSH Feedback Tracker](docs/dsh-feedback-tracker.md) · [Launch Kit](docs/launch-kit.md) · [FAQ](docs/faq.md) · [Compatibility Results](docs/compatibility-report.zh-CN.md)
 
-Find the video playing in your browser, verify real quality availability, and save it reliably. VideoSave is free, MIT-licensed, local-first, and built with **zero third-party npm dependencies**. Version **1.3.0** introduces a built-in **Native Bilibili Engine** (zero `yt-dlp` required, official UPOS multi-CDN failover resolving HTTP 567, **11/11 real public Bilibili videos verified**), native Internet Archive & Wikimedia Commons support, Android static DASH (`MediaMuxer`) + strict HTTP 416 + modern 4-tab UI fixes, recursive OS-level DSH-12 sandbox monitoring, fair monotonic-PTS multi-round competitor benchmarks (**2.40× vs FFmpeg, 3.12× vs yt-dlp**), Windows graphical `Setup.exe` & Offline Portable ZIP, self-bootstrapping macOS/Linux (Node 24 + yt-dlp) & `.deb`, Local Management Center (`/console`), and 27 MCP tools for DSH, Codex, Claude, Cursor, and Antigravity.
+Find the video playing in your browser, verify real quality availability, and save it reliably. VideoSave is free, MIT-licensed, local-first, and built with **zero third-party npm dependencies**. Version **1.3.1** (Final Polish) delivers a built-in **Native Bilibili Engine** (zero `yt-dlp` required, **11/11 real public Bilibili videos verified** with **11/11 quality negotiation consistency** and strict `exact:HEIGHT` enforcement), native Internet Archive & Wikimedia Commons adapters, Android Static DASH (`MediaMuxer`) + strict HTTP 416 + backup migration verified live on **Android 16 Emulator**, unified `quick`/`standard`/`deep` verification semantics, hardened DSH-12 recursive OS audit, fair multi-round & same-concurrency controlled HLS benchmarks, Windows graphical `Setup.exe` & true Offline Portable ZIP, Linux x64/ARM64 self-bootstrapping (Node 24 + FFmpeg 8.1 + yt-dlp) & `.deb`, Local Management Center (`/console`), and 27 MCP tools for DSH, Codex, Claude, Cursor, and Antigravity.
 
 ## Platform Support Matrix
 
 | Platform | Artifact | Support Status | Notes |
 | :--- | :--- | :--- | :--- |
-| **Windows x64** | `VideoSave-1.3.0-Setup.exe`, `VideoSave-1.3.0-win-x64-offline.zip`, `VideoSave-1.3.0.zip` | **Official** | Native WinForms setup wizard, zero admin rights, zero PATH changes, verified offline bundle |
-| **Linux (x64 / ARM64)** | `videosave_1.3.0_all.deb`, `VideoSave-1.3.0-unix.tar.gz` | **Official** | Auto-bootstraps SHA-256 verified Node.js 24 LTS & yt-dlp; verified on Ubuntu 24.04 CI |
-| **macOS (Apple Silicon / Intel)** | `VideoSave-1.3.0-unix.tar.gz` (`Launch VideoSave.command`) | **Official (Unsigned)** | Auto-bootstraps verified Node.js 24 LTS & yt-dlp; verified on macOS 15 CI; Apple Developer notarization not included |
-| **Android 8–16 & HarmonyOS 4.x** | `VideoSave-1.3.0-android-debug.apk` | **Beta** | Standalone APK (native Bilibili, Static DASH MediaMuxer, strict HTTP 416, modern 4-tab UI, 19/19 JVM self-tests); debug-signed until formal release keystore is configured; see [Android & HarmonyOS Guide](docs/android-harmonyos.md) |
+| **Windows x64** | `VideoSave-1.3.1-Setup.exe`, `VideoSave-1.3.1-win-x64-offline.zip`, `VideoSave-1.3.1.zip` | **Official (Unsigned)** | Native WinForms setup wizard, zero admin rights, zero PATH changes, verified offline & clean-room install (no paid Authenticode cert yet) |
+| **Linux (x64 / ARM64)** | `videosave_1.3.1_all.deb`, `VideoSave-1.3.1-unix.tar.gz` | **Official** | Auto-bootstraps SHA-256 verified Node.js 24 LTS, FFmpeg/FFprobe 8.1.3 & yt-dlp; x64 verified on Ubuntu 24.04 CI |
+| **macOS (Apple Silicon / Intel)** | `VideoSave-1.3.1-unix.tar.gz` (`Launch VideoSave.command`) | **Official (Unsigned)** | Auto-bootstraps verified Node.js 24 LTS & yt-dlp; ARM64 verified on macOS 15 CI; Apple Developer notarization not included |
+| **Android 8–16 & HarmonyOS 4.x** | `VideoSave-1.3.1-android-debug.apk` | **Beta** | Standalone APK (native Bilibili, Static DASH `MediaMuxer`, strict HTTP 416, 4-tab UI, 24/24 JVM tests + live Android 16 Emulator E2E); debug-signed until release keystore Secrets are configured; physical Mate 60 Pro sign-off pending; see [Android & HarmonyOS Guide](docs/android-harmonyos.md) |
 | **HarmonyOS NEXT (5.0+)** | — | **Planned** | Does not run native Android APKs; ArkTS/ArkUI roadmap documented in [docs/android-harmonyos.md](docs/android-harmonyos.md) |
-| **Browser Extensions** | `VideoSave-1.3.0-extension.zip`, `VideoSave-1.3.0-firefox.zip`, `VideoSave-1.3.0-android-dev.zip` | **Official (Unpacked) / Store Submission Ready** | Manifest V3 for Edge, Chrome, Brave, Firefox 136+, and Firefox Android |
+| **Browser Extensions** | `VideoSave-1.3.1-extension.zip`, `VideoSave-1.3.1-firefox.zip`, `VideoSave-1.3.1-android-dev.zip` | **Official (Unpacked) / Store Submission Ready** | Manifest V3 for Edge, Chrome, Brave, Firefox 136+, and Firefox Android |
 
 ## Verified Public Media Platforms (Honest Evidence-Backed Status)
 
@@ -27,21 +27,23 @@ Find the video playing in your browser, verify real quality availability, and sa
 
 | Platform | Engine | Status | Evidence |
 | :--- | :--- | :--- | :--- |
-| **Bilibili** (`BV...`, `bilibili.com`, `b23.tv`) | `bilibili-native` (built-in, zero `yt-dlp` required) | **Verified (11/11, 100%)** | [v1.3.0-bilibili-public.json](docs/compatibility-data/v1.3.0-bilibili-public.json) — 361.7 MB, FFprobe + decode verified (short, 34m long, multi-P, bare BV, `b23.tv`, audio-only, HEVC/H.264) |
-| **YouTube** (`youtube.com`, `youtu.be`, `music.youtube.com`) | Managed `yt-dlp` + Node 24 + FFmpeg | **Verified** | [v1.3.0-platforms-public.json](docs/compatibility-data/v1.3.0-platforms-public.json) — 320×240, 19.005s, FFprobe + decode verified |
-| **Internet Archive** (`archive.org/details/...`) | `internet-archive-native` (built-in) | **Verified** | [v1.3.0-platforms-public.json](docs/compatibility-data/v1.3.0-platforms-public.json) — 640×360, 596.48s, FFprobe + decode verified |
-| **Wikimedia Commons** (`commons.wikimedia.org/wiki/File:...`) | `wikimedia-native` (built-in) | **Verified** | [v1.3.0-platforms-public.json](docs/compatibility-data/v1.3.0-platforms-public.json) |
-| **Standard HTML5 / HLS / LL-HLS / DASH** | Native VideoSave HTTP Range / HLS / DASH | **Verified** | [v1.3.0-competitor-benchmark.json](docs/compatibility-data/v1.3.0-competitor-benchmark.json), DSH acceptance & CI matrix |
-| **DRM / Paywalled Services** | Explicitly Refused | **Unsupported by Design** | Never bypasses DRM, CAPTCHAs, or HTTP 401/403/451 |
+| **Bilibili** (`BV...`, `bilibili.com`, `b23.tv`) | `bilibili-native` (built-in, zero `yt-dlp` required) | **Verified (11/11, 100%, 11/11 quality-consistent)** | [v1.3.1-bilibili-public.json](docs/compatibility-data/v1.3.1-bilibili-public.json) — 260.9 MiB, FFprobe + decode verified (short, 34m long, multi-P, bare BV, `b23.tv`, audio-only, HEVC/H.264, strict `exact:1080` rejection) |
+| **YouTube** (`youtube.com`, `youtu.be`, `music.youtube.com`) | Managed `yt-dlp` + Node 24 + FFmpeg | **Verified** | [v1.3.1-platforms-public.json](docs/compatibility-data/v1.3.1-platforms-public.json) — 320×240, 19.005s, FFprobe + decode verified |
+| **Internet Archive** (`archive.org/details/...`) | `internet-archive-native` (built-in) | **Verified** | [v1.3.1-platforms-public.json](docs/compatibility-data/v1.3.1-platforms-public.json) — 1280×720, 29.568s, FFprobe + decode verified |
+| **Wikimedia Commons** (`commons.wikimedia.org/wiki/File:...`) | `wikimedia-native` (built-in) | **Verified** | [v1.3.1-platforms-public.json](docs/compatibility-data/v1.3.1-platforms-public.json) — 320×240, 33.28s, FFprobe + decode verified |
+| **Standard HTML5 / HLS / LL-HLS / DASH** | Native VideoSave HTTP Range / HLS / DASH | **Verified** | [v1.3.1-competitor-benchmark.json](docs/compatibility-data/v1.3.1-competitor-benchmark.json), DSH acceptance & CI matrix |
+| **DRM / Paywalled Services** | Explicitly Refused | **Unsupported by Design** | Never bypasses DRM, CAPTCHAs, or HTTP 401/403/451/567 |
 
 ## MCP Client Support Matrix
 
 | Client | Config Generation | Live MCP Handshake & Tools | Real End-to-End Media Task |
 | :--- | :--- | :--- | :--- |
-| **DeepSeek Harness (DSH)** | Verified (`cordis.patch.yml`) | **Verified** (`@deepseek-ai/dsh-mcp-client` + AJV) | **Verified** (20/20 on extracted ZIP + independent user P0-1/P0-4 verification) |
+| **DeepSeek Harness (DSH)** | Verified (`cordis.patch.yml`) | **Verified** (`@deepseek-ai/dsh-mcp-client` + AJV) | **Verified** (21/21 on extracted ZIP including bare-BV Bilibili + independent user P0-1/P0-4 verification) |
 | **Codex CLI** | Verified (`config.toml`) | Compatible (standard stdio MCP) | Pending independent host client run |
 | **Claude Code / Claude Desktop** | Verified (JSON / CLI) | Compatible (standard stdio MCP) | Pending independent host client run |
 | **Cursor / Antigravity** | Verified (JSON) | Compatible (standard stdio MCP) | Pending independent host client run |
+
+![VideoSave Local Management Center](docs/screenshots/console-desktop.png)
 
 ![VideoSave in Microsoft Edge](docs/videosave-0.9-detection.png)
 
@@ -94,9 +96,10 @@ node tools/server.mjs
 
 The service listens on `127.0.0.1:8765`. Enter its address and pairing code under **Settings → Local download service**. Starting with `Start VideoSave.cmd` keeps the same pairing code after a restart. A manually started service uses a new code unless you set `MEDIA_TOOLKIT_TOKEN` or enable local pairing with `MEDIA_TOOLKIT_LOCAL_PAIRING=1`. HTTP and MCP page inspection use a temporary Chromium profile. Use `BROWSER_BIN` to select Edge, Chrome, or Brave. `EDGE_BIN`, `FFMPEG_BIN`, and `FFPROBE_BIN` are also supported.
 
-### Bilibili and YouTube
+### Bilibili, YouTube, Internet Archive & Wikimedia Commons
 
-The Windows x64 launcher enables [yt-dlp](https://github.com/yt-dlp/yt-dlp) for public videos you have permission to save. If you start the service manually, run the extractor setup from the extracted directory first:
+- **Bilibili (`bilibili-native`)**, **Internet Archive (`internet-archive-native`)**, and **Wikimedia Commons (`wikimedia-native`)** are built directly into VideoSave and require **zero `yt-dlp`** (Bilibili only uses FFmpeg for lossless MP4/M4A muxing). You can paste a bare `BV...` ID, `bilibili.com/video/...`, or `b23.tv` short link across the extension, `/console`, CLI, MCP, or Android app.
+- **YouTube** uses the managed [yt-dlp](https://github.com/yt-dlp/yt-dlp) binary prepared automatically by `Start VideoSave.cmd` (Windows) or `./tools/start-unix.sh` (macOS/Linux). If starting manually, run:
 
 ```powershell
 node tools/setup-platform-downloads.mjs

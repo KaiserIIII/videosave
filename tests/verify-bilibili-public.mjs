@@ -4,7 +4,7 @@ import path from 'node:path';
 import { createTestSandbox } from './test-sandbox.mjs';
 
 const option = name => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
-const outputPath = option('output') || 'docs/compatibility-data/v1.3.0-bilibili-public.json';
+const outputPath = option('output') || 'docs/compatibility-data/v1.3.1-bilibili-public.json';
 const ffmpeg = process.env.FFMPEG_BIN || 'ffmpeg';
 const ffprobe = process.env.FFPROBE_BIN || 'ffprobe';
 
@@ -177,10 +177,20 @@ try {
         row.totalPages = pt?.totalPages ?? null;
         row.availableQualities = pt?.qualities ?? [];
         row.engine = res.item?.engine ?? 'bilibili-native';
+        row.qualityNegotiation = res.item?.qualityNegotiation ?? null;
+        row.subtitles = res.item?.subtitles ?? null;
         row.downloadStatus = res.status;
         if (res.item?.file) {
           row.fileBytes = (await stat(res.item.file)).size;
           row.verification = verifyPlayableMedia(res.item.file, sample.mode);
+          if (row.qualityNegotiation) {
+            row.qualityNegotiation.verificationLevel = 'deep';
+            row.qualityNegotiation.verificationStatus = row.verification.ok ? 'verified' : 'failed';
+            row.qualityConsistencyOk = sample.mode === 'audio'
+              ? true
+              : (row.qualityNegotiation.selectedQuality?.height === row.verification.height
+                && row.qualityNegotiation.actualQuality?.height === row.verification.height);
+          }
           if (row.verification.ok) row.downloadStatus = 'verified';
           else row.downloadStatus = 'verification-failed';
         } else {
@@ -192,6 +202,7 @@ try {
         row.probeStatus = pt ? 'ok' : 'failed';
         row.title = pt?.title ?? probed.pageTitle ?? null;
         row.totalPages = pt?.totalPages ?? (probed.pages?.length || 1);
+        row.partSelection = pt?.partSelection ?? null;
         row.availableQualities = pt?.qualities ?? [];
 
         const { id } = downloads.queueBatch({
@@ -201,6 +212,7 @@ try {
             quality: sample.quality,
             mode: sample.mode,
             subtitles: Boolean(sample.subtitles),
+            ...(sample.subtitles && { subtitleFormat: 'both' }),
           }],
           connections: 8,
         });
@@ -211,9 +223,18 @@ try {
         const item = batch.items?.[0];
         row.engine = item?.engine ?? 'bilibili-native';
         row.qualityNegotiation = item?.qualityNegotiation ?? null;
+        row.subtitles = item?.subtitles ?? null;
         if (item?.status === 'done' && item.file) {
           row.fileBytes = (await stat(item.file)).size;
           row.verification = verifyPlayableMedia(item.file, sample.mode);
+          if (row.qualityNegotiation) {
+            row.qualityNegotiation.verificationLevel = 'deep';
+            row.qualityNegotiation.verificationStatus = row.verification.ok ? 'verified' : 'failed';
+            row.qualityConsistencyOk = sample.mode === 'audio'
+              ? true
+              : (row.qualityNegotiation.selectedQuality?.height === row.verification.height
+                && row.qualityNegotiation.actualQuality?.height === row.verification.height);
+          }
           row.downloadStatus = row.verification.ok ? 'verified' : 'verification-failed';
         } else {
           row.downloadStatus = item?.errorCode || batch.status;
@@ -238,21 +259,44 @@ try {
     );
   }
 
-  const actualWritePaths = await sandbox.collectActualWritePaths({ label: 'bilibili-public-v13' });
+  // Additional real-world check: exact:1080 MUST fail explicitly on an anonymous 720p-max video (no silent downgrade)
+  let exactRejectCheck = { requested: 'exact:1080', input: 'BV1J4411v7g6', rejectedExplicitly: false, errorCode: null };
+  try {
+    const { id } = downloads.queueBatch({
+      items: [{ kind: 'page', url: 'BV1J4411v7g6', quality: 'exact:1080', mode: 'combined' }],
+      connections: 8,
+    });
+    const b = await downloads.waitForBatch({ id, timeoutMs: 30_000 });
+    const it = b.items?.[0];
+    exactRejectCheck = {
+      requested: 'exact:1080',
+      input: 'BV1J4411v7g6',
+      rejectedExplicitly: it?.status === 'error' && it?.errorCode === 'QUALITY_UNAVAILABLE',
+      errorCode: it?.errorCode ?? it?.status ?? null,
+    };
+  } catch (err) {
+    exactRejectCheck = { requested: 'exact:1080', input: 'BV1J4411v7g6', rejectedExplicitly: err.code === 'QUALITY_UNAVAILABLE', errorCode: err.code ?? 'error' };
+  }
+
+  const actualWritePaths = await sandbox.collectActualWritePaths({ label: 'bilibili-public-v131' });
   const passed = results.filter(r => r.downloadStatus === 'verified').length;
+  const qualityConsistentCount = results.filter(r => r.qualityConsistencyOk === true).length;
   const report = {
     recordedAt: new Date().toISOString(),
-    version: '1.3.0',
+    version: '1.3.1',
     platform: `${process.platform}-${process.arch}`,
     node: process.version,
     ytdlpRequired: false,
     ytdlpConfiguredDuringTest: false,
     realPublicMediaOnly: true,
     fallbackToLocalFixtureCount: 0,
+    verificationLevel: 'deep',
+    exactQualityRejectionCheck: exactRejectCheck,
     summary: {
       total: results.length,
       probed: results.filter(r => r.probeStatus === 'ok').length,
       verified: passed,
+      qualityConsistent: qualityConsistentCount,
       failed: results.length - passed,
       successRatePct: Math.round((passed / results.length) * 1000) / 10,
       totalDownloadedBytes: results.reduce((s, r) => s + r.fileBytes, 0),
@@ -261,6 +305,7 @@ try {
     actualWritePaths: {
       sandboxEnforced: actualWritePaths.sandboxEnforced,
       osMonitorMechanism: actualWritePaths.osMonitorMechanism,
+      auditComplete: actualWritePaths.auditComplete,
       outOfBoundsViolationCount: actualWritePaths.outOfBoundsViolationCount,
       writtenFileCount: actualWritePaths.writtenFileCount,
       allWritesInsideSandbox: actualWritePaths.allWritesInsideSandbox,
@@ -268,8 +313,8 @@ try {
   };
 
   await writeFile(path.resolve(outputPath), JSON.stringify(report, null, 2) + '\n', 'utf8');
-  console.log('SUMMARY:', JSON.stringify(report.summary));
-  if (passed < 10) process.exitCode = 1;
+  console.log('SUMMARY:', JSON.stringify(report.summary), 'exactReject:', JSON.stringify(exactRejectCheck));
+  if (passed < 10 || qualityConsistentCount !== results.length || !exactRejectCheck.rejectedExplicitly) process.exitCode = 1;
 } finally {
   restoreEnv();
   await sandbox.cleanup();
