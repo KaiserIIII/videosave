@@ -1,0 +1,148 @@
+{
+  "recordedAt": "2026-11-28T02:08:55.155Z",
+  "platform": "win32-x64",
+  "node": "v24.19.0",
+  "ytdlpConfigured": true,
+  "results": [
+    {
+      "id": "bilibili-public-sample",
+      "platform": "bilibili",
+      "url": "https://www.bilibili.com/video/BV1xx411c7mD/",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "probeStatus": "ok",
+      "downloadStatus": "MEDIA_ACCESS_RESTRICTED",
+      "title": null,
+      "qualities": [
+        {
+          "candidateId": "bilibili-100023",
+          "height": 384,
+          "width": 512,
+          "bandwidth": 206531,
+          "codec": "av01.0.01M.08.0.110.01.01.01.0",
+          "frameRate": 15.009,
+          "audioTracks": [
+            {
+              "codecs": "mp4a.40.2",
+              "bandwidth": 68646
+            }
+          ],
+          "subtitleTracks": [],
+          "availability": "available",
+          "available": true,
+          "probeStatus": 200,
+          "verificationMethod": "platform-extractor",
+          "checkedAt": "2026-11-28T02:08:16.077Z",
+          "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+        },
+        {
+          "candidateId": "bilibili-100022",
+          "height": 360,
+          "width": 480,
+          "bandwidth": 206445,
+          "codec": "av01.0.01M.08.0.110.01.01.01.0",
+          "frameRate": 15.009,
+          "audioTracks": [
+            {
+              "codecs": "mp4a.40.2",
+              "bandwidth": 68646
+            }
+          ],
+          "subtitleTracks": [],
+          "availability": "available",
+          "available": true,
+          "probeStatus": 200,
+          "verificationMethod": "platform-extractor",
+          "checkedAt": "2026-11-28T02:08:16.077Z",
+          "url": "https://www.bilibili.com/video/BV1xx411c7mD/"
+        }
+      ],
+      "error": "平台媒体服务器拒绝访问（HTTP 567）",
+      "elapsedMs": 23186
+    },
+    {
+      "id": "youtube-public-sample",
+      "platform": "youtube",
+      "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "probeStatus": "ok",
+      "downloadStatus": "verified",
+      "title": null,
+      "qualities": [
+        {
+          "candidateId": "youtube-230",
+          "height": 240,
+          "width": 320,
+          "bandwidth": 294965,
+          "codec": "avc1.4D400C",
+          "frameRate": 15,
+          "audioTracks": [
+            {
+              "codecs": "mp4a.40.5",
+              "bandwidth": 49127
+            }
+          ],
+          "subtitleTracks": [
+            {
+              "language": "en"
+            },
+            {
+              "language": "de"
+            }
+          ],
+          "availability": "available",
+          "available": true,
+          "probeStatus": 200,
+          "verificationMethod": "platform-extractor",
+          "checkedAt": "2026-11-28T02:08:46.427Z",
+          "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+        },
+        {
+          "candidateId": "youtube-269",
+          "height": 144,
+          "width": 192,
+          "bandwidth": 139566,
+          "codec": "avc1.4D400B",
+          "frameRate": 15,
+          "audioTracks": [
+            {
+              "codecs": "mp4a.40.5",
+              "bandwidth": 49127
+            }
+          ],
+          "subtitleTracks": [
+            {
+              "language": "en"
+            },
+            {
+              "language": "de"
+            }
+          ],
+          "availability": "available",
+          "available": true,
+          "probeStatus": 200,
+          "verificationMethod": "platform-extractor",
+          "checkedAt": "2026-11-28T02:08:46.427Z",
+          "url": "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+        }
+      ],
+      "fileBytes": 536789,
+      "verification": {
+        "duration": 19.005,
+        "width": 320,
+        "height": 240,
+        "videoCodec": "av1",
+        "audioCodec": "aac"
+      },
+      "elapsedMs": 19692
+    }
+  ],
+  "actualWritePaths": {
+    "sandboxEnforced": true,
+    "osMonitorMechanism": "ReadDirectoryChangesW+TreeDiff",
+    "outOfBoundsViolationCount": 0,
+    "writtenFileCount": 1,
+    "allWritesInsideSandbox": true
+  }
+}

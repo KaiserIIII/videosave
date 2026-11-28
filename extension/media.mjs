@@ -12,8 +12,15 @@ const mediaMimes = {
 };
 
 export function platformVideo(value) {
-  const url = URL.parse(value);
+  const trimmed = String(value ?? '').trim();
+  if (/^BV[A-Za-z0-9]{10}$/.test(trimmed)) {
+    return { platform: 'bilibili', url: 'https://www.bilibili.com/video/' + trimmed + '/' };
+  }
+  const url = URL.parse(trimmed);
   if (!url || !['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.port) return null;
+  if (url.hostname === 'b23.tv' && /^\/[A-Za-z0-9]{5,16}\/?$/.test(url.pathname)) {
+    return { platform: 'bilibili', shortLink: true, url: 'https://b23.tv' + url.pathname };
+  }
   if (['www.bilibili.com', 'm.bilibili.com', 'bilibili.com'].includes(url.hostname)) {
     const match = /^\/video\/(BV[A-Za-z0-9]{10}|av[1-9]\d*)\/?$/.exec(url.pathname);
     if (!match) return null;
@@ -21,9 +28,9 @@ export function platformVideo(value) {
     return {platform:'bilibili', url:'https://www.bilibili.com/video/' + match[1] + '/' +
       (/^[1-9]\d{0,5}$/.test(part) ? '?p=' + part : '')};
   }
-  const youtube = ['www.youtube.com', 'm.youtube.com', 'youtube.com'].includes(url.hostname);
+  const youtube = ['www.youtube.com', 'm.youtube.com', 'youtube.com', 'music.youtube.com'].includes(url.hostname);
   const id = youtube && url.pathname === '/watch' ? url.searchParams.get('v')
-    : youtube ? /^\/(?:shorts|embed)\/([\w-]{11})\/?$/.exec(url.pathname)?.[1]
+    : youtube ? /^\/(?:shorts|embed|live)\/([\w-]{11})\/?$/.exec(url.pathname)?.[1]
     : url.hostname === 'youtu.be' ? /^\/([\w-]{11})\/?$/.exec(url.pathname)?.[1] : undefined;
   return /^[\w-]{11}$/.test(id) ? {platform:'youtube',url:'https://www.youtube.com/watch?v=' + id} : null;
 }

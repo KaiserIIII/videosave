@@ -12,7 +12,37 @@ import { ApiError } from './media-source.mjs';
 const edgeDefault = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const exec = promisify(execFile);
 
-export class BrowserTransportError extends Error {}
+export const BROWSER_STAGES = Object.freeze({
+  BROWSER_NOT_STARTED: 'BROWSER_NOT_STARTED',
+  BROWSER_EXITED_EARLY: 'BROWSER_EXITED_EARLY',
+  CDP_NOT_READY: 'CDP_NOT_READY',
+  EXTENSION_LOAD_FAILED: 'EXTENSION_LOAD_FAILED',
+  PAGE_LOAD_FAILED: 'PAGE_LOAD_FAILED',
+  PROBE_FAILED: 'PROBE_FAILED',
+  DOWNLOAD_FAILED: 'DOWNLOAD_FAILED',
+  READY: 'READY',
+});
+
+export const STARTUP_RETRYABLE_STAGES = new Set([
+  BROWSER_STAGES.BROWSER_NOT_STARTED,
+  BROWSER_STAGES.BROWSER_EXITED_EARLY,
+  BROWSER_STAGES.CDP_NOT_READY,
+  BROWSER_STAGES.EXTENSION_LOAD_FAILED,
+]);
+
+export class BrowserTransportError extends Error {
+  constructor(message, options = {}) {
+    super(message, options?.cause ? { cause: options.cause } : undefined);
+    this.name = 'BrowserTransportError';
+    this.stage = options.stage ?? BROWSER_STAGES.CDP_NOT_READY;
+    this.code = options.code ?? this.stage;
+    this.retryable = Boolean(options.retryable ?? STARTUP_RETRYABLE_STAGES.has(this.stage));
+    if (options.exitCode !== undefined) this.exitCode = options.exitCode;
+    if (options.signalCode !== undefined) this.signalCode = options.signalCode;
+    if (options.stderrTail) this.stderrTail = options.stderrTail;
+    if (options.elapsedMs !== undefined) this.elapsedMs = options.elapsedMs;
+  }
+}
 
 function candidatePaths(browser) {
   const roots = ['ProgramFiles', 'ProgramFiles(x86)', 'LOCALAPPDATA']
@@ -170,11 +200,87 @@ export function withEdge(args, run, signal, options) {
 }
 
 export async function withChromium(args, run, signal, options = {}) {
-  const { profileMode = 'ephemeral', browserSessionId } = options;
+  const {
+    profileMode = 'ephemeral',
+    browserSessionId,
+    maxStartupRetries = profileMode === 'dedicated' ? 1 : 2,
+    onLaunchTelemetry,
+  } = options;
+  const execLaunch = async () => {
+    const attempts = [];
+    let lastError;
+    for (let attempt = 1; attempt <= 1 + maxStartupRetries; attempt++) {
+      signal?.throwIfAborted();
+      const startedAt = performance.now();
+      let enteredRun = false;
+      try {
+        const result = await runChromiumOnce(
+          args,
+          ctx => {
+            enteredRun = true;
+            return run({
+              ...ctx,
+              launchTelemetry: {
+                attempts: attempt,
+                retries: attempt - 1,
+                firstFailure: attempts[0] ?? null,
+                priorAttempts: [...attempts],
+                finalStage: BROWSER_STAGES.READY,
+                launchMs: Math.round(performance.now() - startedAt),
+              },
+            });
+          },
+          signal,
+          options,
+        );
+        onLaunchTelemetry?.({
+          attempts: attempt,
+          retries: attempt - 1,
+          firstFailure: attempts[0] ?? null,
+          priorAttempts: [...attempts],
+          finalStage: BROWSER_STAGES.READY,
+          launchMs: Math.round(performance.now() - startedAt),
+        });
+        return result;
+      } catch (error) {
+        const elapsedMs = Math.round(performance.now() - startedAt);
+        const stage = error?.stage ?? (enteredRun ? BROWSER_STAGES.PROBE_FAILED : BROWSER_STAGES.CDP_NOT_READY);
+        const record = {
+          attempt,
+          stage,
+          message: error?.message ?? String(error),
+          exitCode: error?.exitCode ?? null,
+          elapsedMs,
+        };
+        attempts.push(record);
+        lastError = error;
+        // Never retry functional failures after browser/CDP startup succeeded, except explicit EXTENSION_LOAD_FAILED.
+        const canRetry = !signal?.aborted &&
+          attempt <= maxStartupRetries &&
+          STARTUP_RETRYABLE_STAGES.has(stage) &&
+          (!enteredRun || stage === BROWSER_STAGES.EXTENSION_LOAD_FAILED);
+        if (!canRetry) {
+          if (error && typeof error === 'object') {
+            error.launchTelemetry = {
+              attempts: attempt,
+              retries: attempt - 1,
+              firstFailure: attempts[0] ?? null,
+              priorAttempts: [...attempts],
+              finalStage: stage,
+            };
+          }
+          onLaunchTelemetry?.(error?.launchTelemetry);
+          throw error;
+        }
+        await sleep(300 * attempt, undefined, { signal }).catch(() => {});
+      }
+    }
+    throw lastError;
+  };
   if (profileMode === 'dedicated' && browserSessionId) {
-    return withDedicatedSessionQueue(browserSessionId, () => runChromiumOnce(args, run, signal, options), { signal });
+    return withDedicatedSessionQueue(browserSessionId, execLaunch, { signal });
   }
-  return runChromiumOnce(args, run, signal, options);
+  return execLaunch();
 }
 
 async function runChromiumOnce(args, run, signal, {
@@ -188,6 +294,7 @@ async function runChromiumOnce(args, run, signal, {
   browserSessionId,
   networkMode,
   proxy,
+  startupTimeoutMs = 30_000,
 } = {}) {
   signal?.throwIfAborted();
   const binary = executable || resolveChromiumExecutable({ browser, browserBinary });
@@ -196,6 +303,8 @@ async function runChromiumOnce(args, run, signal, {
     : null;
   const profile = dedicated ? dedicated.profileDir : await mkdtemp(path.join(os.tmpdir(), 'media-toolkit-edge-'));
   let edge;
+  let stderrBuf = '';
+  const startedAt = performance.now();
   try {
     const settings = path.join(profile, 'Default');
     await mkdir(settings, { recursive: true });
@@ -220,6 +329,9 @@ async function runChromiumOnce(args, run, signal, {
     edge = spawn(binary, [
       ...(headed ? [] : ['--headless=new']),
       '--no-first-run', '--no-default-browser-check', '--disable-gpu',
+      '--disable-dev-shm-usage', '--no-service-autorun', '--password-store=basic',
+      '--disable-background-timer-throttling', '--disable-renderer-backgrounding',
+      '--disable-backgrounding-occluded-windows',
       '--mute-audio', '--disable-background-networking', '--disable-component-update',
       '--disable-sync', '--remote-debugging-port=0', '--remote-debugging-address=127.0.0.1',
       `--user-data-dir=${profile}`,
@@ -227,34 +339,72 @@ async function runChromiumOnce(args, run, signal, {
       ...probeProxyArgs({ networkMode, proxy }),
       ...args,
       'about:blank',
-    ], { stdio: 'ignore', windowsHide: !headed, detached: process.platform !== 'win32' });
+    ], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: !headed, detached: process.platform !== 'win32' });
+    edge.stderr?.setEncoding('utf8');
+    edge.stderr?.on('data', chunk => {
+      stderrBuf = (stderrBuf + chunk).slice(-4096);
+    });
     let startupError;
     let activeBrowserUrl;
     edge.once('error', error => { startupError = error; });
-    const deadline = Date.now() + 12000;
+    const deadline = Date.now() + Math.max(12_000, Number(startupTimeoutMs) || 30_000);
     while (Date.now() < deadline) {
       signal?.throwIfAborted();
-      if (startupError) throw new Error('无法启动隔离的 Chromium 浏览器', { cause: startupError });
-      if (edge.exitCode !== null || edge.signalCode !== null) throw new BrowserTransportError('隔离的 Chromium 浏览器提前退出');
+      if (startupError) {
+        throw new BrowserTransportError('无法启动隔离的 Chromium 浏览器', {
+          cause: startupError,
+          stage: BROWSER_STAGES.BROWSER_NOT_STARTED,
+          stderrTail: stderrBuf.trim().slice(-600),
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
+      }
+      if (edge.exitCode !== null || edge.signalCode !== null) {
+        throw new BrowserTransportError(
+          `隔离的 Chromium 浏览器提前退出 (code=${edge.exitCode}, signal=${edge.signalCode})`,
+          {
+            stage: BROWSER_STAGES.BROWSER_EXITED_EARLY,
+            exitCode: edge.exitCode,
+            signalCode: edge.signalCode,
+            stderrTail: stderrBuf.trim().slice(-600),
+            elapsedMs: Math.round(performance.now() - startedAt),
+          },
+        );
+      }
       const ports = await readFile(devToolsPortFile, 'utf8').catch(() => '');
       const [port, browserPath] = ports.trim().split(/\r?\n/);
       if (port && browserPath) {
         const origin = `http://127.0.0.1:${port}`;
+        // Confirm HTTP CDP listener is actually accepting requests before entering run()
+        const versionOk = await fetch(`${origin}/json/version`, {
+          signal: AbortSignal.any([AbortSignal.timeout(2500), ...(signal ? [signal] : [])]),
+        }).then(async r => {
+          const ok = r.ok;
+          await r.body?.cancel().catch(() => {});
+          return ok;
+        }).catch(() => false);
+        if (!versionOk) {
+          await sleep(120, undefined, { signal });
+          continue;
+        }
         activeBrowserUrl = `ws://127.0.0.1:${port}${browserPath}`;
         const list = async () => {
           try {
             const response = await fetch(`${origin}/json/list`, {
-              signal: AbortSignal.any([AbortSignal.timeout(3000), ...(signal ? [signal] : [])]),
+              signal: AbortSignal.any([AbortSignal.timeout(4000), ...(signal ? [signal] : [])]),
             });
             if (!response.ok) { await response.body?.cancel(); throw new Error('Chromium target list unavailable'); }
             return await response.json();
           } catch (error) {
             signal?.throwIfAborted();
-            throw new BrowserTransportError('读取 Chromium 调试目标失败', { cause: error });
+            throw new BrowserTransportError('读取 Chromium 调试目标失败', {
+              cause: error,
+              stage: BROWSER_STAGES.CDP_NOT_READY,
+              retryable: false,
+            });
           }
         };
         try {
-          return await run({ list, profile, dedicated: Boolean(dedicated), browserUrl: activeBrowserUrl });
+          return await run({ list, profile, dedicated: Boolean(dedicated), browserUrl: activeBrowserUrl, pid: edge.pid });
         } finally {
           // For dedicated profiles, ask Chromium to close cleanly so cookies & storage flush to disk.
           if (dedicated && activeBrowserUrl && edge.exitCode === null && edge.signalCode === null) {
@@ -272,7 +422,11 @@ async function runChromiumOnce(args, run, signal, {
       }
       await sleep(100, undefined, { signal });
     }
-    throw new BrowserTransportError('Chromium 调试端口启动超时');
+    throw new BrowserTransportError('Chromium 调试端口启动超时', {
+      stage: BROWSER_STAGES.CDP_NOT_READY,
+      stderrTail: stderrBuf.trim().slice(-600),
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
   } finally {
     if (edge?.pid && edge.exitCode === null && edge.signalCode === null) {
       if (process.platform === 'win32') {

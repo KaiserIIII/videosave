@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,11 +32,47 @@ export const settingsPatchSchema = {anyOf:Object.values(profiles).map(fields => 
     .map(([key, schema]) => [key, {anyOf:[schema, {type:'null'}]}]))}))};
 
 const stateDirectory = () => process.env.LOCALAPPDATA || path.join(os.homedir(), '.config');
-const realUserSettingsFile = () => path.resolve(path.join(stateDirectory(), 'VideoSave', 'settings.sqlite'));
+const realUserStateDir = () => path.resolve(path.join(stateDirectory(), 'VideoSave'));
+const realUserSettingsFile = () => path.resolve(path.join(realUserStateDir(), 'settings.sqlite'));
+
+/**
+ * Resolve symlinks and Windows directory junctions through the deepest existing
+ * ancestor so symlink/junction escapes inside a sandbox are caught BEFORE writing.
+ */
+export function resolveThroughSymlinks(targetPath) {
+  const absolute = path.resolve(targetPath);
+  const trailing = [];
+  let cursor = absolute;
+  while (true) {
+    if (existsSync(cursor)) {
+      try {
+        const real = realpathSync(cursor);
+        return trailing.length ? path.join(real, ...trailing.reverse()) : real;
+      } catch {
+        return absolute;
+      }
+    }
+    const parent = path.dirname(cursor);
+    if (parent === cursor) return absolute;
+    trailing.push(path.basename(cursor));
+    cursor = parent;
+  }
+}
 
 function isPathInside(parent, child) {
-  const rel = path.relative(path.resolve(parent), path.resolve(child));
-  return Boolean(rel && !rel.startsWith('..') && !path.isAbsolute(rel)) || path.resolve(parent) === path.resolve(child);
+  const normParent = path.resolve(parent);
+  const normChild = path.resolve(child);
+  const a = process.platform === 'win32' ? normParent.toLowerCase() : normParent;
+  const b = process.platform === 'win32' ? normChild.toLowerCase() : normChild;
+  if (a === b) return true;
+  const rel = path.relative(a, b);
+  return Boolean(rel && !rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+function isRealPathInside(parent, child) {
+  const realParent = resolveThroughSymlinks(parent);
+  const realChild = resolveThroughSymlinks(child);
+  return isPathInside(parent, child) && isPathInside(realParent, realChild);
 }
 
 export function isSandboxActive() {
@@ -109,6 +145,11 @@ export function configureSandboxFromArgv(argv = process.argv) {
   if (!process.env.VIDEOSAVE_TOOLS_DIR || !isPathInside(sandboxRoot, process.env.VIDEOSAVE_TOOLS_DIR)) {
     process.env.VIDEOSAVE_TOOLS_DIR = toolsDir;
   }
+  if (process.env.VIDEOSAVE_SANDBOX_ALLOW_COMPANION !== '1') {
+    delete process.env.MEDIA_TOOLKIT_URL;
+    delete process.env.MEDIA_TOOLKIT_LOCAL_PAIRING;
+    delete process.env.MEDIA_TOOLKIT_MCP_CLIENT;
+  }
   return {
     active: true,
     sandboxRoot,
@@ -119,20 +160,33 @@ export function configureSandboxFromArgv(argv = process.argv) {
 
 export function assertSandboxPath(targetPath, label = 'path') {
   const sandbox = process.env.VIDEOSAVE_TEST_SANDBOX;
-  const resolved = path.resolve(targetPath);
-  if (process.env.VIDEOSAVE_NO_USER_SETTINGS === '1' && resolved.toLowerCase() === realUserSettingsFile().toLowerCase()) {
+  const raw = String(targetPath ?? '');
+  if (sandbox && (raw.startsWith('\\\\') || raw.startsWith('//'))) {
     throw new ApiError(
       'TEST_SANDBOX_VIOLATION',
-      `Refusing to access user settings database while sandbox/no-user-settings mode is active`,
+      `Refusing UNC/network ${label} while active test sandbox is enforced`,
       403,
     );
   }
+  const resolved = path.resolve(raw);
+  const realResolved = resolveThroughSymlinks(resolved);
+  if (process.env.VIDEOSAVE_NO_USER_SETTINGS === '1') {
+    const userState = realUserStateDir();
+    if (isRealPathInside(userState, resolved) || isPathInside(userState, realResolved)) {
+      throw new ApiError(
+        'TEST_SANDBOX_VIOLATION',
+        `Refusing to access real user VideoSave state directory (${label}) while sandbox/no-user-settings mode is active`,
+        403,
+      );
+    }
+  }
   if (!sandbox) return resolved;
-  const allowedRoots = [sandbox, os.tmpdir()];
-  if (!allowedRoots.some(root => isPathInside(root, resolved))) {
+  // Only ephemeral 'temp' paths may use os.tmpdir(); all output/settings/profile writes MUST stay strictly inside sandbox!
+  const allowedRoots = label === 'temp' ? [sandbox, os.tmpdir()] : [sandbox];
+  if (!allowedRoots.some(root => isRealPathInside(root, resolved))) {
     throw new ApiError(
       'TEST_SANDBOX_VIOLATION',
-      `Refusing to access ${label} outside the active test sandbox`,
+      `Refusing to access ${label} outside the active test sandbox (resolved=${realResolved})`,
       403,
     );
   }

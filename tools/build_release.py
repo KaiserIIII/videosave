@@ -22,6 +22,7 @@ RELEASE_DOCS = (
     "docs/dsh-guide.md", "docs/dsh-guide.zh-CN.md", "docs/dsh-feedback-tracker.md",
     "docs/ai-recipes.md", "docs/ai-recipes.zh-CN.md", "docs/third-party-notices.md", "docs/faq.md",
     "docs/launch-kit.md", "docs/hls-benchmark.zh-CN.md", "docs/v1-security.md",
+    "docs/android-harmonyos.md", "docs/security-audit-v1.2.md",
     "tests/benchmark-hls.mjs", "tests/dash-public.mjs",
 )
 EXECUTABLE_SCRIPTS = frozenset({
@@ -29,6 +30,9 @@ EXECUTABLE_SCRIPTS = frozenset({
     "tools/mcp-server.mjs",
     "tools/media-cli.mjs",
     "tools/server.mjs",
+    "tools/upgrade-dsh.mjs",
+    "Launch VideoSave.command",
+    "Uninstall VideoSave.command",
 })
 PROJECT = "https://github.com/KaiserIIII/videosave"
 
@@ -86,10 +90,10 @@ def package_entries(manifest):
     for file in (
         "Start VideoSave.cmd", "Install VideoSave.cmd", "Uninstall VideoSave.cmd",
         "tools/start-windows.ps1", "tools/install-windows.ps1", "tools/uninstall-windows.ps1",
-        "tools/start-unix.sh",
+        "tools/start-unix.sh", "Launch VideoSave.command", "Uninstall VideoSave.command",
     ):
         raw = (ROOT / file).read_bytes()
-        if file.endswith(".sh"):
+        if file.endswith(".sh") or file.endswith(".command"):
             raw = raw.replace(b"\r\n", b"\n")
         desktop[file] = raw
 
@@ -97,9 +101,13 @@ def package_entries(manifest):
         k: v for k, v in desktop.items()
         if not k.endswith(".cmd") and not k.endswith(".ps1")
     }
+    win_desktop = {
+        k: v for k, v in desktop.items()
+        if not k.endswith(".command")
+    }
 
     return {
-        f"{name}.zip": {f"{name}/{file}": data for file, data in desktop.items()},
+        f"{name}.zip": {f"{name}/{file}": data for file, data in win_desktop.items()},
         f"{name}-unix.tar.gz": {f"{name}/{file}": data for file, data in unix_desktop.items()},
         f"{name}-extension.zip": {**extension_files, **license_file, "manifest.json": browser_manifest()},
         f"{name}-firefox.zip": {**extension_files, **license_file, "manifest.json": browser_manifest(firefox=True)},

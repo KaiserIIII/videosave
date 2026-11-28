@@ -194,11 +194,12 @@ function makeEl(tag, className, text) {
 
 async function refreshQueueAndOverview() {
   try {
-    const [health, runtime, telemetry, batches] = await Promise.all([
+    const [health, runtime, telemetry, batches, storage] = await Promise.all([
       api('/api/health'),
       api('/api/runtime/health'),
       api('/api/telemetry'),
       api('/api/batches?limit=25'),
+      api('/api/system/storage').catch(() => null),
     ]);
     $('version-badge').textContent = `v${health.version}`;
     $('health-pill').textContent = runtime.ready ? `Ready · v${health.version}` : 'Setup Required';
@@ -206,9 +207,10 @@ async function refreshQueueAndOverview() {
 
     const activeCount = batches.items.filter(b => b.status === 'running' || b.status === 'paused').length;
     const resumableCount = batches.items.filter(b => b.resumable).length;
+    const freeText = storage?.freeBytes != null ? fmtBytes(storage.freeBytes) : '—';
     const statsData = [
-      [lang === 'en' ? 'Active Batches' : '进行中任务', String(activeCount)],
-      [lang === 'en' ? 'Resumable' : '可续传任务', String(resumableCount)],
+      [lang === 'en' ? 'Active / Resumable' : '进行中 / 可续传', `${activeCount} / ${resumableCount}`],
+      [lang === 'en' ? 'Disk Free Space' : '下载盘剩余空间', freeText],
       [lang === 'en' ? 'Companion RSS' : '服务内存占用', fmtBytes(telemetry.memory.rssBytes)],
       [lang === 'en' ? 'Browsers Ready' : '可用浏览器', String(runtime.browsers.length)],
     ];
@@ -559,6 +561,57 @@ $('check-net-btn').addEventListener('click', async () => {
       return r;
     })(),
   ]);
+});
+
+function showActionBanner(text, ok = true) {
+  const banner = $('action-banner');
+  if (!banner) return;
+  banner.textContent = text;
+  banner.classList.remove('hidden');
+  banner.style.borderColor = ok ? '#10b981' : '#ef4444';
+}
+
+$('check-updates-btn')?.addEventListener('click', async () => {
+  showActionBanner(lang === 'en' ? 'Checking official GitHub Releases...' : '正在检查官方 GitHub Release 更新...');
+  try {
+    const info = await api('/api/updates/check');
+    showActionBanner(
+      info.updateAvailable
+        ? (lang === 'en' ? `New version v${info.latestVersion} available (current v${info.currentVersion}): ${info.releaseUrl}` : `发现官方新版本 v${info.latestVersion}（当前 v${info.currentVersion}）：${info.releaseUrl}`)
+        : (lang === 'en' ? `Up to date (v${info.currentVersion}, latest v${info.latestVersion}).` : `当前已是最新正式版（v${info.currentVersion}）。`),
+      true,
+    );
+  } catch (err) {
+    showActionBanner(`Update check failed: ${err.message}`, false);
+  }
+});
+
+$('repair-runtime-btn')?.addEventListener('click', async () => {
+  showActionBanner(lang === 'en' ? 'Verifying/installing pinned platform extractor (yt-dlp)...' : '正在校验/安装官方固定版本平台组件（yt-dlp）...');
+  try {
+    const res = await api('/api/runtime/repair', {});
+    showActionBanner(lang === 'en' ? `Runtime verified: ${res.detail}` : `平台组件已就绪：${res.detail}`, true);
+    await refreshQueueAndOverview();
+  } catch (err) {
+    showActionBanner(`Repair failed: ${err.message}`, false);
+  }
+});
+
+$('export-diag-btn')?.addEventListener('click', async () => {
+  try {
+    const bundle = await api('/api/diagnostics/export');
+    const jsonText = JSON.stringify(bundle, null, 2);
+    const blob = new Blob([jsonText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `videosave-diagnostics-${bundle.version}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showActionBanner(lang === 'en' ? 'Sanitized diagnostic report downloaded (zero credentials/paths).' : '已导出脱敏诊断报告（不含任何凭据或个人路径）。', true);
+  } catch (err) {
+    showActionBanner(`Diagnostic export failed: ${err.message}`, false);
+  }
 });
 
 applyLocaleAndTheme();

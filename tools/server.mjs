@@ -2,17 +2,23 @@
 import http from 'node:http';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream, readFileSync } from 'node:fs';
+import { access, constants as fsConstants, statfs } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import path from 'node:path';
 import { pipeline } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as downloads from './media-downloads.mjs';
 import { configureMediaProxy, diagnoseNetwork, networkPreferences } from './media-proxy.mjs';
-import { configureSandboxFromArgv, localPairingCode } from './preferences.mjs';
+import { configureSandboxFromArgv, isSandboxActive, localPairingCode } from './preferences.mjs';
 import { activity, approveGrant, auditSettings, authenticateClient, clientAccess, listClients, listGrants, renewGrant, revokeGrant,
   saveClient, sitePreferences, updateClientAccess, updateGrantSnapshot } from './mcp-control.mjs';
 import { invokeManaged, managedTools } from './managed-mcp.mjs';
 import { compatibilityRules } from './compatibility-policy.mjs';
 import { SUPPORTED_MCP_CLIENTS, detectMcpClients, generateMcpClientConfig } from './mcp-config-generator.mjs';
+import { checkForUpdates, getUpdateHistory } from './updater.mjs';
+
+const execFileAsync = promisify(execFile);
 
 configureSandboxFromArgv(process.argv);
 configureMediaProxy();
@@ -251,6 +257,63 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
         return reply(res, 200, downloads.getEngineCapabilities());
       case 'GET /api/runtime/health':
         return reply(res, 200, await downloads.getRuntimeHealth());
+      case 'POST /api/runtime/repair': {
+        const setupScript = fileURLToPath(new URL('./setup-platform-downloads.mjs', import.meta.url));
+        const toolsDir = (await downloads.getRuntimeHealth()).managedToolsDir;
+        try {
+          const { stdout } = await execFileAsync(process.execPath, [setupScript, `--cache-dir=${toolsDir}`], {
+            timeout: 120_000,
+            windowsHide: true,
+          });
+          return reply(res, 200, { ok: true, repaired: true, detail: stdout.trim(), health: await downloads.getRuntimeHealth() });
+        } catch (err) {
+          return reply(res, 502, { ok: false, code: 'COMPONENT_REPAIR_FAILED', error: err.stderr || err.message });
+        }
+      }
+      case 'GET /api/system/storage': {
+        const outDir = downloads.getSettings().settings.outDir;
+        let writable = false;
+        let freeBytes = null;
+        let totalBytes = null;
+        try {
+          await access(outDir, fsConstants.W_OK);
+          writable = true;
+        } catch {}
+        try {
+          const fsInfo = await statfs(outDir);
+          freeBytes = Number(fsInfo.bavail) * Number(fsInfo.bsize);
+          totalBytes = Number(fsInfo.blocks) * Number(fsInfo.bsize);
+        } catch {}
+        return reply(res, 200, { outDir, writable, freeBytes, totalBytes, sandboxActive: isSandboxActive() });
+      }
+      case 'GET /api/updates/check': {
+        const includePrerelease = searchParams.get('prerelease') === '1';
+        return reply(res, 200, await checkForUpdates({ includePrerelease }));
+      }
+      case 'GET /api/updates/history':
+        return reply(res, 200, { items: getUpdateHistory(20) });
+      case 'GET /api/diagnostics/export': {
+        const health = await downloads.getRuntimeHealth();
+        const engines = downloads.getEngineCapabilities();
+        const batches = downloads.listBatches({ limit: 10 }).items.map(b => ({
+          id: b.id, status: b.status, total: b.total, completed: b.completed, failed: b.failed,
+          errorCodes: (b.items ?? []).map(i => i.errorCode).filter(Boolean),
+        }));
+        return reply(res, 200, {
+          exportedAt: new Date().toISOString(),
+          sanitized: true,
+          version: VERSION,
+          platform: process.platform,
+          arch: process.arch,
+          node: process.version,
+          sandboxActive: isSandboxActive(),
+          components: Object.fromEntries(Object.entries(health.components).map(([k, v]) => [k, { status: v.status, version: v.version, source: v.source }])),
+          platforms: health.platforms,
+          engines: engines.transfer,
+          recentBatchSummary: batches,
+          updateHistory: getUpdateHistory(5),
+        });
+      }
       case 'GET /api/telemetry':
         return reply(res, 200, downloads.getRateTelemetry());
       case 'GET /api/mcp/configs': {

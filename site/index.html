@@ -15,7 +15,7 @@
       <a class="brand" href="#top">
         <img src="./logo.svg" width="30" height="30" alt="">
         <span>VideoSave</span>
-        <span class="version-pill" id="live-version">v1.1.0</span>
+        <span class="version-pill" id="live-version">v1.2.0</span>
       </a>
       <nav class="nav-links" aria-label="Primary">
         <a href="#downloads" data-i18n="nav.downloads">Download</a>
@@ -57,11 +57,11 @@
           <div class="terminal-card">
             <div class="terminal-head">
               <span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span>
-              <span class="terminal-title">MCP · VideoSave v1.1.0</span>
+              <span class="terminal-title">MCP · VideoSave v1.2.0</span>
             </div>
-            <pre class="terminal-body"><code><span class="t-muted"># Check live version &amp; transfer engines</span>
-→ get_version()
-  { "version": "1.1.0", "schemaVersion": "1.1.0", "mismatch": false }
+            <pre class="terminal-body"><code><span class="t-muted"># Check live version, install health &amp; official updates</span>
+→ get_version({ "checkUpdates": true })
+  { "version": "1.2.0", "schemaVersion": "1.2.0", "mismatch": false }
 
 <span class="t-muted"># Probe with 2-byte Range quality verification &amp; download best</span>
 → download_best_media({
@@ -86,33 +86,52 @@
           <p class="section-kicker" data-i18n="dl.kicker">Official Packages</p>
           <h2 data-i18n="dl.title">Download &amp; Integrity Verification</h2>
           <p class="section-desc" data-i18n="dl.desc">
-            Every release ships deterministic ZIP archives, SHA-256 checksums, a CycloneDX 1.6 SBOM, and GitHub artifact provenance attestations.
+            Every release ships deterministic archives, SHA-256 checksums, a CycloneDX 1.6 SBOM, and GitHub provenance attestations. Downloads auto-sync with the latest GitHub Release.
           </p>
         </div>
-        <div class="card-grid four">
+        <div class="honesty-banner" id="os-recommend-banner" style="margin-bottom:20px;">
+          <strong id="os-recommend-title">Recommended for your device:</strong>
+          <span id="os-recommend-desc">Detecting platform…</span>
+          <a id="os-recommend-cta" class="btn-primary btn-sm" style="margin-left:12px;" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Download Latest ↗</a>
+        </div>
+        <div class="card-grid three">
           <article class="card">
-            <span class="tag tag-blue">Windows x64</span>
-            <h3 data-i18n="dl.winTitle">Windows Setup &amp; Portable Suite</h3>
-            <p data-i18n="dl.winDesc">Extension + local companion + Management Center (`/console`) + MCP server + CLI + one-click Setup/Uninstall scripts.</p>
-            <a class="card-link" id="dl-win-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.1.0.zip ↗</a>
+            <span class="tag tag-blue">Windows x64 · Official</span>
+            <h3 data-i18n="dl.winSetupTitle">Windows Graphical Setup.exe</h3>
+            <p data-i18n="dl.winSetupDesc">Native WinForms wizard (no admin rights, zero PATH changes). Auto-prepares verified Node.js 24, FFmpeg 8.1.2 &amp; yt-dlp, opens Local Management Center (/console).</p>
+            <a class="card-link" id="dl-win-setup-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.2.0-Setup.exe ↗</a>
           </article>
           <article class="card">
-            <span class="tag">macOS · Linux</span>
-            <h3 data-i18n="dl.unixTitle">macOS &amp; Linux Suite</h3>
-            <p data-i18n="dl.unixDesc">Deterministic tar.gz bundle with start-unix.sh launcher, Local Management Center, CLI, and MCP server.</p>
-            <a class="card-link" id="dl-unix-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.1.0-unix.tar.gz ↗</a>
+            <span class="tag tag-blue">Windows x64 · Offline &amp; Lite</span>
+            <h3 data-i18n="dl.winTitle">Windows Offline &amp; Lite Portable</h3>
+            <p data-i18n="dl.winDesc">Choose the self-contained Offline ZIP (works with zero internet &amp; zero pre-installed tools) or the lightweight online Portable ZIP.</p>
+            <a class="card-link" id="dl-win-offline-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Offline Portable ZIP ↗</a> ·
+            <a class="card-link" id="dl-win-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Lite ZIP ↗</a>
+          </article>
+          <article class="card">
+            <span class="tag tag-green">Android 8–16 · HarmonyOS 4.x (Beta)</span>
+            <h3 data-i18n="dl.apkTitle">Standalone Android APK</h3>
+            <p data-i18n="dl.apkDesc">Zero Root, zero Termux. Share Menu intake, 2-byte quality probe, resumable HLS/HTTP Foreground Service &amp; Downloads/VideoSave integration. (HarmonyOS NEXT not supported.)</p>
+            <a class="card-link" id="dl-apk-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Android Beta APK ↗</a>
+          </article>
+          <article class="card">
+            <span class="tag">macOS · Linux (.deb &amp; tar.gz)</span>
+            <h3 data-i18n="dl.unixTitle">macOS &amp; Linux Self-Bootstrapping</h3>
+            <p data-i18n="dl.unixDesc">Auto-downloads SHA-256 verified Node.js 24 LTS on Apple Silicon, Intel Mac, Linux x64 &amp; ARM64. Includes Debian/Ubuntu .deb package and macOS .command launcher.</p>
+            <a class="card-link" id="dl-deb-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Linux .deb ↗</a> ·
+            <a class="card-link" id="dl-unix-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">macOS/Linux tar.gz ↗</a>
           </article>
           <article class="card">
             <span class="tag">Edge · Chrome · Firefox</span>
             <h3 data-i18n="dl.crTitle">Browser Extensions</h3>
-            <p data-i18n="dl.crDesc">Manifest V3 packages for Chromium (Edge/Chrome/Brave), Firefox 136+, and experimental Firefox Android.</p>
+            <p data-i18n="dl.crDesc">Manifest V3 packages for Chromium (Edge/Chrome/Brave), Firefox 136+, and Firefox Android (AMO submission ready).</p>
             <a class="card-link" id="dl-ext-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Extension &amp; Firefox ZIPs ↗</a>
           </article>
           <article class="card">
             <span class="tag tag-green">Supply Chain</span>
             <h3 data-i18n="dl.sbomTitle">SHA-256 &amp; CycloneDX SBOM</h3>
-            <p data-i18n="dl.sbomDesc">Verify every archive locally before running, including pinned upstream commit hashes and GitHub provenance.</p>
-            <a class="card-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt &amp; SBOM ↗</a>
+            <p data-i18n="dl.sbomDesc">Verify every archive locally before running, including pinned upstream commit hashes and GitHub provenance attestations.</p>
+            <a class="card-link" id="dl-sbom-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt &amp; SBOM ↗</a>
           </article>
         </div>
       </div>
@@ -150,7 +169,7 @@
             </label>
             <label>
               <span data-i18n="mcp.path">Extracted VideoSave Folder</span>
-              <input id="cfg-path" type="text" value="C:/VideoSave/VideoSave-1.1.0" spellcheck="false">
+              <input id="cfg-path" type="text" value="C:/VideoSave/VideoSave-1.2.0" spellcheck="false">
             </label>
             <label id="cfg-client-id-wrap" hidden>
               <span data-i18n="mcp.clientId">Managed Client ID (from AI &amp; MCP panel)</span>
@@ -266,7 +285,7 @@
           <p class="section-kicker" data-i18n="dsh.kicker">Real-User Feedback Remediation</p>
           <h2 data-i18n="dsh.title">Built Around DeepSeek Harness (DSH) Workflows</h2>
           <p class="section-desc" data-i18n="dsh.desc">
-            VideoSave 1.0 directly resolves all 12 real-world issues reported from DSH usage — from stale v0.9.0 process drift and HLS 403 header mismatches to nonstandard segment extensions, reliable SIGKILL resume, and strict test sandbox isolation.
+            VideoSave v1.2.0 addresses all 12 real-world workflow findings reported from DSH usage — from stale process drift and HLS 403 header consistency to nonstandard segment extensions, SIGKILL resume, and OS-monitored sandbox isolation (DSH-12 remains open pending independent user re-verification).
           </p>
         </div>
         <div class="card-grid three">

@@ -51,7 +51,7 @@ function inspectFile(filename) {
 }
 
 async function testMcp(endpoint) {
-  const proc = start('mcp-server.mjs', {MEDIA_TOOLKIT_URL:endpoint});
+  const proc = start('mcp-server.mjs', {MEDIA_TOOLKIT_URL:endpoint, VIDEOSAVE_SANDBOX_ALLOW_COMPANION:'1'});
   const exited = once(proc, 'close');
   const lines = createInterface({input:proc.stdout})[Symbol.asyncIterator]();
   const send = (method, params, id) => proc.stdin.write(JSON.stringify({jsonrpc:'2.0',method,params,id})+'\n');

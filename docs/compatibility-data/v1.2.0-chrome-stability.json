@@ -1,0 +1,96 @@
+{
+  "recordedAt": "2026-11-28T01:54:11.963Z",
+  "browser": "chrome",
+  "platform": "win32",
+  "rounds": 6,
+  "passed": 6,
+  "failed": 0,
+  "totalStartupRetries": 0,
+  "medianRoundMs": 711,
+  "results": [
+    {
+      "round": 1,
+      "passed": true,
+      "browserVersion": "158.0.8127.38",
+      "elapsedMs": 714,
+      "launchTelemetry": {
+        "attempts": 1,
+        "retries": 0,
+        "firstFailure": null,
+        "priorAttempts": [],
+        "finalStage": "READY",
+        "launchMs": 253
+      }
+    },
+    {
+      "round": 2,
+      "passed": true,
+      "browserVersion": "158.0.8127.38",
+      "elapsedMs": 711,
+      "launchTelemetry": {
+        "attempts": 1,
+        "retries": 0,
+        "firstFailure": null,
+        "priorAttempts": [],
+        "finalStage": "READY",
+        "launchMs": 251
+      }
+    },
+    {
+      "round": 3,
+      "passed": true,
+      "browserVersion": "158.0.8127.38",
+      "elapsedMs": 735,
+      "launchTelemetry": {
+        "attempts": 1,
+        "retries": 0,
+        "firstFailure": null,
+        "priorAttempts": [],
+        "finalStage": "READY",
+        "launchMs": 271
+      }
+    },
+    {
+      "round": 4,
+      "passed": true,
+      "browserVersion": "158.0.8127.38",
+      "elapsedMs": 706,
+      "launchTelemetry": {
+        "attempts": 1,
+        "retries": 0,
+        "firstFailure": null,
+        "priorAttempts": [],
+        "finalStage": "READY",
+        "launchMs": 262
+      }
+    },
+    {
+      "round": 5,
+      "passed": true,
+      "browserVersion": "158.0.8127.38",
+      "elapsedMs": 706,
+      "launchTelemetry": {
+        "attempts": 1,
+        "retries": 0,
+        "firstFailure": null,
+        "priorAttempts": [],
+        "finalStage": "READY",
+        "launchMs": 250
+      }
+    },
+    {
+      "round": 6,
+      "passed": true,
+      "browserVersion": "158.0.8127.38",
+      "elapsedMs": 709,
+      "launchTelemetry": {
+        "attempts": 1,
+        "retries": 0,
+        "firstFailure": null,
+        "priorAttempts": [],
+        "finalStage": "READY",
+        "launchMs": 245
+      }
+    }
+  ]
+}

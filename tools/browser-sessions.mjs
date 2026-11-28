@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { ApiError } from './media-source.mjs';
+import { assertSandboxPath } from './preferences.mjs';
 
 const SESSION_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,47}$/;
 const STALE_LOCK_MS = 5 * 60_000;
@@ -11,10 +12,10 @@ const activeSessions = new Set();
 const sessionWaiters = new Map();
 
 export function profilesRoot() {
-  if (process.env.VIDEOSAVE_PROFILES_DIR) return path.resolve(process.env.VIDEOSAVE_PROFILES_DIR);
-  if (process.env.VIDEOSAVE_TEST_SANDBOX) return path.join(path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX), 'profiles');
+  if (process.env.VIDEOSAVE_PROFILES_DIR) return assertSandboxPath(path.resolve(process.env.VIDEOSAVE_PROFILES_DIR), 'browser profiles directory');
+  if (process.env.VIDEOSAVE_TEST_SANDBOX) return assertSandboxPath(path.join(path.resolve(process.env.VIDEOSAVE_TEST_SANDBOX), 'profiles'), 'browser profiles directory');
   const stateDir = process.env.LOCALAPPDATA || path.join(os.homedir(), '.config');
-  return path.join(stateDir, 'VideoSave', 'profiles');
+  return assertSandboxPath(path.join(stateDir, 'VideoSave', 'profiles'), 'browser profiles directory');
 }
 
 export function validateSessionId(browserSessionId) {
@@ -26,7 +27,7 @@ export function validateSessionId(browserSessionId) {
 
 export function resolveDedicatedProfileDir(sessionId) {
   const root = profilesRoot();
-  const dir = path.resolve(root, validateSessionId(sessionId));
+  const dir = assertSandboxPath(path.resolve(root, validateSessionId(sessionId)), 'dedicated browser profile');
   const rel = path.relative(root, dir);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new ApiError('INVALID_BROWSER_SESSION', '浏览器会话目录超出受控范围');

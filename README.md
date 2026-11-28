@@ -1,18 +1,42 @@
 # VideoSave
 
-[简体中文](README.zh-CN.md) · [Official Website](https://kaiseriiii.github.io/videosave/) · [Download](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT License](LICENSE)
+[![Verify VideoSave](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml/badge.svg)](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml)
+[![Latest Release](https://img.shields.io/github/v/release/KaiserIIII/videosave)](https://github.com/KaiserIIII/videosave/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](LICENSE)
 
-[Verification CI](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [v1.1.0 Changelog](CHANGELOG.md#110) · [AI & CLI Cookbook](docs/ai-recipes.md) · [DSH Guide](docs/dsh-guide.md) · [DSH Feedback Tracker](docs/dsh-feedback-tracker.md) · [FAQ](docs/faq.md) · [Compatibility Results](docs/compatibility-report.zh-CN.md)
+[简体中文](README.zh-CN.md) · [Official Website](https://kaiseriiii.github.io/videosave/) · [Download v1.2.0](https://github.com/KaiserIIII/videosave/releases/latest) · [Android & HarmonyOS](docs/android-harmonyos.md) · [Security Audit](docs/security-audit-v1.2.md)
 
-Find the video playing in your browser, verify real quality availability, and save it reliably. VideoSave is free, MIT-licensed, local-first, and built with **zero third-party npm dependencies**. The companion adds an authenticated **Local Management Center** (`http://127.0.0.1:8765/console`), multi-engine smart scheduling (HTTP Range, HLS, static MP4/WebM DASH, FFmpeg, managed `yt-dlp`, optional Streamlink), 2-byte Range quality probing, SHA-256 `checkpoint.json` resume, unified `Referrer-Policy`-aware request headers, and a 27-tool MCP interface with native config generators for DeepSeek Harness (DSH), Codex, Claude Code, Claude Desktop, Cursor, and Antigravity.
+[Changelog](CHANGELOG.md#120) · [AI & CLI Cookbook](docs/ai-recipes.md) · [DSH Guide](docs/dsh-guide.md) · [DSH Feedback Tracker](docs/dsh-feedback-tracker.md) · [FAQ](docs/faq.md) · [Compatibility Results](docs/compatibility-report.zh-CN.md)
 
-![VideoSave 0.9 in Microsoft Edge](docs/videosave-0.9-detection.png)
+Find the video playing in your browser, verify real quality availability, and save it reliably. VideoSave is free, MIT-licensed, local-first, and built with **zero third-party npm dependencies**. Version **1.2.0** delivers a native Windows graphical `Setup.exe`, a true zero-network Offline Portable bundle, self-bootstrapping macOS/Linux & Debian `.deb` packages, a standalone native Android APK (Beta), LL-HLS / Dynamic DASH bounded recording, verified official updates, an authenticated **Local Management Center** (`http://127.0.0.1:8765/console`), and a 27-tool MCP server for DeepSeek Harness (DSH), Codex, Claude Code, Claude Desktop, Cursor, and Antigravity.
+
+## Platform Support Matrix
+
+| Platform | Artifact | Support Status | Notes |
+| :--- | :--- | :--- | :--- |
+| **Windows x64** | `VideoSave-1.2.0-Setup.exe`, `VideoSave-1.2.0-win-x64-offline.zip`, `VideoSave-1.2.0.zip` | **Official** | Native WinForms setup wizard, zero admin rights, zero PATH changes, verified offline bundle |
+| **Linux (x64 / ARM64)** | `videosave_1.2.0_all.deb`, `VideoSave-1.2.0-unix.tar.gz` | **Official** | Self-bootstraps SHA-256 verified Node.js 24 LTS if absent; verified on Ubuntu 24.04 CI |
+| **macOS (Apple Silicon / Intel)** | `VideoSave-1.2.0-unix.tar.gz` (`Launch VideoSave.command`) | **Official (Unsigned)** | Self-bootstraps verified Node.js 24 LTS; verified on macOS 15 CI; Apple Developer notarization not included |
+| **Android 8–16 & HarmonyOS 4.x** | `VideoSave-1.2.0-android-debug.apk` | **Beta** | Standalone APK (no Root/Termux); debug-signed until formal release keystore is configured; see [Android & HarmonyOS Guide](docs/android-harmonyos.md) |
+| **HarmonyOS NEXT (5.0+)** | — | **Planned** | Does not run native Android APKs; ArkTS/ArkUI roadmap documented in [docs/android-harmonyos.md](docs/android-harmonyos.md) |
+| **Browser Extensions** | `VideoSave-1.2.0-extension.zip`, `VideoSave-1.2.0-firefox.zip`, `VideoSave-1.2.0-android-dev.zip` | **Official (Unpacked) / Store Submission Ready** | Manifest V3 for Edge, Chrome, Brave, Firefox 136+, and Firefox Android |
+
+## MCP Client Support Matrix
+
+| Client | Config Generation | Live MCP Handshake & Tools | Real End-to-End Media Task |
+| :--- | :--- | :--- | :--- |
+| **DeepSeek Harness (DSH)** | Verified (`cordis.patch.yml`) | **Verified** (`@deepseek-ai/dsh-mcp-client` + AJV) | **Verified** (20/20 on extracted ZIP + independent user P0-1/P0-4 verification) |
+| **Codex CLI** | Verified (`config.toml`) | Compatible (standard stdio MCP) | Pending independent host client run |
+| **Claude Code / Claude Desktop** | Verified (JSON / CLI) | Compatible (standard stdio MCP) | Pending independent host client run |
+| **Cursor / Antigravity** | Verified (JSON) | Compatible (standard stdio MCP) | Pending independent host client run |
+
+![VideoSave in Microsoft Edge](docs/videosave-0.9-detection.png)
 
 **AI & MCP** gives registered clients individual permissions, current-tab approval, optional login sharing for eligible direct media, website download limits, pause and resume, and a filterable local activity log. [Set up a managed client](docs/mcp.md#managed-browser-clients) · [Control center screenshot](docs/videosave-mcp-control.png)
 
 Advanced and Full Access clients can use standing approvals for selected origins, follow media changes in an active tab, and download an unambiguous selection. Maximum Compatibility can extend the observation window and stage a deeper probe. [Permissions and probe options](docs/mcp.md#full-access-and-standing-approvals)
 
-In the release candidate, managed MCP can stage supported static DASH and use a public HTTPS CDN observed during playback when the owner enables the option. Use `get_engine_capabilities` to check the managed transfer paths and `get_task_report` to read the engine, elapsed time and result of an owned batch. [Managed MCP guide](docs/mcp.md)
+Managed MCP can stage supported static DASH and use a public HTTPS CDN observed during playback when the owner enables the option. Use `get_engine_capabilities` to check the managed transfer paths and `get_task_report` to read the engine, elapsed time and result of an owned batch. [Managed MCP guide](docs/mcp.md)
 
 ## Install
 

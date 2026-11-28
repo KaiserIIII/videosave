@@ -6,6 +6,7 @@ import { configureMediaProxy } from './media-proxy.mjs';
 import { configureSandboxFromArgv, localPairingCode, settingsPatchSchema, settingsScope } from './preferences.mjs';
 import { boundClientToken } from './mcp-control.mjs';
 import { probeModes } from './compatibility-policy.mjs';
+import { checkForUpdates } from './updater.mjs';
 
 configureSandboxFromArgv(process.argv);
 configureMediaProxy();
@@ -115,14 +116,31 @@ const companionUrl = process.env.MEDIA_TOOLKIT_URL;
 const managedClientId = process.env.MEDIA_TOOLKIT_MCP_CLIENT;
 const managedMode = managedClientId !== undefined;
 
-async function versionCheck() {
+async function versionCheck({ checkUpdates = false, includePrerelease = false } = {}) {
   const local = await downloads.getVersionInfo();
-  if (!companionUrl) return { ...local, mode: 'standalone' };
+  const runtime = await downloads.getRuntimeHealth().catch(() => null);
+  let update = null;
+  if (checkUpdates) {
+    update = await checkForUpdates({ includePrerelease, currentVersion: local.version }).catch(err => ({
+      error: err.message,
+      checkedAt: new Date().toISOString(),
+    }));
+  }
+  const enriched = {
+    ...local,
+    installHealth: runtime ? {
+      ready: runtime.ready,
+      distributionMode: runtime.distributionMode,
+      platforms: runtime.platforms,
+    } : null,
+    ...(update && { update }),
+  };
+  if (!companionUrl) return { ...enriched, mode: 'standalone' };
   try {
     const companion = await callCompanion('get_version', {});
     const companionMismatch = Boolean(companion?.version && companion.version !== local.version);
     return {
-      ...local,
+      ...enriched,
       mode: managedMode ? 'managed' : 'shared-queue',
       companionVersion: companion?.version ?? null,
       versionMismatch: local.versionMismatch || companionMismatch,
@@ -131,7 +149,7 @@ async function versionCheck() {
       }),
     };
   } catch {
-    return { ...local, mode: managedMode ? 'managed' : 'shared-queue', companionReachable: false };
+    return { ...enriched, mode: managedMode ? 'managed' : 'shared-queue', companionReachable: false };
   }
 }
 
@@ -200,8 +218,8 @@ const operations = [
     object({ id: string }, ['id']), ({ id }) => downloads.setBatchPaused(id, false)],
   ['retry_download', 'Queue failed or cancelled items from a finished local batch when the original request is available in this process. If RESUBMIT_REQUIRED is returned, use start_download with the original request.',
     object({ id: string }, ['id']), downloads.retryBatch],
-  ['get_version', 'Return running MCP server version, installed package version, companion version, and stale-process mismatch warnings.',
-    object({}), versionCheck],
+  ['get_version', 'Return running MCP server version, installed package version, companion version, install health, optional official update check, and stale-process mismatch warnings.',
+    object({ checkUpdates: { type: 'boolean', default: false }, includePrerelease: { type: 'boolean', default: false } }), versionCheck],
   ['get_capabilities', 'Report the active MCP mode, version, available tools, and supported capability flags.',
     object({}), () => ({
       mode: companionUrl ? 'shared-queue' : 'standalone',

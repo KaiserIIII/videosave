@@ -1,0 +1,295 @@
+{
+  "recordedAt": "2026-11-28T02:14:31.244Z",
+  "version": "1.2.0",
+  "runtime": "DeepSeek Harness (@deepseek-ai/dsh-mcp-client + AjvJsonSchemaValidator)",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "summary": {
+    "total": 20,
+    "passed": 20,
+    "failed": 0,
+    "sandboxEnforced": true,
+    "allWritesInsideSandbox": true,
+    "totalMs": 35272
+  },
+  "cases": [
+    {
+      "id": "01-connect-mcp",
+      "title": "Connect to extracted release package via DSH McpClientHost",
+      "passed": true,
+      "ms": 554,
+      "evidence": {
+        "serverVersion": "1.2.0",
+        "handshakeMs": 289,
+        "toolCount": 27
+      }
+    },
+    {
+      "id": "02-version-check",
+      "title": "Verify get_version reports exact release version and mismatch:false",
+      "passed": true,
+      "ms": 134,
+      "evidence": {
+        "version": "1.2.0",
+        "installedVersion": "1.2.0",
+        "versionMismatch": false
+      }
+    },
+    {
+      "id": "03-tool-schemas",
+      "title": "Validate all MCP tool input & output schemas via DSH AjvJsonSchemaValidator",
+      "passed": true,
+      "ms": 59,
+      "evidence": {
+        "totalTools": 27,
+        "mode": "standalone",
+        "transferEngines": [
+          "http",
+          "hls",
+          "dash-static"
+        ]
+      }
+    },
+    {
+      "id": "04-probe-public-mp4",
+      "title": "Probe official public MDN CC0 MP4 page (with controlled fallback)",
+      "passed": true,
+      "ms": 15099,
+      "evidence": {
+        "source": "public-mdn",
+        "selection": "selected",
+        "streamCount": 2
+      }
+    },
+    {
+      "id": "05-probe-hls",
+      "title": "Probe adaptive HLS master playlist and return real variant qualities",
+      "passed": true,
+      "ms": 3128,
+      "evidence": {
+        "selection": "selected",
+        "qualities": [
+          {
+            "height": 180,
+            "bandwidth": 600000
+          },
+          {
+            "height": 90,
+            "bandwidth": 200000
+          }
+        ]
+      }
+    },
+    {
+      "id": "06-nonstandard-hls-headers",
+      "title": "Download .jpeg/.png/extensionless HLS with Referer/Origin/User-Agent",
+      "passed": true,
+      "ms": 329,
+      "evidence": {
+        "status": "done",
+        "checkedRequests": 4,
+        "duration": 3.029333,
+        "engine": "hls"
+      }
+    },
+    {
+      "id": "07-signed-netscape-cookie",
+      "title": "Import Netscape cookies.txt and download authenticated HLS without leaking secrets",
+      "passed": true,
+      "ms": 403,
+      "evidence": {
+        "format": "netscape",
+        "cookieCount": 1,
+        "leakedSecret": false,
+        "duration": 3.029333
+      }
+    },
+    {
+      "id": "08-dedicated-browser-session",
+      "title": "Probe with dedicated browserSessionId & custom User-Agent, reuse login, then reset",
+      "passed": true,
+      "ms": 5843,
+      "evidence": {
+        "firstProbe": "selected",
+        "memberReuse": "selected",
+        "resetOk": true
+      }
+    },
+    {
+      "id": "09-separate-audio-video",
+      "title": "Download HLS master with separate video & audio tracks and verify both streams",
+      "passed": true,
+      "ms": 479,
+      "evidence": {
+        "tracks": [
+          "video",
+          "audio"
+        ],
+        "duration": 2.026667
+      }
+    },
+    {
+      "id": "10-auto-best-quality",
+      "title": "Auto-select highest observed quality (320x180 > 160x90) via download_best_media",
+      "passed": true,
+      "ms": 3685,
+      "evidence": {
+        "width": 320,
+        "height": 180,
+        "verified": true
+      }
+    },
+    {
+      "id": "11-serial-batch-queue",
+      "title": "Run serial start_batch with preview, pause, single-item cancel, and resume",
+      "passed": true,
+      "ms": 1753,
+      "evidence": {
+        "previewDeduplicated": 1,
+        "finalStates": [
+          "done",
+          "cancelled",
+          "done"
+        ]
+      }
+    },
+    {
+      "id": "12-network-drop-interrupt",
+      "title": "Interrupt HLS mid-transfer on transient 503 and verify resumable checkpoint",
+      "passed": true,
+      "ms": 596,
+      "evidence": {
+        "errorCode": "HLS_TRANSFER_INTERRUPTED",
+        "completedBeforeDrop": 2,
+        "resumable": true
+      }
+    },
+    {
+      "id": "13-mcp-disconnect-resume",
+      "title": "Disconnect DSH MCP client, reconnect fresh client, and resume without redownloading 0..1",
+      "passed": true,
+      "ms": 926,
+      "evidence": {
+        "reconnectedId": "8d2dce5d-7421-4f30-a58f-05c68fe1dd2d",
+        "refetchedIndices": [
+          2
+        ],
+        "duration": 3.029333
+      }
+    },
+    {
+      "id": "14-progress-and-report",
+      "title": "Query get_progress and get_task_report with structured engine/phase/elapsedMs",
+      "passed": true,
+      "ms": 21,
+      "evidence": {
+        "status": "done",
+        "engine": "hls",
+        "elapsedMs": 360
+      }
+    },
+    {
+      "id": "15-verify-download",
+      "title": "Run verify_download FFprobe validation on completed output",
+      "passed": true,
+      "ms": 74,
+      "evidence": {
+        "ok": true,
+        "info": {
+          "duration": 3.029333,
+          "size": 153065,
+          "width": 320,
+          "height": 180,
+          "codec": "h264",
+          "audioCodec": "aac",
+          "container": "mp4",
+          "subtitleTracks": 0,
+          "videoCodec": "h264"
+        }
+      }
+    },
+    {
+      "id": "16-diagnose-403-failure",
+      "title": "Diagnose HTTP 403 segment denial with exact hlsPhase and zero fallback bypass",
+      "passed": true,
+      "ms": 47,
+      "evidence": {
+        "errorCode": "MEDIA_ACCESS_RESTRICTED",
+        "hlsPhase": "segment",
+        "category": "access-denied",
+        "retryable": false
+      }
+    },
+    {
+      "id": "18-v11-quality-availability-and-batch",
+      "title": "Verify 2-byte Range quality availability, download_media_batch naming/skip, task report summary, and stage diagnostics",
+      "passed": true,
+      "ms": 698,
+      "evidence": {
+        "file": "DSH-110_DSH-BatchV11_90p.mp4",
+        "summary": {
+          "total": 1,
+          "succeeded": 1,
+          "failed": 0,
+          "skipped": 0,
+          "cancelled": 0,
+          "totalBytes": 63732,
+          "elapsedMs": 247,
+          "averageSpeedBytesPerSec": 258024
+        },
+        "stagePhases": [
+          "master-playlist",
+          "segment",
+          "mux",
+          "verification"
+        ],
+        "skippedOnConflict": true
+      }
+    },
+    {
+      "id": "19-v11-cookie-warnings-and-session-status",
+      "title": "Verify in-memory cookie import warnings and session hasCookies/diagnosticState fields",
+      "passed": true,
+      "ms": 6,
+      "evidence": {
+        "cookieCount": 1,
+        "warnings": [
+          "challenge-cookie-ignored"
+        ]
+      }
+    },
+    {
+      "id": "20-v11-cli-json-progress-and-exit-codes",
+      "title": "Verify package media-cli.mjs --json-progress, --verify, and exit codes (0 and 2)",
+      "passed": true,
+      "ms": 676,
+      "evidence": {
+        "invalidArgsExitCode": 2,
+        "successExitCode": 0,
+        "jsonlLines": 2
+      }
+    },
+    {
+      "id": "17-forced-sandbox-actual-write-paths",
+      "title": "Verify forced --sandbox blocks user settings and all actual writes land strictly inside temp sandbox",
+      "passed": true,
+      "ms": 252,
+      "evidence": {
+        "sandboxEnforced": true,
+        "noUserSettings": true,
+        "writtenFileCount": 9,
+        "allWritesInsideSandbox": true,
+        "sampleWrittenFiles": [
+          "downloads/DSH Adaptive HLS_320x180.mp4",
+          "downloads/DSH-110_DSH-BatchV11_90p.mp4",
+          "downloads/DSH-Disguised_320x180.mp4",
+          "downloads/DSH-ExtAudio_160x90.mp4",
+          "downloads/DSH-Netscape-Auth_320x180.mp4",
+          "downloads/DSH-Resume_320x180.mp4",
+          "downloads/Serial1_160x90.mp4",
+          "downloads/Serial3_160x90.mp4"
+        ]
+      }
+    }
+  ]
+}

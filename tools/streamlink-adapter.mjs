@@ -1,15 +1,31 @@
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import { ApiError, runMedia } from './media-source.mjs';
+import { locateManagedBinary } from './runtime-manager.mjs';
+
+const execFileAsync = promisify(execFile);
 
 export function streamlinkBinary() {
   const configured = process.env.STREAMLINK_BIN;
   if (configured && existsSync(configured)) return path.resolve(configured);
-  return null;
+  return locateManagedBinary('streamlink')?.path ?? null;
 }
 
 export function streamlinkAvailable() {
   return Boolean(streamlinkBinary());
+}
+
+export async function getStreamlinkHealth() {
+  const bin = streamlinkBinary();
+  if (!bin) return { available: false, path: null, version: null };
+  try {
+    const { stdout } = await execFileAsync(bin, ['--version'], { timeout: 5000, windowsHide: true });
+    return { available: true, path: bin, version: stdout.trim().split(/\r?\n/)[0] || 'unknown' };
+  } catch {
+    return { available: false, path: bin, version: null };
+  }
 }
 
 /**
