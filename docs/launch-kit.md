@@ -61,7 +61,7 @@ Open **https://github.com/KaiserIIII/videosave** → click the gear icon next to
 > - **Native MCP Server (27 tools)**: Works standalone or paired with the browser extension's permission control center (scoped origins, current-tab approval, no raw cookie echoing to models).
 > - **Standalone Android APK (Beta)**: Pure-Java app (`minSdk 26`, `targetSdk 35`) with XXE-hardened static DASH + `MediaMuxer` muxing, strict RFC 9110 HTTP 416 resume validation, and `Downloads/VideoSave` export — verified live on Android 16 Emulator.
 >
-> **Honest scope & limitations**: VideoSave strictly refuses DRM, CAPTCHAs, and HTTP 401/403/451 restrictions. The Android APK is currently debug-signed Beta pending release keystore provisioning, macOS builds are unsigned, and every public test report + benchmark JSON is published unmodified on the project website: https://kaiseriiii.github.io/videosave/
+> **Honest scope & limitations**: VideoSave strictly refuses DRM, CAPTCHAs, and HTTP 401/403/451 restrictions. Anonymous public Bilibili subtitle artifact retrieval is not yet verified (converter/embedding is unit-tested; public samples returned `none-available`), the Android APK is debug-signed Beta pending release keystore provisioning and physical Mate 60 Pro verification, DSH-12 remains pending independent user re-verification, macOS builds are unsigned, and every public test report + benchmark JSON is published unmodified on the project website: https://kaiseriiii.github.io/videosave/
 >
 > Would love feedback on the architecture, MCP schema design, and cross-platform packaging!
 

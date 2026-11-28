@@ -38,7 +38,7 @@ const notes = [
   `gh attestation verify VideoSave-${version}-Setup.exe --repo KaiserIIII/videosave`,
   '```',
   '',
-  '> **Transparency Note**: DSH-12 sandbox isolation remains transparently marked pending independent user re-verification. Android APK remains explicitly marked Beta until persistent release signing secrets are provisioned and physical Mate 60 Pro verification is completed.',
+  '> **Transparency Note**: (1) Public Bilibili subtitle artifact download is not yet verified in anonymous public samples (WebVTT/SRT conversion and `mov_text` embedding are verified in controlled unit tests; anonymous public samples accurately reported `none-available`). (2) Android APK remains explicitly marked Beta until persistent release signing secrets are provisioned and physical Huawei Mate 60 Pro verification is completed (verified via 24/24 JVM self-tests + live Android 16 Emulator E2E). (3) DSH-12 sandbox isolation remains transparently marked pending independent user re-verification.',
 ].join('\n');
 
 process.stdout.write(notes + '\n');
