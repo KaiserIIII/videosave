@@ -255,6 +255,8 @@ const server = http.createServer({headersTimeout:10_000,requestTimeout:30_000}, 
         return reply(res, 200, await downloads.getVersionInfo());
       case 'GET /api/engines':
         return reply(res, 200, downloads.getEngineCapabilities());
+      case 'GET /api/platforms':
+        return reply(res, 200, downloads.getEngineCapabilities().platformRegistry);
       case 'GET /api/runtime/health':
         return reply(res, 200, await downloads.getRuntimeHealth());
       case 'POST /api/runtime/repair': {

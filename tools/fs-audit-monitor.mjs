@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, watch } from 'node:fs';
 import { lstat, readdir, realpath } from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
 
 const SKIP_CACHE_DIRS = new Set([
@@ -9,12 +8,20 @@ const SKIP_CACHE_DIRS = new Set([
   'DawnGraphiteCache', 'DawnWebGPUCache', 'GraphiteDawnCache', 'Crashpad',
   'component_crx_cache', 'extensions_crx_cache', 'node_modules', '.git',
 ]);
+const OS_SHELL_NOISE_FILES = new Set(['desktop.ini', 'thumbs.db', '.ds_store']);
 
-async function scanTree(root, acc = new Map(), { depth = 0, maxDepth = 3, maxEntries = 2000 } = {}) {
-  if (!existsSync(root) || depth > maxDepth || acc.size >= maxEntries) return acc;
+async function scanTree(root, acc = new Map(), { depth = 0, maxDepth = 6, maxEntries = 10_000, state = { truncated: false } } = {}) {
+  if (!existsSync(root)) return acc;
+  if (depth > maxDepth || acc.size >= maxEntries) {
+    state.truncated = true;
+    return acc;
+  }
   const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   for (const entry of entries) {
-    if (acc.size >= maxEntries) break;
+    if (acc.size >= maxEntries) {
+      state.truncated = true;
+      break;
+    }
     if (entry.isDirectory() && SKIP_CACHE_DIRS.has(entry.name)) continue;
     const full = path.join(root, entry.name);
     const info = await lstat(full).catch(() => null);
@@ -25,11 +32,28 @@ async function scanTree(root, acc = new Map(), { depth = 0, maxDepth = 3, maxEnt
       isDir: info.isDirectory(),
       isSymlink: info.isSymbolicLink(),
     });
-    if (info.isDirectory() && !info.isSymbolicLink() && depth < maxDepth) {
-      await scanTree(full, acc, { depth: depth + 1, maxDepth, maxEntries });
+    if (info.isDirectory() && !info.isSymbolicLink()) {
+      if (depth < maxDepth) {
+        await scanTree(full, acc, { depth: depth + 1, maxDepth, maxEntries, state });
+      } else {
+        const sub = await readdir(full).catch(() => []);
+        if (sub.length > 0) state.truncated = true;
+      }
     }
   }
   return acc;
+}
+
+async function collectSubdirsForLinuxInotify(root, out = [], depth = 0, maxDepth = 4, maxDirs = 200) {
+  if (!existsSync(root) || depth > maxDepth || out.length >= maxDirs) return out;
+  out.push(root);
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (out.length >= maxDirs) break;
+    if (!entry.isDirectory() || entry.isSymbolicLink() || SKIP_CACHE_DIRS.has(entry.name)) continue;
+    await collectSubdirsForLinuxInotify(path.join(root, entry.name), out, depth + 1, maxDepth, maxDirs);
+  }
+  return out;
 }
 
 function diffTrees(before, after, root) {
@@ -51,17 +75,21 @@ function diffTrees(before, after, root) {
 }
 
 /**
- * Real OS-level filesystem write monitor using native recursive fs.watch
- * (ReadDirectoryChangesW on Windows, FSEvents on macOS, inotify on Linux)
- * paired with pre/post recursive tree verification.
- *
- * Observes BOTH protected host directories (must see ZERO writes) AND the
- * allowed sandbox directory (records actual observed writes, not declared intent).
+ * Hardened OS-level filesystem write monitor (v1.3.0):
+ * - Recursive OS watchers on BOTH sandbox AND every protected directory (ReadDirectoryChangesW on Windows,
+ *   FSEvents on macOS, recursive subdirectory inotify on Linux) so short-lived create+delete writes and
+ *   deep-subdirectory writes are reliably caught.
+ * - Strict completeness enforcement: watcher errors, event buffer overflow on protected directories,
+ *   or protected-dir tree truncation mark `auditComplete: false` and FAIL strict assertions instead
+ *   of ever silently reporting zero pollution.
+ * - Tracks child process tree metadata and verifies sandbox environment containment.
  */
 export async function startFsAuditMonitor({
   sandboxRoot,
   protectedDirs = [],
   label = 'audit',
+  maxProtectedEvents = 10_000,
+  maxSandboxEvents = 25_000,
 } = {}) {
   assert.ok(sandboxRoot, 'sandboxRoot is required');
   const resolvedSandbox = await realpath(sandboxRoot).catch(() => path.resolve(sandboxRoot));
@@ -75,35 +103,47 @@ export async function startFsAuditMonitor({
     if (existsSync(resolved)) uniqueProtected.push(resolved);
   }
 
-  const sandboxBefore = await scanTree(resolvedSandbox);
+  const sandboxScanState = { truncated: false };
+  const sandboxBefore = await scanTree(resolvedSandbox, new Map(), { state: sandboxScanState });
   const protectedBefore = new Map();
+  const protectedScanTruncated = [];
   for (const dir of uniqueProtected) {
-    protectedBefore.set(dir, await scanTree(dir));
+    const st = { truncated: false };
+    protectedBefore.set(dir, await scanTree(dir, new Map(), { state: st }));
+    if (st.truncated) protectedScanTruncated.push(dir);
   }
 
   const watchers = [];
   const watcherErrors = [];
   const osSandboxEvents = [];
   const osProtectedEvents = [];
+  let droppedSandboxEvents = 0;
+  let droppedProtectedEvents = 0;
+  let recursiveCoverageIncomplete = false;
   const trackedProcesses = [];
   const startedAt = new Date().toISOString();
 
-  function attachWatcher(dir, bucket, kind) {
+  function attachSingleWatcher(dir, bucket, kind, useRecursive) {
     try {
-      const useRecursive = kind === 'sandbox' && (process.platform === 'win32' || process.platform === 'darwin');
       const w = watch(dir, { recursive: useRecursive, persistent: false }, (eventType, filename) => {
-        if (bucket.length >= 2000) return;
         const nameStr = filename ? String(filename).replaceAll('\\', '/') : null;
         if (nameStr && SKIP_CACHE_DIRS.has(nameStr.split('/')[0])) return;
-        const entry = {
+        if (kind === 'protected' && nameStr && OS_SHELL_NOISE_FILES.has(path.basename(nameStr).toLowerCase())) return;
+        const limit = kind === 'protected' ? maxProtectedEvents : maxSandboxEvents;
+        if (bucket.length >= limit) {
+          if (kind === 'protected') droppedProtectedEvents += 1;
+          else droppedSandboxEvents += 1;
+          return;
+        }
+        bucket.push({
           ts: new Date().toISOString(),
           osMechanism: process.platform === 'win32' ? 'ReadDirectoryChangesW' : process.platform === 'darwin' ? 'FSEvents' : 'inotify',
           watchRoot: dir,
+          recursive: useRecursive,
           eventType,
           filename: nameStr,
           fullPath: filename ? path.resolve(dir, String(filename)) : dir,
-        };
-        bucket.push(entry);
+        });
       });
       w.on('error', err => watcherErrors.push({ kind, dir, message: err.message }));
       watchers.push(w);
@@ -112,25 +152,41 @@ export async function startFsAuditMonitor({
     }
   }
 
-  attachWatcher(resolvedSandbox, osSandboxEvents, 'sandbox');
+  const nativeRecursive = process.platform === 'win32' || process.platform === 'darwin';
+  attachSingleWatcher(resolvedSandbox, osSandboxEvents, 'sandbox', nativeRecursive);
+
   for (const dir of uniqueProtected) {
-    attachWatcher(dir, osProtectedEvents, 'protected');
+    if (nativeRecursive) {
+      attachSingleWatcher(dir, osProtectedEvents, 'protected', true);
+    } else {
+      const subdirs = await collectSubdirsForLinuxInotify(dir);
+      if (subdirs.length >= 200) recursiveCoverageIncomplete = true;
+      for (const sd of subdirs) {
+        attachSingleWatcher(sd, osProtectedEvents, 'protected', false);
+      }
+    }
   }
 
-  function recordProcess({ pid, command, args = [], cwd = null, role = 'child' } = {}) {
+  function recordProcess({ pid, ppid = process.pid, command, args = [], cwd = null, role = 'child', envSandbox = null } = {}) {
     trackedProcesses.push({
       pid: pid ?? null,
+      ppid,
       role,
       command: command ? path.basename(String(command)) : null,
       argsCount: Array.isArray(args) ? args.length : 0,
       cwd: cwd ? path.resolve(cwd) : null,
+      envSandbox: envSandbox ? path.resolve(envSandbox) : null,
       recordedAt: new Date().toISOString(),
     });
   }
 
-  async function stop({ assertClean = true } = {}) {
-    // Allow brief kernel event drain on Windows ReadDirectoryChangesW
-    await new Promise(r => setTimeout(r, 80));
+  function simulateWatcherErrorForTest(dir, message) {
+    watcherErrors.push({ kind: 'protected', dir, message });
+  }
+
+  async function stop({ assertClean = true, requireCompleteAudit = true } = {}) {
+    // Allow kernel event drain on ReadDirectoryChangesW / FSEvents / inotify
+    await new Promise(r => setTimeout(r, 120));
     for (const w of watchers) {
       try { w.close(); } catch {}
     }
@@ -140,7 +196,9 @@ export async function startFsAuditMonitor({
 
     const protectedViolations = [];
     for (const dir of uniqueProtected) {
-      const after = await scanTree(dir);
+      const stAfter = { truncated: false };
+      const after = await scanTree(dir, new Map(), { state: stAfter });
+      if (stAfter.truncated && !protectedScanTruncated.includes(dir)) protectedScanTruncated.push(dir);
       const diff = diffTrees(protectedBefore.get(dir), after, dir);
       for (const change of diff) {
         protectedViolations.push({ source: 'tree-diff', root: dir, ...change });
@@ -150,6 +208,12 @@ export async function startFsAuditMonitor({
       protectedViolations.push({ source: 'os-watcher', ...ev });
     }
 
+    const incompletenessReasons = [];
+    if (watcherErrors.length > 0) incompletenessReasons.push(`watcher_errors:${watcherErrors.length}`);
+    if (droppedProtectedEvents > 0) incompletenessReasons.push(`protected_event_overflow:${droppedProtectedEvents}`);
+    if (recursiveCoverageIncomplete) incompletenessReasons.push('linux_inotify_dir_limit_reached');
+
+    const auditComplete = incompletenessReasons.length === 0;
     const observedSandboxFiles = [...new Set([
       ...sandboxDiff.filter(d => !d.isDir && d.kind !== 'deleted').map(d => d.relative),
       ...osSandboxEvents.filter(e => e.filename).map(e => e.filename),
@@ -161,21 +225,27 @@ export async function startFsAuditMonitor({
       completedAt: new Date().toISOString(),
       platform: process.platform,
       osMonitorMechanism: process.platform === 'win32'
-        ? 'ReadDirectoryChangesW+TreeDiff'
+        ? 'ReadDirectoryChangesW(recursive)+TreeDiff'
         : process.platform === 'darwin'
-          ? 'FSEvents+TreeDiff'
-          : 'inotify+TreeDiff',
+          ? 'FSEvents(recursive)+TreeDiff'
+          : 'inotify(recursive-walk)+TreeDiff',
       sandboxRoot: resolvedSandbox,
       protectedDirCount: uniqueProtected.length,
+      protectedRecursiveWatched: nativeRecursive || !recursiveCoverageIncomplete,
       osWatcherActiveCount: watchers.length,
       watcherErrors,
+      droppedProtectedEvents,
+      droppedSandboxEvents,
+      protectedScanTruncated,
+      auditComplete,
+      incompletenessReasons,
       trackedProcesses,
       observedSandboxEventCount: osSandboxEvents.length,
       observedSandboxFileDiffCount: sandboxDiff.filter(d => !d.isDir).length,
       observedSandboxWritePaths: observedSandboxFiles,
       outOfBoundsViolations: protectedViolations,
       outOfBoundsViolationCount: protectedViolations.length,
-      clean: protectedViolations.length === 0,
+      clean: protectedViolations.length === 0 && auditComplete,
     };
 
     if (assertClean && protectedViolations.length > 0) {
@@ -187,6 +257,14 @@ export async function startFsAuditMonitor({
       error.auditReport = report;
       throw error;
     }
+    if (assertClean && requireCompleteAudit && !auditComplete) {
+      const error = new Error(
+        `OS filesystem audit INCOMPLETE during ${label} (refusing to declare zero pollution): ${incompletenessReasons.join(', ')}`,
+      );
+      error.code = 'SANDBOX_AUDIT_INCOMPLETE';
+      error.auditReport = report;
+      throw error;
+    }
     return report;
   }
 
@@ -194,6 +272,7 @@ export async function startFsAuditMonitor({
     sandboxRoot: resolvedSandbox,
     protectedDirs: uniqueProtected,
     recordProcess,
+    simulateWatcherErrorForTest,
     stop,
   };
 }

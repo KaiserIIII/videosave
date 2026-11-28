@@ -13,6 +13,11 @@ NODE_SHA_DARWIN_X64="977614af0504c81045e7fd85596dbca0e5f951b96681516dadafedcca8c
 NODE_SHA_LINUX_X64="4f2b175a6d53a5c617a80dba2676238a0688cef28c6da4eba35c7d844e66fcfb"
 NODE_SHA_LINUX_ARM64="6e51a2ada00f0011cc266f65d98922b403d7ad88f809ca2aa615a5fe1ce6e86c"
 
+YTDLP_VERSION="2026.11.23"
+YTDLP_SHA_MACOS="57654854886d0398a798895aadf5173e2749fbb5e249b9f3728022ab376e11fb"
+YTDLP_SHA_LINUX_X64="249ddb058234276bc449b9cd9492aad9f133bda5923c61a9e39983ae114ef17d"
+YTDLP_SHA_LINUX_ARM64="fb847a2e4a9ddc8cf5fcfb4bb7f42ba8969ecf72068def0278074f9d300bd13c"
+
 MODE="server"
 CLIENT=""
 SHARED_QUEUE=0
@@ -134,8 +139,53 @@ resolve_node() {
   bootstrap_node
 }
 
+bootstrap_ytdlp() {
+  if [[ -n "${YTDLP_BIN:-}" && -x "${YTDLP_BIN:-}" ]]; then
+    echo "$YTDLP_BIN"
+    return 0
+  fi
+  local os_name arch_name asset expected_sha
+  os_name="$(uname -s)"
+  arch_name="$(uname -m)"
+  case "${os_name}:${arch_name}" in
+    Darwin:*) asset="yt-dlp_macos"; expected_sha="$YTDLP_SHA_MACOS" ;;
+    Linux:x86_64) asset="yt-dlp_linux"; expected_sha="$YTDLP_SHA_LINUX_X64" ;;
+    Linux:aarch64|Linux:arm64) asset="yt-dlp_linux_aarch64"; expected_sha="$YTDLP_SHA_LINUX_ARM64" ;;
+    *) return 0 ;;
+  esac
+  local target_dir="${TOOLS_DIR}/yt-dlp-${YTDLP_VERSION}"
+  local target_bin="${target_dir}/yt-dlp"
+  if [[ -x "$target_bin" ]]; then
+    echo "$target_bin"
+    return 0
+  fi
+  mkdir -p "$target_dir"
+  local tmp_file="${target_dir}/yt-dlp.part-$$"
+  local url="https://github.com/yt-dlp/yt-dlp/releases/download/${YTDLP_VERSION}/${asset}"
+  echo "Downloading verified yt-dlp ${YTDLP_VERSION} (${asset}) into ${target_dir}..." >&2
+  if curl --fail --location --silent --show-error --retry 2 --connect-timeout 15 --max-time 180 --output "$tmp_file" "$url"; then
+    local actual_sha
+    actual_sha="$(sha256_file "$tmp_file")"
+    if [[ "$actual_sha" == "$expected_sha" ]]; then
+      chmod 755 "$tmp_file"
+      mv "$tmp_file" "$target_bin"
+      echo "$target_bin"
+      return 0
+    fi
+    echo "SHA-256 verification failed for yt-dlp ${YTDLP_VERSION} (${asset})!" >&2
+  fi
+  rm -f "$tmp_file"
+  return 0
+}
+
 NODE_BIN="$(resolve_node)"
 mkdir -p "$TOOLS_DIR"
+if [[ "$MODE" == "setup" || "$MODE" == "server" ]]; then
+  MANAGED_YTDLP="$(bootstrap_ytdlp || true)"
+  if [[ -n "${MANAGED_YTDLP:-}" && -x "${MANAGED_YTDLP:-}" ]]; then
+    export YTDLP_BIN="$MANAGED_YTDLP"
+  fi
+fi
 
 if [[ "$MODE" == "cli" ]]; then
   exec "$NODE_BIN" "$PROJECT_DIR/tools/media-cli.mjs" "${PASSTHROUGH_ARGS[@]}"

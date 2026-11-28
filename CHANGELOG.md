@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.0
+
+- **Native Built-In Bilibili Engine (`tools/bilibili-adapter.mjs`, `tools/platform-downloads.mjs`) — 11/11 Real Public Samples Verified (100%)**:
+  - Solved the `v1.2.0` Bilibili `HTTP 567` failure (caused by single-mirror `yt-dlp` selecting overloaded `upos-sz-mirrorcosov` nodes without official `backup_url` failover) with a native built-in Bilibili engine requiring **zero `yt-dlp`**.
+  - Ranks official Bilibili `upos`/`cn-` CDN mirrors ahead of flaky `cosov`/`mcdn`/`pcdn` nodes, performs automatic official `backup_url` failover on CDN 5xx/567 errors (strictly aborting on HTTP 401/402/403/451 access denials), downloads video + audio in parallel via multi-connection HTTP Range with SHA-256 checkpoints, and muxes losslessly via FFmpeg into verified MP4/M4A.
+  - Supports bare `BV...` IDs (across Extension, `/console`, MCP, CLI, and Android), standard `bilibili.com/video/BV.../?p=N` multi-P videos, `b23.tv` SSRF-safe short links, quality negotiation (`best`, `720`, `480`, `360`, `lowest`), audio-only extraction, and legal WebVTT subtitles.
+  - Verified **11/11 diverse real public Bilibili videos** (`docs/compatibility-data/v1.3.0-bilibili-public.json`, 361.7 MB total, zero local fallbacks, zero `yt-dlp`, every file passing FFprobe + real FFmpeg bitstream decode, including the exact 34-minute `BV1xx411c7mD` that failed HTTP 567 in v1.2.0).
+- **Android Core Fixes, Native Bilibili & Modern 4-Tab UI (`android/`, `android/tests/AndroidCoreSelfTest.java`, `tools/build_android_apk.py`)**:
+  - **DASH Download Fix (`DashEngine.java`)**: Implemented real XXE-hardened Static DASH (`SegmentTemplate`, `SegmentTimeline`, `SegmentList`, `BaseURL`) + Android `MediaExtractor`/`MediaMuxer` MP4/WebM muxing; explicitly rejects DRM and dynamic live MPDs before download and never saves XML/HTML/JSON manifests as `.mp4`.
+  - **Strict HTTP 416 / 206 Resume Validator (`HttpRangeValidator.java`)**: Persists `expectedTotal`, `ETag`, and `Last-Modified`; sends `If-Range`; refuses to mark truncated or mismatched 416 `.part` files complete; wipes and cleanly restarts instead.
+  - **Streaming HLS, Native Bilibili & Modern UI**: Streaming disk writes (low RAM), per-segment SHA-256 checkpoints, streaming AES-128 decrypt, independent audio track muxing, native `BilibiliResolver.java`, persistent `DownloadQueueStore` (Pause/Resume/Retry/Reboot recovery via `BootReceiver`), Wi-Fi-only toggle, 50 MB storage guard, and redesigned 4-tab rounded-card UI.
+  - Added automated 19-assertion JVM regression suite (`AndroidCoreSelfTest.java`) executed automatically on every APK build & GitHub Actions CI.
+- **Hardened DSH-12 Recursive OS Audit (`tools/fs-audit-monitor.mjs`, `tests/dsh12-fs-audit.test.mjs`)**:
+  - Enabled recursive OS kernel watchers on protected directories (catching short-lived create-then-immediate-delete writes and deep-subdirectory writes), subprocess tracking, and strict completeness enforcement (`SANDBOX_AUDIT_INCOMPLETE` if watcher errors or protected event buffer overflows occur). DSH-12 remains transparently marked pending independent user verification.
+- **Fair Multi-Round Monotonic-PTS Competitor Benchmark & Expanded Public Platforms (`tests/benchmark-competitors.mjs`, `tools/public-platform-adapters.mjs`, `tools/platform-registry.mjs`)**:
+  - Honestly flagged the v1.2.0 `yt-dlp` repeated-PTS `1.021s` sample as invalid; built a fair 3-round monotonic-PTS 120s HLS benchmark with strict FFprobe duration + A/V track + full decode qualification (`VideoSave 758 ms` vs `FFmpeg 1,817 ms` [2.40×] vs `yt-dlp 2,368 ms` [3.12×], all producing verified `120.021s` decoded files).
+  - Added native zero-`yt-dlp` support for **Internet Archive** and **Wikimedia Commons**, an honest evidence-backed `platform-registry.mjs` (`/api/platforms`), `start-unix.sh` SHA-256-verified `yt-dlp` auto-bootstrap on macOS/Linux, adaptive slow-tail & `Retry-After` HTTP-date parsing, and Sigstore provenance vs same-channel `SHA256SUMS.txt` distinction in `tools/updater.mjs`.
+
 ## 1.2.0
 
 - **DSH-12 Real OS Filesystem Write Audit & Symlink-Safe Sandbox (`tools/fs-audit-monitor.mjs`, `tools/preferences.mjs`, `tests/dsh12-fs-audit.test.mjs`)**:

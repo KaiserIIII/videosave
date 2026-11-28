@@ -22,7 +22,7 @@ RELEASE_DOCS = (
     "docs/dsh-guide.md", "docs/dsh-guide.zh-CN.md", "docs/dsh-feedback-tracker.md",
     "docs/ai-recipes.md", "docs/ai-recipes.zh-CN.md", "docs/third-party-notices.md", "docs/faq.md",
     "docs/launch-kit.md", "docs/hls-benchmark.zh-CN.md", "docs/v1-security.md",
-    "docs/android-harmonyos.md", "docs/security-audit-v1.2.md",
+    "docs/android-harmonyos.md", "docs/security-audit-v1.2.md", "docs/security-audit-v1.3.md", "docs/roadmap.md",
     "tests/benchmark-hls.mjs", "tests/dash-public.mjs",
 )
 EXECUTABLE_SCRIPTS = frozenset({
@@ -37,9 +37,24 @@ EXECUTABLE_SCRIPTS = frozenset({
 PROJECT = "https://github.com/KaiserIIII/videosave"
 
 
+LF_EXTS = frozenset({".mjs", ".js", ".json", ".md", ".html", ".css", ".svg", ".sh", ".command", ".txt", ".yml", ".yaml"})
+CRLF_EXTS = frozenset({".cmd", ".ps1"})
+
+
+def normalize_entry_bytes(rel_path: str, data: bytes) -> bytes:
+    lower = rel_path.lower()
+    if lower == "license" or any(lower.endswith(ext) for ext in LF_EXTS):
+        return data.replace(b"\r\n", b"\n")
+    if any(lower.endswith(ext) for ext in CRLF_EXTS):
+        return data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    return data
+
+
 def read_entries(directory, pattern):
-    return {file.relative_to(directory).as_posix(): file.read_bytes()
-            for file in directory.glob(pattern) if file.is_file()}
+    return {
+        file.relative_to(directory).as_posix(): normalize_entry_bytes(file.relative_to(directory).as_posix(), file.read_bytes())
+        for file in directory.glob(pattern) if file.is_file()
+    }
 
 
 def json_bytes(data):
@@ -60,7 +75,7 @@ def package_entries(manifest):
     extension_files = {}
     for pattern in ("*.mjs", "*.html", "*.css", "icons/*.png"):
         extension_files.update(read_entries(extension, pattern))
-    license_file = {"LICENSE": (ROOT / "LICENSE").read_bytes()}
+    license_file = {"LICENSE": normalize_entry_bytes("LICENSE", (ROOT / "LICENSE").read_bytes())}
 
     def browser_manifest(*, firefox=False, android=False):
         data = {**manifest, "background": dict(manifest["background"]),
@@ -80,8 +95,8 @@ def package_entries(manifest):
             data.pop("browser_specific_settings")
         return json_bytes(data)
 
-    dev_extension = {**extension_files, "manifest.json": (extension / "manifest.json").read_bytes()}
-    desktop = {file: (ROOT / file).read_bytes() for file in RELEASE_DOCS}
+    dev_extension = {**extension_files, "manifest.json": normalize_entry_bytes("manifest.json", (extension / "manifest.json").read_bytes())}
+    desktop = {file: normalize_entry_bytes(file, (ROOT / file).read_bytes()) for file in RELEASE_DOCS}
     desktop.update(read_entries(ROOT, "docs/compatibility-data/*.json"))
     desktop.update(read_entries(ROOT, "tests/compatibility*.mjs"))
     desktop.update({"extension/" + file: data for file, data in dev_extension.items()})
@@ -92,10 +107,7 @@ def package_entries(manifest):
         "tools/start-windows.ps1", "tools/install-windows.ps1", "tools/uninstall-windows.ps1",
         "tools/start-unix.sh", "Launch VideoSave.command", "Uninstall VideoSave.command",
     ):
-        raw = (ROOT / file).read_bytes()
-        if file.endswith(".sh") or file.endswith(".command"):
-            raw = raw.replace(b"\r\n", b"\n")
-        desktop[file] = raw
+        desktop[file] = normalize_entry_bytes(file, (ROOT / file).read_bytes())
 
     unix_desktop = {
         k: v for k, v in desktop.items()

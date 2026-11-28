@@ -1,12 +1,16 @@
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { promisify } from 'node:util';
 import manifest from '../extension/manifest.json' with { type: 'json' };
 import { ApiError } from './media-source.mjs';
 import { assertSandboxPath, getSettingsFile } from './preferences.mjs';
 import { getRuntimeHealth, PINNED_COMPONENTS } from './runtime-manager.mjs';
+
+const execFileAsync = promisify(execFile);
 
 const OFFICIAL_REPO = 'KaiserIIII/videosave';
 const ALLOWED_RELEASE_HOST = 'github.com';
@@ -225,14 +229,50 @@ export async function downloadAndVerifyUpdate({
     }
     await writeFile(staged, buf);
     await rename(staged, finalPath);
-    recordUpdateLog({ kind: 'app', toVersion, assetName, sha256: actualSha, status: 'verified-staged' });
+
+    // Attempt independent GitHub Sigstore OIDC provenance verification if `gh` CLI is installed.
+    // Explicitly distinguish cryptographic provenance from same-channel SHA256SUMS.txt verification.
+    let provenanceVerified = false;
+    let provenanceDetail = 'Verified against official GitHub Release SHA256SUMS.txt (same distribution channel). Install GitHub CLI (`gh`) and run `gh attestation verify` for independent Sigstore OIDC provenance verification.';
+    try {
+      await execFileAsync('gh', ['attestation', 'verify', finalPath, '--repo', OFFICIAL_REPO], {
+        timeout: 20_000,
+        windowsHide: true,
+      });
+      provenanceVerified = true;
+      provenanceDetail = 'Verified by BOTH SHA256SUMS.txt AND independent GitHub Sigstore OIDC provenance attestation.';
+    } catch {}
+
+    // Backup local settings.sqlite before user applies upgrade (best-effort rollback point)
+    let settingsBackup = null;
+    try {
+      const settingsPath = getSettingsFile();
+      if (existsSync(settingsPath)) {
+        const bak = path.join(safeDir, `settings-backup-before-${toVersion}.sqlite`);
+        await copyFile(settingsPath, bak);
+        settingsBackup = bak;
+      }
+    } catch {}
+
+    recordUpdateLog({
+      kind: 'app',
+      toVersion,
+      assetName,
+      sha256: actualSha,
+      status: provenanceVerified ? 'provenance-verified-staged' : 'sha256-verified-staged',
+      detail: provenanceVerified ? 'sigstore+sha256' : 'sha256-same-channel',
+    });
     return {
       ok: true,
       file: finalPath,
       assetName,
       bytes: buf.length,
       sha256: actualSha,
-      verifiedAgainst: 'SHA256SUMS.txt',
+      verifiedAgainst: provenanceVerified ? 'SHA256SUMS.txt + GitHub Sigstore Provenance' : 'SHA256SUMS.txt',
+      trustLevel: provenanceVerified ? 'sigstore-provenance-verified' : 'sha256-same-channel-only',
+      provenanceVerified,
+      provenanceNote: provenanceDetail,
+      settingsBackup,
       autoExecuted: false,
     };
   } catch (err) {

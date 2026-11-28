@@ -166,18 +166,32 @@ export async function getRuntimeHealth() {
 
   const platforms = {
     bilibili: {
-      status: components.ytdlp.status === 'ready' && components.ffmpeg.status === 'ready' ? 'ready' : 'component-missing',
-      requiredComponents: ['yt-dlp', 'ffmpeg'],
-      hint: components.ytdlp.status === 'ready'
-        ? 'Bilibili public video direct download ready.'
-        : 'Run Start VideoSave.cmd or setup-platform-downloads.mjs to install pinned yt-dlp automatically.',
+      status: components.ffmpeg.status === 'ready' ? 'ready' : 'component-missing',
+      engine: 'bilibili-native',
+      requiredComponents: ['ffmpeg'],
+      hint: components.ffmpeg.status === 'ready'
+        ? 'Bilibili native engine ready (multi-CDN failover + HTTP Range + FFmpeg mux; zero yt-dlp required).'
+        : 'Run Start VideoSave.cmd to install pinned FFmpeg automatically.',
     },
     youtube: {
       status: components.ytdlp.status === 'ready' && components.ffmpeg.status === 'ready' && nodeMajor >= 24 ? 'ready' : 'component-missing',
+      engine: 'yt-dlp',
       requiredComponents: ['yt-dlp', 'ffmpeg', 'node>=24'],
       hint: components.ytdlp.status === 'ready'
         ? 'YouTube public video direct download ready.'
         : 'Run Start VideoSave.cmd or setup-platform-downloads.mjs to install pinned yt-dlp automatically.',
+    },
+    'internet-archive': {
+      status: 'ready',
+      engine: 'internet-archive-native',
+      requiredComponents: [],
+      hint: 'Internet Archive native metadata & HTTP download ready.',
+    },
+    wikimedia: {
+      status: 'ready',
+      engine: 'wikimedia-native',
+      requiredComponents: [],
+      hint: 'Wikimedia Commons native media download ready.',
     },
   };
 

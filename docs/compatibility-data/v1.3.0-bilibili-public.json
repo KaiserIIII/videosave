@@ -1,0 +1,535 @@
+{
+  "recordedAt": "2026-11-28T06:41:53.649Z",
+  "version": "1.3.0",
+  "platform": "win32-x64",
+  "node": "v24.19.0",
+  "ytdlpRequired": false,
+  "ytdlpConfiguredDuringTest": false,
+  "realPublicMediaOnly": true,
+  "fallbackToLocalFixtureCount": 0,
+  "summary": {
+    "total": 11,
+    "probed": 11,
+    "verified": 11,
+    "failed": 0,
+    "successRatePct": 100,
+    "totalDownloadedBytes": 361722079
+  },
+  "results": [
+    {
+      "id": "bili-01-long-video-prev-567",
+      "category": "long-video-previously-http-567",
+      "input": "https://www.bilibili.com/video/BV1xx411c7mD/",
+      "requestedQuality": 384,
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "字幕君交流场所",
+      "totalPages": 1,
+      "availableQualities": [
+        720,
+        384,
+        360
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 98264797,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 2055.157,
+        "width": 512,
+        "height": 384,
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 19161,
+      "qualityNegotiation": {
+        "requested": 384,
+        "selectedHeight": 720,
+        "selectedWidth": 1280,
+        "selectedCodec": "avc1+mp4a",
+        "formatKind": "durl",
+        "available": [
+          720,
+          384,
+          360
+        ],
+        "fallbackApplied": false,
+        "reason": "best-available:720p"
+      }
+    },
+    {
+      "id": "bili-02-short-bare-bvid",
+      "category": "short-video-bare-bvid-input",
+      "input": "BV1J4411v7g6",
+      "requestedQuality": "best",
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "只因你太美（鸡你太美）原版",
+      "totalPages": 1,
+      "availableQualities": [
+        720,
+        480,
+        360
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 15115299,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 59.65,
+        "width": 1280,
+        "height": 720,
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 2981,
+      "qualityNegotiation": {
+        "requested": "best",
+        "selectedHeight": 720,
+        "selectedWidth": 1280,
+        "selectedCodec": "avc1+mp4a",
+        "formatKind": "durl",
+        "available": [
+          720,
+          480,
+          360
+        ],
+        "fallbackApplied": false,
+        "reason": "best-available:720p"
+      }
+    },
+    {
+      "id": "bili-03-b23-shortlink",
+      "category": "b23-shortlink-resolution",
+      "input": "https://b23.tv/BV1GJ411x7h7",
+      "requestedQuality": 480,
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "【官方 MV】Never Gonna Give You Up - Rick Astley",
+      "totalPages": 1,
+      "availableQualities": [
+        720,
+        480,
+        360
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 43031063,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 212.309,
+        "width": 854,
+        "height": 480,
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 13953,
+      "qualityNegotiation": {
+        "requested": 480,
+        "selectedHeight": 720,
+        "selectedWidth": 1280,
+        "selectedCodec": "avc1+mp4a",
+        "formatKind": "durl",
+        "available": [
+          720,
+          480,
+          360
+        ],
+        "fallbackApplied": false,
+        "reason": "best-available:720p"
+      }
+    },
+    {
+      "id": "bili-04-multip-part1-dash",
+      "category": "multi-part-p1-dash-separate-av",
+      "input": "https://www.bilibili.com/video/BV1uT4y1P7CX/?p=1",
+      "requestedQuality": 480,
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "【4K60帧】经典老歌：瑞克·埃斯利《Never Gonna Give You Up》1987 AI修复补帧版 - P1 【4K60帧】AI修复补帧版",
+      "totalPages": 2,
+      "availableQualities": [
+        720,
+        480,
+        360
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 46352057,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 212.224,
+        "width": 640,
+        "height": 480,
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 16547,
+      "qualityNegotiation": {
+        "requested": 480,
+        "selectedHeight": 720,
+        "selectedWidth": 1280,
+        "selectedCodec": "avc1+mp4a",
+        "formatKind": "durl",
+        "available": [
+          720,
+          480,
+          360
+        ],
+        "fallbackApplied": false,
+        "reason": "best-available:720p"
+      }
+    },
+    {
+      "id": "bili-05-multip-part2-quality-cap",
+      "category": "multi-part-p2-quality-negotiation",
+      "input": "https://www.bilibili.com/video/BV1uT4y1P7CX/?p=2",
+      "requestedQuality": 360,
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "【4K60帧】经典老歌：瑞克·埃斯利《Never Gonna Give You Up》1987 AI修复补帧版 - P2 【4K60帧】倒放版",
+      "totalPages": 2,
+      "availableQualities": [
+        480,
+        360
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 33483121,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 211.562,
+        "width": 480,
+        "height": 360,
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 8710,
+      "qualityNegotiation": {
+        "requested": 360,
+        "selectedHeight": 480,
+        "selectedWidth": 640,
+        "selectedCodec": "avc1.64001E",
+        "formatKind": "dash",
+        "available": [
+          480,
+          360
+        ],
+        "fallbackApplied": false,
+        "reason": "best-available:480p"
+      }
+    },
+    {
+      "id": "bili-06-highfps-multiquality-multicodec",
+      "category": "multi-quality-multi-codec-demo",
+      "input": "BV1fK4y1t7hj",
+      "requestedQuality": 480,
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "【4K 120FPS】你的设备顶得住吗？4K120帧技术演示片",
+      "totalPages": 1,
+      "availableQualities": [
+        480,
+        388,
+        360,
+        290
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 21859393,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 295.061,
+        "width": 1056,
+        "height": 480,
+        "videoCodec": "hevc",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 2496,
+      "qualityNegotiation": {
+        "requested": 480,
+        "selectedHeight": 480,
+        "selectedWidth": 1056,
+        "selectedCodec": "hev1.1.6.L120.90",
+        "formatKind": "dash",
+        "available": [
+          480,
+          388,
+          360,
+          290
+        ],
+        "fallbackApplied": false,
+        "reason": "best-available:480p"
+      }
+    },
+    {
+      "id": "bili-07-opencourse-multip-best",
+      "category": "open-course-multi-p-best",
+      "input": "https://www.bilibili.com/video/BV1ys411472E/",
+      "requestedQuality": 480,
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "【官方双语/合集】线性代数的本质 - 系列合集 - P1 00 - 序言",
+      "totalPages": 16,
+      "availableQualities": [
+        720,
+        480,
+        360
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 13622557,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 309.011,
+        "width": 854,
+        "height": 480,
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 16047,
+      "qualityNegotiation": {
+        "requested": 480,
+        "selectedHeight": 720,
+        "selectedWidth": 1280,
+        "selectedCodec": "avc1+mp4a",
+        "formatKind": "durl",
+        "available": [
+          720,
+          480,
+          360
+        ],
+        "fallbackApplied": false,
+        "reason": "best-available:720p"
+      }
+    },
+    {
+      "id": "bili-08-avc1-only-multip",
+      "category": "single-codec-avc1-multi-p",
+      "input": "https://www.bilibili.com/video/BV124411C7nB/",
+      "requestedQuality": 480,
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "【水彩】画大头 在翻车边缘反复试探 - P1 画四个大头 在翻车边缘 反复试探。(纸部分脱胶了 我太难了）",
+      "totalPages": 2,
+      "availableQualities": [
+        720,
+        480,
+        360
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 44875907,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 256.394,
+        "width": 854,
+        "height": 480,
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 18709,
+      "qualityNegotiation": {
+        "requested": 480,
+        "selectedHeight": 720,
+        "selectedWidth": 1280,
+        "selectedCodec": "avc1+mp4a",
+        "formatKind": "durl",
+        "available": [
+          720,
+          480,
+          360
+        ],
+        "fallbackApplied": false,
+        "reason": "best-available:720p"
+      }
+    },
+    {
+      "id": "bili-09-audio-only-extract",
+      "category": "independent-audio-track-m4a",
+      "input": "https://www.bilibili.com/video/BV1os411q7wR/",
+      "requestedQuality": "best",
+      "requestedMode": "audio",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "Q中就死的机器人，新人求关注",
+      "totalPages": 1,
+      "availableQualities": [
+        480,
+        360
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 3799721,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 234.303,
+        "width": null,
+        "height": null,
+        "videoCodec": null,
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 2210,
+      "qualityNegotiation": null
+    },
+    {
+      "id": "bili-10-download-best-media-unified",
+      "category": "unified-download-best-media-api",
+      "input": "BV17x411w7KC",
+      "requestedQuality": "best",
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "【MV】保加利亚妖王AZIS视频合辑 - P1 Хоп",
+      "totalPages": 10,
+      "availableQualities": [
+        720,
+        288
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 7871613,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 199.333,
+        "width": 512,
+        "height": 288,
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 5484
+    },
+    {
+      "id": "bili-11-course-subtitles-enabled",
+      "category": "large-playlist-course-with-subtitles-flag",
+      "input": "https://www.bilibili.com/video/BV1Kb411W75N/?p=1",
+      "requestedQuality": 360,
+      "requestedMode": "combined",
+      "realPublicMedia": true,
+      "fallbackToLocalFixture": false,
+      "ytdlpUsed": false,
+      "probeStatus": "ok",
+      "title": "尚硅谷Java入门视频教程，java基础视频 - P1 尚硅谷Java基础学习导读",
+      "totalPages": 716,
+      "availableQualities": [
+        480,
+        360
+      ],
+      "engine": "bilibili-native",
+      "downloadStatus": "verified",
+      "fileBytes": 33446551,
+      "verification": {
+        "ffprobeOk": true,
+        "playableDecodeOk": true,
+        "decodeError": null,
+        "ok": true,
+        "durationSec": 428.56,
+        "width": 640,
+        "height": 360,
+        "videoCodec": "h264",
+        "audioCodec": "aac",
+        "formatName": "mov,mp4,m4a,3gp,3g2,mj2"
+      },
+      "error": null,
+      "elapsedMs": 9325,
+      "qualityNegotiation": {
+        "requested": 360,
+        "selectedHeight": 480,
+        "selectedWidth": 852,
+        "selectedCodec": "avc1.64001F",
+        "formatKind": "dash",
+        "available": [
+          480,
+          360
+        ],
+        "fallbackApplied": false,
+        "reason": "best-available:480p"
+      }
+    }
+  ],
+  "actualWritePaths": {
+    "sandboxEnforced": true,
+    "osMonitorMechanism": "ReadDirectoryChangesW+TreeDiff",
+    "outOfBoundsViolationCount": 0,
+    "writtenFileCount": 11,
+    "allWritesInsideSandbox": true
+  }
+}

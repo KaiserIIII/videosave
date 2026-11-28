@@ -560,7 +560,31 @@ try {
     return { invalidArgsExitCode: bad, successExitCode: okCode, jsonlLines: lines.length };
   });
 
-  // 21. Forced sandbox actual-write-path verification (never rely on user-dir baseline diff alone)
+  // 21. v1.3.0: Real DSH MCP -> Bilibili public video end-to-end download via built-in bilibili-native engine (zero yt-dlp)
+  await runCase('21-v13-dsh-bilibili-native-public-download', 'DSH calls download_best_media on real public Bilibili bare BV ID without yt-dlp and verifies playable MP4', async () => {
+    const res = await dshClient.call('download_best_media', {
+      url: 'BV1J4411v7g6',
+      quality: 'best',
+      verify: true,
+      waitTimeoutMs: 60_000,
+    });
+    assert.equal(res.status, 'done', JSON.stringify(res));
+    assert.equal(res.item?.engine, 'bilibili-native');
+    assert.equal(res.verification?.ok, true, JSON.stringify(res.verification));
+    assert.ok(res.verification?.hasVideo && res.verification?.hasAudio);
+    assert.ok(res.item?.file && path.resolve(res.item.file).startsWith(path.resolve(sandbox.downloads)));
+    return {
+      engine: res.item.engine,
+      title: res.item.title,
+      width: res.verification.width,
+      height: res.verification.height,
+      duration: res.verification.duration,
+      verified: res.verification.ok,
+      file: path.basename(res.item.file),
+    };
+  });
+
+  // 22. Forced sandbox actual-write-path verification (never rely on user-dir baseline diff alone)
   let actualWritePaths = null;
   await runCase('17-forced-sandbox-actual-write-paths', 'Verify forced --sandbox blocks user settings and all actual writes land strictly inside temp sandbox', async () => {
     const eff = await dshClient.call('get_effective_settings', {});

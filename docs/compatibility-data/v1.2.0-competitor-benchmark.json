@@ -32,7 +32,9 @@
     {
       "tool": "yt-dlp 2026.11.23 (m3u8:native, 8 conn)",
       "installed": true,
-      "status": "done",
+      "status": "invalid-output-excluded-from-ranking",
+      "validForRanking": false,
+      "invalidReason": "v1.2.0 fixture repeated identical PTS=0..1s across 120 segments; yt-dlp concatenated raw timestamps producing durationSec=1.021s instead of 120s. Superseded by monotonic-PTS multi-round v1.3.0-competitor-benchmark.json.",
       "elapsedMs": 7862,
       "durationSec": 1.021333,
       "fileBytes": 8347200,

@@ -71,7 +71,10 @@ function parseCliQuality(raw) {
 }
 
 try {
-  const { values, positionals } = parseArgs({ options, allowPositionals: true });
+  const normalizedArgs = process.argv.slice(2).map(arg =>
+    arg.startsWith('--sandbox=') ? '--sandbox-dir=' + arg.slice('--sandbox='.length) : arg,
+  );
+  const { values, positionals } = parseArgs({ args: normalizedArgs, options, allowPositionals: true });
   if (values.help) {
     process.stdout.write(
       'Usage: node tools/media-cli.mjs [OPTIONS] URL...\n' +
@@ -108,8 +111,8 @@ try {
       process.env.VIDEOSAVE_FORCE_OUT_DIR = resolvedOut;
     }
     configureMediaProxy();
-    if (!positionals.length) throw new downloads.ApiError('INVALID_ITEMS', 'Provide at least one HTTP(S) media or page URL.');
-    const urls = positionals.map(mediaUrl);
+    if (!positionals.length) throw new downloads.ApiError('INVALID_ITEMS', 'Provide at least one HTTP(S) media, platform URL, or Bilibili BV ID.');
+    const urls = positionals.map(raw => mediaUrl(platformVideo(raw)?.url ?? raw));
     const cookie = values['cookie-file'] ? await loadCookieHeader(values['cookie-file'], urls) : undefined;
     const quality = parseCliQuality(values.quality);
     let parsedHeadersJson = {};

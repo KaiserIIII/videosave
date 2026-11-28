@@ -1,56 +1,38 @@
-# VideoSave Android & Huawei HarmonyOS (Mate 60 Pro) Support Guide
+# VideoSave Android APK (Beta) & Huawei Mate 60 Pro / HarmonyOS Guide (v1.3.0)
 
-## Support Matrix
+## 1. Real Engineering Fixes Delivered in v1.3.0
 
-| Device / OS | Route A: Standalone Android APK | Route B: Firefox Android Extension | Status |
-| :--- | :--- | :--- | :--- |
-| **Android 8.0 – 16 (ARM64-v8a / ARMv7 / x86_64)** | **Supported (Beta APK)** — direct install, zero Root, zero Termux, zero Python | Supported (Firefox Nightly / custom add-on collection; AMO signing prepared) | Real APK built & verified via `apksigner` + `aapt2`; formal release keystore pending developer certificate |
-| **Huawei Mate 60 Pro — HarmonyOS 4.x** (Android compatibility layer) | **Supported (Beta APK)** — installs via standard APK installer (`Unknown sources` / `Pure Mode` opt-in) | Supported via Firefox Android | Compatible with HarmonyOS 4.x Android runtime; physical Mate 60 Pro on-device test pending user verification |
-| **Huawei Mate 60 Pro — HarmonyOS NEXT (5.0+)** | **Not Supported** — HarmonyOS NEXT removes native Android APK execution | Not Supported | See **HarmonyOS NEXT ArkTS/ArkUI Roadmap** below; use Desktop Companion `/console` in the meantime |
+Every defect found during v1.2.0 code review has been directly fixed and covered by automated JVM regression tests (`android/tests/AndroidCoreSelfTest.java`, executed automatically on every APK build and GitHub Actions CI):
 
----
+| Area | v1.2.0 Beta Limitation | v1.3.0 Fix & Verification |
+| :--- | :--- | :--- |
+| **DASH Download** | `MediaProbeEngine` probed `.mpd`, but `DownloadService` had no DASH branch — risking saving XML as `.mp4` | Added pure-Java `DashEngine.java` (XXE-hardened DOM parser supporting `SegmentTemplate`, `SegmentTimeline`, `SegmentList`, `BaseURL`), strict pre-download rejection of DRM & `type="dynamic"` live MPDs, per-segment binary validation, and `MediaExtractor` + `MediaMuxer` MP4/WebM muxing. XML/HTML/JSON manifests are **never** saved as `.mp4`. |
+| **HTTP 416 Resume** | Returned existing `.part` blindly on any HTTP 416 | Added `HttpRangeValidator.java` (strict RFC 9110): persists `expectedTotal`, `ETag`, `Last-Modified`; sends `If-Range`; accepts 416 **only** when server length (`Content-Range: bytes */TOTAL` or HEAD probe), identity headers, and `MediaContainerUtil` binary magic **all** verify. Truncated or mismatched 416 files are rejected and cleanly restarted. |
+| **HLS Integrity** | Loaded full segments into RAM; weak HTML-only check; no independent audio track muxing | Streaming disk writes (zero full-file RAM buffering), streaming `CipherInputStream` for clear-key AES-128, per-segment SHA-256 checkpoints, binary MPEG-TS/fMP4 header checks, container-switch & multi-init discontinuity guard, and `#EXT-X-MEDIA:TYPE=AUDIO` muxing via `MediaMuxer`. |
+| **Bilibili on Android** | No native Bilibili resolver | Added `BilibiliResolver.java` supporting bare `BV...`, `bilibili.com/video/...`, and `b23.tv` short links with official UPOS CDN mirror ranking, progressive MP4, and separate DASH video+audio muxed natively via `MediaMuxer` — zero Root, zero Termux, zero Python. |
+| **Queue & UI** | Single-screen flat buttons, volatile in-memory queue | Redesigned modern 4-tab UI (**Home / Probe**, **Queue**, **History**, **Settings & Status**) with rounded cards, clipboard paste, bilingual EN/中文, Dark/Light themes, accessibility labels, persistent `DownloadQueueStore` (Pause/Resume/Retry/Cancel/`BootReceiver` reboot recovery), Wi-Fi-only toggle, 50 MB free-space guard, and `MediaExtractor` playability verification. |
 
-## Route A: Standalone Android APK
+## 2. Signing Status & Formal Release Upgrade Pipeline
 
-### What's Inside (`android/`)
-Built strictly with official Android SDK 36 (`minSdkVersion 26`, `targetSdkVersion 35`, pure Java 8 / ART bytecode — native performance on **ARM64-v8a** without bloated native runtime bundles):
+- **Current Release Artifact**: `VideoSave-1.3.0-android-debug.apk` (explicitly labeled **Debug / Beta**; built with Android SDK 36 `build-tools/36.1.0`, `minSdkVersion 26`, `targetSdkVersion 35`, `versionCode 10300`, verified by `apksigner verify --verbose` and `AndroidCoreSelfTest`).
+- **Why it is still marked Beta**: Signing keys are **never** committed to Git. Without a user-held release keystore configured in GitHub Actions Secrets, CI generates an ephemeral debug signing key per build (which prevents in-place overwrite upgrades between different debug builds).
+- **Enabling Formal Release Signing (`VideoSave-*-android-universal.apk`)**:
+  1. Generate a long-lived upload/release keystore locally (keep offline, never commit):
+     ```bash
+     keytool -genkeypair -v -keystore videosave-release.jks -alias videosave \
+       -keyalg RSA -keysize 2048 -validity 10000
+     ```
+  2. Add these repository secrets in GitHub Settings → Secrets and variables → Actions:
+     - `VIDEOSAVE_ANDROID_KEYSTORE_BASE64` (base64 of `.jks`)
+     - `VIDEOSAVE_ANDROID_KEYSTORE_PASS`
+     - `VIDEOSAVE_ANDROID_KEY_ALIAS`
+     - `VIDEOSAVE_ANDROID_KEY_PASS`
+  3. `tools/build_android_apk.py` will automatically sign with your persistent key, increment `versionCode` monotonically (`major*10000 + minor*100 + patch`), preserve user `DownloadHistoryStore` & `DownloadQueueStore` across upgrades, and publish `VideoSave-<version>-android-universal.apk`.
 
-- **Standalone App & Launcher Icon**: No browser debugging menu, no Termux, no Python, no Root required.
-- **Android Share Menu Integration (`ACTION_SEND`)**: Share links directly from Huawei Browser, Chrome, Firefox, or media apps into VideoSave.
-- **Media Probe & 2-Byte Quality Availability**: Probes Direct MP4/Audio, HLS Master/Variant playlists (with 2-byte Range availability check), static DASH manifests, and static HTML pages. Never bypasses HTTP 401/403/451 or DRM.
-- **Foreground Service + Notification Progress Bar**: Android 14/15 compliant (`foregroundServiceType="dataSync"`, runtime `POST_NOTIFICATIONS` request) with live progress percentage and Cancel button.
-- **Resumable Downloads**:
-  - HTTP Range `.part` checkpoint resume
-  - Native HLS segment downloader with `checkpoint.properties` resume and authorized clear-key AES-128 decryption (`javax.crypto.Cipher`)
-  - Serial batch queue (paste multiple URLs one per line)
-- **Scoped Storage & System Gallery Integration**: Exports completed files to `Downloads/VideoSave/` via `MediaStore.Downloads` (Android 10–16 compliant; no broad external storage permission needed).
-- **Download History & In-App Preview**: Local private history (`videosave-history.json`) with tap-to-play via Android system player.
-- **Bilingual EN / 中文 & Dark / Light Themes**.
+## 3. Huawei Mate 60 Pro & HarmonyOS Compatibility Matrix
 
-### Debug Build vs Formal Release Signed APK
-- **Signing keys are NEVER committed to GitHub.**
-- When release signing secrets (`VIDEOSAVE_ANDROID_KEYSTORE`, `VIDEOSAVE_ANDROID_KEYSTORE_PASS`, `VIDEOSAVE_ANDROID_KEY_ALIAS`) are configured in the build environment, `python tools/build_android_apk.py` outputs a formally signed **`VideoSave-1.2.0-android-universal.apk`**.
-- Without formal release secrets, the build generates an ephemeral build-time signing key (deleted immediately after build) and explicitly labels the artifact **`VideoSave-1.2.0-android-debug.apk`** so test/beta builds are never misrepresented as formally release-signed APKs.
-
-### Installing on Huawei Mate 60 Pro (HarmonyOS 4.x)
-1. Download `VideoSave-1.2.0-android-debug.apk` (or formally signed `-android-universal.apk` once release signing is configured) from [GitHub Releases](https://github.com/KaiserIIII/videosave/releases/latest).
-2. On HarmonyOS 4.x, open **Files**, tap the `.apk`, and allow installation when prompted by HarmonyOS Pure Mode / security check (if installing a debug-signed build, HarmonyOS may ask for confirmation for an unrecognized developer signature).
-3. Grant notification permission on first launch to see background download progress in the notification shade.
-
----
-
-## Route B: Firefox Android Extension
-- Packaged as `VideoSave-1.2.0-firefox.zip` and `VideoSave-1.2.0-android-dev.zip` (`gecko_android` strict_min_version `136.0`, minimal permissions without desktop `downloads`/`offscreen`).
-- Ordinary Firefox stable requires Mozilla AMO signing (see `packaging/stores/SUBMISSION-GUIDE.md`). Disabling signature checks is **not** recommended for normal users.
-
----
-
-## HarmonyOS NEXT (5.0+ Pure HarmonyOS) Feasibility & ArkTS Roadmap
-HarmonyOS NEXT removes the Android runtime (AOSP/ART), so neither `.apk` nor Android Firefox can run natively.
-
-- **Technical Assessment**:
-  - **UI & Share Intake**: ArkUI (ArkTS) + `Share Kit` (`systemShare`) replaces Android `ACTION_SEND`.
-  - **Networking & HLS/HTTP Engine**: `@ohos.net.http` / `@ohos.request` background agent + ArkTS port of `extension/hls.mjs` and `tools/quality-negotiator.mjs` (TypeScript/ESM logic shares ~80% conceptual parity with ArkTS!).
-  - **Media Storage**: `@ohos.file.photoAccessHelper` / `@ohos.file.fs` replaces `MediaStore.Downloads`.
-  - **Build & Signing Requirements**: Requires **DevEco Studio** + HarmonyOS SDK + Huawei AppGallery Connect developer certificate/provisioning profile (not available on standard GitHub Actions runners or this host).
-- **Current Status**: **Planned (Not Built in v1.2.0)** — clearly labeled as planned until DevEco Studio SDK + Huawei developer signing environment is provisioned.
+| Environment | Support Status | Notes |
+| :--- | :--- | :--- |
+| **Android 8.0 – 16 (ARM64 / universal Dalvik/ART bytecode)** | **Supported (Beta APK)** | Pure Java/DEX (`classes.dex`), architecture-independent, runs natively on ARM64 without NDK ABI mismatch. |
+| **Huawei Mate 60 Pro — HarmonyOS 4.x (Android compatibility layer)** | **Installable Beta APK (pending physical device test)** | Sideload `VideoSave-1.3.0-android-debug.apk` directly via Files / browser. Enable "Install apps from external sources" if prompted; allow notification permission for foreground progress. *Honesty note*: No physical Mate 60 Pro or Android emulator was attached during automated build (`adb devices` = empty), so hardware-specific background battery/sleep behavior remains **pending real-device sign-off**. |
+| **HarmonyOS NEXT (Pure ArkTS / OpenHarmony API)** | **Not Supported (Roadmap)** | HarmonyOS NEXT removes Android APK compatibility. A native ArkTS `.hap` requires DevEco Studio and Huawei AppGallery signing credentials (not present in this build environment; no fabricated `.hap` claims). |

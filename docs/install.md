@@ -1,21 +1,52 @@
-# Install, upgrade, and remove VideoSave
+# Install, Upgrade, and Uninstall VideoSave (v1.3.0)
 
-Use the [stable Releases page](https://github.com/KaiserIIII/videosave/releases/latest) or choose a [published release](https://github.com/KaiserIIII/videosave/releases). Compare the downloaded ZIP with the matching entry in `SHA256SUMS.txt` before loading an unpacked extension or running its launcher. PowerShell can show a file SHA-256 with `Get-FileHash -Algorithm SHA256 -LiteralPath 'VideoSave-1.0.0.zip'`. GitHub provenance can be checked with `gh attestation verify <archive> --repo KaiserIIII/videosave`. For DeepSeek Harness (DSH) setup and stale-version upgrade verification (`get_version`), see [docs/dsh-guide.md](dsh-guide.md).
+Download official release packages from the [GitHub Releases page](https://github.com/KaiserIIII/videosave/releases/latest) or the [official website](https://kaiseriiii.github.io/videosave/) (which auto-detects your OS and recommends the right package).
 
-For Edge or Chrome, extract the desktop or Chromium-only ZIP and load the extension using your browser's developer mode. Firefox requires a signed build for permanent normal installation. The Firefox developer ZIP can be installed temporarily from `about:debugging`. The Android developer ZIP is experimental.
+## 1. Windows x64 (No Admin Rights, Zero Manual Dependencies)
 
-On Windows x64, open `Start VideoSave.cmd` from the extracted desktop package. It can reuse cached tools and prepares missing pinned dependencies. The extension's local service panel accepts the address and pairing code shown by the launcher. Direct file downloads can start without pairing.
+Choose one of three official options:
 
-Extract an upgrade into a fresh directory and load the new source. Browser storage is tied to the extension identity. Export browser settings under **Settings → Backup and updates** before changing the unpacked extension path. The shared Windows settings database and cached tools live under `%LOCALAPPDATA%\VideoSave`.
+1. **Graphical Installer (Recommended)** — `VideoSave-1.3.0-Setup.exe`
+   - Native Windows wizard; installs to `%LOCALAPPDATA%\Programs\VideoSave` without administrator privileges or `PATH` modifications.
+   - Automatically prepares SHA-256-verified Node.js 24 LTS, FFmpeg 8.1.2, and yt-dlp 2026.11.23, then opens the Local Management Center (`http://127.0.0.1:8765/console`).
+   - Supports silent unattended installs: `VideoSave-1.3.0-Setup.exe /S /D=C:\Path\To\VideoSave`.
+2. **True Offline Portable ZIP** — `VideoSave-1.3.0-win-x64-offline.zip` (~133 MB)
+   - Bundles Node.js 24.22.3, FFmpeg/FFprobe 8.1.2, and yt-dlp 2026.11.23 inside `.local-tools/`.
+   - Works in **zero-internet, zero-PATH** environments; just extract and run `Start VideoSave.cmd`.
+3. **Lightweight Portable ZIP** — `VideoSave-1.3.0.zip` (~750 KB)
+   - Extract and double-click `Start VideoSave.cmd`. Bilibili, Internet Archive, Wikimedia Commons, HLS, DASH, and HTTP Range work natively with only FFmpeg; YouTube auto-downloads pinned `yt-dlp` on first setup.
 
-To uninstall, remove the browser extension, stop the companion, and remove the extracted program directory. The optional local settings and tool cache can be removed separately when you no longer need them. Keep your downloads directory independent from the program directory. The project distributes portable archives and developer extension packages. Store submissions, signing, MSI, Winget, and Scoop have separate verification requirements.
+## 2. macOS (Apple Silicon & Intel) and Linux (x64 & ARM64)
 
-## Store submission materials
+- **Debian / Ubuntu**: Install `videosave_1.3.0_all.deb` via `sudo apt install ./videosave_1.3.0_all.deb` (registers `videosave`, `videosave-cli`, `videosave-mcp`).
+- **macOS & Other Linux Distros**: Extract `VideoSave-1.3.0-unix.tar.gz` and run `./tools/start-unix.sh` (or double-click `Launch VideoSave.command` on macOS).
+  - Automatically downloads and SHA-256-verifies Node.js 24.22.3 LTS and `yt-dlp 2026.11.23` into `~/.local/share/videosave/tools`.
+  - If `ffmpeg`/`ffprobe` is absent on macOS/Linux, install via `brew install ffmpeg` or `sudo apt install ffmpeg`.
+  - *Honesty note*: macOS builds are not yet Apple Developer ID notarized; Gatekeeper may prompt for right-click → Open on first run.
 
-Use the real extension screenshots in the project docs, the [privacy policy](privacy.md), and the package for the intended browser. The extension requests active-tab scripting, request observation, local settings and queue storage, downloads and alarms for queue updates, and Chromium offscreen processing for compatible HLS. HTTP and HTTPS hosts are needed for user-selected pages and their media requests. Review current store-specific publisher and packaging requirements before submission.
+## 3. Android 8–16 & Huawei Mate 60 Pro (HarmonyOS 4.x) — Beta APK
 
-Chrome Web Store and Edge Add-ons can use the Chromium archive as the submission input. Mozilla Add-ons uses the desktop Firefox manifest and a separately signed archive. For a review walkthrough, load a public test video, open the panel and save it. To review companion and MCP behavior, start the portable package, pair it, register a client and approve your test tab. Cookie access is optional and requested in the authorization flow.
+- Download `VideoSave-1.3.0-android-debug.apk` (or `VideoSave-1.3.0-android-universal.apk` once release-signed).
+- Zero Root, zero Termux, zero Python. Supports native Bilibili, Static DASH (`MediaMuxer`), Resumable HLS, strict HTTP 416 Range resume, Share Menu intake, and `Downloads/VideoSave`.
+- See [docs/android-harmonyos.md](android-harmonyos.md) for signing status and HarmonyOS 4.x vs HarmonyOS NEXT details.
 
-The MCP server currently ships as a local stdio script in the portable ZIP. `Start VideoSave.cmd -McpConfig` supplies the absolute executable path and script arguments for client setup. For a registry submission, the proposed name is `io.github.kaiseriiii/videosave`. Validate the metadata against the official publisher requirements after a supported package can reproduce the local launcher setup and its runtime checks. The managed settings require `MEDIA_TOOLKIT_URL` and the locally registered `MEDIA_TOOLKIT_MCP_CLIENT` identifier. The initial launch should be verified from a clean user profile using the published package. See the [official registry submission requirements](https://github.com/modelcontextprotocol/registry/blob/main/docs/reference/server-json/official-registry-requirements.md).
+## 4. Browser Extensions & MCP (DSH / Codex / Claude / Cursor / Antigravity)
 
-Winget and Scoop would also need their own submission and install or upgrade validation.
+- **Edge / Chrome / Brave**: Load `extension/` from the desktop package or extract `VideoSave-1.3.0-extension.zip` via Developer Mode.
+- **Firefox 136+**: Load `VideoSave-1.3.0-firefox.zip` temporarily via `about:debugging` (permanent store signing pending AMO review).
+- **MCP Setup**: Run `.\Start VideoSave.cmd -McpConfig` (Windows) or `./tools/start-unix.sh --mcp-config --client deepseek-harness` (macOS/Linux). See [docs/dsh-guide.md](dsh-guide.md).
+
+## 5. Supply-Chain Verification & Upgrading
+
+Verify every archive before running:
+
+```powershell
+# 1. Verify SHA-256 against SHA256SUMS.txt
+Get-FileHash -Algorithm SHA256 -LiteralPath 'VideoSave-1.3.0-Setup.exe'
+
+# 2. Verify independent GitHub Sigstore OIDC Provenance (recommended)
+gh attestation verify VideoSave-1.3.0-Setup.exe --repo KaiserIIII/videosave
+```
+
+- **Upgrading DSH safely**: `node tools/upgrade-dsh.mjs --package="<path>"` (dry-run by default; add `--apply` to create a timestamped `.bak` backup and verify `get_version`).
+- **Uninstalling**: Use Windows Add/Remove Programs (for `Setup.exe`), `Uninstall VideoSave.command` (macOS), `./tools/start-unix.sh --uninstall` (Linux), or delete the extracted portable folder. Your downloaded media folder is never deleted.

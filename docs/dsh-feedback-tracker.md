@@ -35,7 +35,7 @@
   - **P0-1 请求头全链路**：用户自建夹具服务器抓包确认 `master -> variant -> segment` 三跳的 `User-Agent`、`Referer`（含完整查询串）、`Origin` 原样透传。
   - **P0-4 非标准分片**：真实 TS 命名为 `seg0.jpeg` 且返回 `content-type: image/jpeg`，`start_download` 成功（`prefetch: true`、`segments 1/1`、`stages` 全 200、输出 320×240 / 4.04s / h264+aac、`qualityNegotiation` 完整）。
 - **需修复（保持「部分修复 / 待独立用户验收」）**：
-  - **DSH-12 测试隔离**：用户实测指出真实下载目录中留存 118 个测试产物，`Delta = 0` 属拿已污染基线比对。`v1.2.0` 已补充真实操作系统级文件系统写入监测（`tools/fs-audit-monitor.mjs`：`ReadDirectoryChangesW` / `FSEvents` / `inotify` + 递归目录树比对）、符号链接 / Windows Junction 穿透拦截（写入前即抛 `TEST_SANDBOX_VIOLATION`）、全 8 场景取证单测（`tests/dsh12-fs-audit.test.mjs`）及全链路 `ACTUAL_WRITE_PATHS` 打印。**本项在用户独立复测验收前保持「部分修复 / 待验收」，不代用户宣称彻底解决。**
+  - **DSH-12 测试隔离**：用户实测指出真实下载目录中留存 118 个测试产物，`Delta = 0` 属拿已污染基线比对。`v1.2.0` 已实装真实 OS 级文件写入监控与软链/Junction 逃逸拦截；**`v1.3.0` 进一步升级为保护目录递归 OS 监听（捕获短生命周期创建即删文件与深层子目录写入）、子进程树追踪，并在 watcher 出错或事件溢出时强制标记 `auditComplete: false` 抛出 `SANDBOX_AUDIT_INCOMPLETE`（绝不默认零污染）**，通过 `tests/dsh12-fs-audit.test.mjs` 全 11 项取证用例。**本项在用户独立复测验收前仍严格保持「部分修复 / 待独立用户验收」，不代用户宣称彻底关闭。**
 - **待外部网络冷却后补验（非工具故障）**：
   - 外部测试站当前按 IP 限流（`curl` 亦返回 403），待冷却后由用户补验 P0-2（1080p→403 / 720p→200 自动降级）、P0-3（真站中断续传）、P0-5（会话复用 `blockers:[]`）。
 

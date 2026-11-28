@@ -32,7 +32,20 @@ export function platformVideo(value) {
   const id = youtube && url.pathname === '/watch' ? url.searchParams.get('v')
     : youtube ? /^\/(?:shorts|embed|live)\/([\w-]{11})\/?$/.exec(url.pathname)?.[1]
     : url.hostname === 'youtu.be' ? /^\/([\w-]{11})\/?$/.exec(url.pathname)?.[1] : undefined;
-  return /^[\w-]{11}$/.test(id) ? {platform:'youtube',url:'https://www.youtube.com/watch?v=' + id} : null;
+  if (/^[\w-]{11}$/.test(id)) return { platform: 'youtube', url: 'https://www.youtube.com/watch?v=' + id };
+  if (url.hostname === 'archive.org') {
+    const archiveId = /^\/details\/([A-Za-z0-9._-]+)\/?$/.exec(url.pathname)?.[1];
+    if (archiveId) return { platform: 'internet-archive', url: 'https://archive.org/details/' + archiveId };
+  }
+  if (url.hostname === 'commons.wikimedia.org') {
+    const fileMatch = /^\/wiki\/(File:[^#?]+)$/i.exec(url.pathname);
+    if (fileMatch) return { platform: 'wikimedia', url: 'https://commons.wikimedia.org/wiki/' + fileMatch[1] };
+  }
+  if (['vimeo.com', 'www.vimeo.com', 'player.vimeo.com'].includes(url.hostname)) {
+    const vimeoId = /^\/(?:video\/)?(\d{6,14})\/?$/.exec(url.pathname)?.[1];
+    if (vimeoId) return { platform: 'vimeo', url: 'https://vimeo.com/' + vimeoId };
+  }
+  return null;
 }
 
 export function mediaResponseSize(kind, status, header) {

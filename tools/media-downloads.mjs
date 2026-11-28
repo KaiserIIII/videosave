@@ -16,7 +16,8 @@ import { dashQualities, localDashRequest, prefetchDash } from './dash-prefetch.m
 import { ApiError, FFMPEG, discover, inspectOutput, mediaInput, mediaUrl, mergeMediaHeaders, parseCookies, parseMediaHeaders, probeStream, runMedia, streamExpiry } from './media-source.mjs';
 import { assertSandboxPath, getSettingsFile, isSandboxActive, readPreferences, writePreferences } from './preferences.mjs';
 import { claimBatch, claimInterruptedCancellation, completedStatus, pendingItem, storeBatch, storedBatch, storedBatches } from './download-history.mjs';
-import { platformDownloadsEnabled, probePlatform, stagePlatform } from './platform-downloads.mjs';
+import { platformDownloadsEnabled, platformEngineName, platformSupported, probePlatform, stagePlatform } from './platform-downloads.mjs';
+import { getPlatformCapabilitySummary } from './platform-registry.mjs';
 import { getOriginCompatibilityRule, preferredProbeStrategy, probeModes, probePlan, recordCompatibility } from './compatibility-policy.mjs';
 import { createRequestContext } from './request-context.mjs';
 import { legacyQualityCap, normalizeQualitySpec } from './quality-negotiator.mjs';
@@ -91,7 +92,7 @@ export async function getVersionInfo() {
     version: VERSION,
     browserVersion: manifest.version,
     installedVersion,
-    schemaVersion: '1.2.0',
+    schemaVersion: '1.3.0',
     channel: /-rc\./.test(VERSION) ? 'rc' : 'stable',
     versionMismatch,
     mismatch: versionMismatch,
@@ -115,9 +116,10 @@ export function getEngineCapabilities() {
     observation: 'isolated-chromium-cdp',
     browsers: detectAvailableBrowsers(),
     ffmpeg: { available: true, bin: FFMPEG },
-    transfer: ['http', 'hls', 'dash-static', ...(platformDownloadsEnabled() ? ['yt-dlp'] : []), ...(streamlinkAvailable() ? ['streamlink'] : [])],
+    transfer: ['http', 'hls', 'dash-static', 'bilibili-native', 'internet-archive-native', 'wikimedia-native', ...(platformDownloadsEnabled() ? ['yt-dlp'] : []), ...(streamlinkAvailable() ? ['streamlink'] : [])],
     processing: ['ffmpeg', 'ffprobe'],
     engines: listRegisteredEngines(),
+    platformRegistry: getPlatformCapabilitySummary(),
     features: {
       unifiedRequestContext: true,
       hlsHeadersConsistent: true,
@@ -444,7 +446,8 @@ export async function probe({
   userAgent, browser = 'auto', browserBinary, browserSessionId, profileMode = 'ephemeral',
   networkMode, proxy, timeoutBudget,
 } = {}, requestSignal) {
-  const url = mediaUrl(value);
+  const canonicalPlatform = platformVideo(value);
+  const url = mediaUrl(canonicalPlatform?.url ?? value);
   if (!probeModes.includes(compatibility) || typeof learnCompatibility !== 'boolean') {
     throw new ApiError('INVALID_COMPATIBILITY','Choose a supported probe mode');
   }
@@ -497,13 +500,17 @@ export async function probe({
   return schedule(signal, async () => {
     signal.throwIfAborted();
     const platform = platformVideo(url);
-    if (platform && platformDownloadsEnabled()) {
-      const target = await probePlatform(platform, signal);
-      return {pageTitle:target.title, pageContext:{url:target.url,untrusted:true}, streams:[], pages:[], candidates:[],
-        downloadTargets:[target], qualities:target.qualityDetails ?? [],...(harvestCodes && {codes:[],codeItems:[]}),
+    if (platform && platformSupported(platform)) {
+      const target = await probePlatform(platform, signal, { headers: userAgent ? { 'User-Agent': userAgent } : {}, cookies });
+      const cleanTarget = { ...target };
+      delete cleanTarget._resolvedMeta;
+      delete cleanTarget._tracks;
+      delete cleanTarget._candidates;
+      return {pageTitle:cleanTarget.title, pageContext:{url:cleanTarget.url,untrusted:true}, streams:[], pages:cleanTarget.pages ?? [], candidates:[],
+        downloadTargets:[cleanTarget], qualities:cleanTarget.qualityDetails ?? [],...(harvestCodes && {codes:[],codeItems:[]}),
         ...(cookieWarnings.length && {warnings:cookieWarnings}),
-        selection:{status:'selected',url:target.url,reason:'platform'},
-        diagnostic:detectionDiagnostic({streams:[target]})};
+        selection:{status:'selected',url:cleanTarget.url,reason:'platform'},
+        diagnostic:detectionDiagnostic({streams:[cleanTarget]})};
     }
     const maximum = compatibility === 'maximum';
     const inspected = await inspectPage(url, cookies, signal, {waitMs:waitForMediaMs ?? (maximum && waitMs === 20_000 ? 30_000 : waitMs),
@@ -515,7 +522,8 @@ export async function probe({
 }
 
 export async function preview({url: value, seconds = 6}, requestSignal) {
-  const url = mediaUrl(value);
+  const canonicalPlatform = platformVideo(value);
+  const url = mediaUrl(canonicalPlatform?.url ?? value);
   if (![3,6,10].includes(seconds)) throw new ApiError('INVALID_PREVIEW_DURATION', '预览时长可设为 3、6 或 10 秒');
   if (runningPreviews >= 2) throw new ApiError('PREVIEW_BUSY', '本机服务正在生成预览，请稍后再试', 429);
   const signal = AbortSignal.any([requestSignal, session.signal, AbortSignal.timeout(21000)]);
@@ -1044,7 +1052,10 @@ function getTargets(values, defaults) {
       throw new ApiError('INVALID_FILENAME_TEMPLATE', 'filenameTemplate 包含非法路径字符或超出 160 字符限制');
     }
     let url;
-    try { url = mediaUrl(value.url).href; }
+    try {
+      const canonical = platformVideo(value.url);
+      url = mediaUrl(canonical?.url ?? value.url).href;
+    }
     catch (error) {
       if (error.code !== 'INVALID_URL' || values.length === 1) throw error;
       url = null;
@@ -1578,7 +1589,7 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
   publish(batch, `[${item.idx + 1}] 正在解析`);
   const input = mediaUrl(target.url);
   const supportedPage = target.kind === 'page' ? platformVideo(input) : null;
-  const platform = platformDownloadsEnabled() ? supportedPage : null;
+  const platform = platformSupported(supportedPage) ? supportedPage : null;
   let source = input;
   let sourceKind = target.sourceKind;
   let resolvedTitleSource;
@@ -1719,8 +1730,12 @@ async function runItemOnce(batch, item, target, limit, cookies, signal, { onMedi
       }
       if (!staged) throw new ApiError('MCP_MEDIA_UNAVAILABLE', 'The approved source did not return complete eligible media', 422);
     } else if (platform) {
-      item.engine = 'yt-dlp';
-      staged = await stagePlatform(platform, target, staging, batch.connections, signal, downloadProgress, headers);
+      item.engine = platformEngineName(platform);
+      staged = await stagePlatform(platform, target, staging, batch.connections, signal, downloadProgress, headers, {
+        cookies: scopedCookies,
+        recovery,
+        onQualityNegotiated: q => { item.qualityNegotiation = q; },
+      });
     } else if (batch.request.prefetch) {
       if (sourceKind !== 'm3u8' && sourceKind !== 'mpd') {
         item.engine = 'http';
@@ -1947,9 +1962,27 @@ export async function downloadBestMedia({
     const verified = verify && !completed.timedOut && completed.status === 'done'
       ? await verifyBatchFiles(submitted.id, signal)
       : completed;
+    const primaryItem = verified.items?.[0] ?? null;
+    const primaryVerify = primaryItem?.verification?.[0];
+    const verifySummary = primaryVerify ? {
+      ok: primaryVerify.status === 'verified',
+      status: primaryVerify.status,
+      ...(primaryVerify.info && {
+        width: primaryVerify.info.width ?? null,
+        height: primaryVerify.info.height ?? null,
+        duration: primaryVerify.info.duration ?? null,
+        hasVideo: Boolean(primaryVerify.info.codec || primaryVerify.info.height),
+        hasAudio: Boolean(primaryVerify.info.audioCodec),
+        info: primaryVerify.info,
+      }),
+      ...(primaryVerify.errorCode && { errorCode: primaryVerify.errorCode }),
+    } : null;
     return {
+      id: submitted.id,
       status: completed.timedOut ? 'running' : completed.status,
-      probe: { selection: probed.selection, diagnostic: probed.diagnostic, platformTarget: target },
+      item: primaryItem,
+      verification: verifySummary,
+      probe: { selection: probed.selection, diagnostic: probed.diagnostic, platformTarget: target, qualities: probed.qualities },
       batch: verified,
     };
   }

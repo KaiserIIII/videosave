@@ -143,7 +143,7 @@ export async function createTestSandbox(label = 'run') {
     };
   }
 
-  function applyProcessEnv() {
+  function applyProcessEnv(overrides = {}) {
     const previous = {
       OUT_DIR: process.env.OUT_DIR,
       MEDIA_TOOLKIT_SETTINGS: process.env.MEDIA_TOOLKIT_SETTINGS,
@@ -154,6 +154,9 @@ export async function createTestSandbox(label = 'run') {
       VIDEOSAVE_SANDBOX_MODE: process.env.VIDEOSAVE_SANDBOX_MODE,
       VIDEOSAVE_FORCE_OUT_DIR: process.env.VIDEOSAVE_FORCE_OUT_DIR,
     };
+    for (const key of Object.keys(overrides)) {
+      if (!(key in previous)) previous[key] = process.env[key];
+    }
     process.env.OUT_DIR = dirs.downloads;
     process.env.MEDIA_TOOLKIT_SETTINGS = settingsFile;
     process.env.VIDEOSAVE_PROFILES_DIR = dirs.profiles;
@@ -162,6 +165,10 @@ export async function createTestSandbox(label = 'run') {
     process.env.VIDEOSAVE_NO_USER_SETTINGS = '1';
     process.env.VIDEOSAVE_SANDBOX_MODE = '1';
     delete process.env.VIDEOSAVE_FORCE_OUT_DIR;
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value === undefined || value === null) delete process.env[key];
+      else process.env[key] = String(value);
+    }
     return () => {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) delete process.env[key];
@@ -214,6 +221,8 @@ export async function createTestSandbox(label = 'run') {
       writtenFileCount: writtenFiles.length,
       writtenFiles: writtenFiles.map(file => path.relative(root, file).replaceAll('\\', '/')),
       osMonitorMechanism: auditReport.osMonitorMechanism,
+      auditComplete: auditReport.auditComplete,
+      protectedRecursiveWatched: auditReport.protectedRecursiveWatched,
       observedSandboxEventCount: auditReport.observedSandboxEventCount,
       observedSandboxWritePaths: auditReport.observedSandboxWritePaths,
       outOfBoundsViolationCount: auditReport.outOfBoundsViolationCount,

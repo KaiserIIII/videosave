@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { platformVideo } from '../extension/media.mjs';
 import { ApiError, FFMPEG, runMedia } from './media-source.mjs';
 import { locateManagedBinary } from './runtime-manager.mjs';
+import { probeBilibili, resolveBilibiliShortLink, stageBilibili } from './bilibili-adapter.mjs';
+import { probeInternetArchive, probeWikimediaCommons, stageDirectPublicPlatform } from './public-platform-adapters.mjs';
+
+const NATIVE_PLATFORMS = new Set(['bilibili', 'internet-archive', 'wikimedia']);
 
 const installed = new URL('../.local-tools/yt-dlp.exe', import.meta.url);
 export function extractorPath() {
@@ -15,6 +19,21 @@ export function extractorPath() {
 
 export function platformDownloadsEnabled() {
   return Boolean(extractorPath());
+}
+
+export function platformSupported(videoOrName) {
+  const name = typeof videoOrName === 'string' ? videoOrName : videoOrName?.platform;
+  if (!name) return false;
+  if (NATIVE_PLATFORMS.has(name)) return true;
+  return platformDownloadsEnabled();
+}
+
+export function platformEngineName(videoOrName) {
+  const name = typeof videoOrName === 'string' ? videoOrName : videoOrName?.platform;
+  if (name === 'bilibili') return 'bilibili-native';
+  if (name === 'internet-archive') return 'internet-archive-native';
+  if (name === 'wikimedia') return 'wikimedia-native';
+  return 'yt-dlp';
 }
 
 /**
@@ -88,7 +107,16 @@ function runExtractor(video, args, signal, onLine) {
   ], signal, onLine, { onFailure: result => platformFailure(video.platform, result) });
 }
 
-export async function probePlatform(video, signal) {
+export async function probePlatform(video, signal, options = {}) {
+  if (video?.platform === 'bilibili') {
+    return probeBilibili(video, signal, options);
+  }
+  if (video?.platform === 'internet-archive') {
+    return probeInternetArchive(video, signal);
+  }
+  if (video?.platform === 'wikimedia') {
+    return probeWikimediaCommons(video, signal);
+  }
   const resolved = await resolvePlatformShortLink(video, signal);
   const result = await runExtractor(resolved, [
     '--skip-download', '--print', '%(.{title,duration,thumbnail,subtitles})j',
@@ -151,7 +179,13 @@ function selection({ mode, quality }) {
   return 'bv' + cap + '+ba/b' + cap + low;
 }
 
-export async function stagePlatform(video, target, staging, connections, signal, onProgress, headers = {}) {
+export async function stagePlatform(video, target, staging, connections, signal, onProgress, headers = {}, options = {}) {
+  if (video?.platform === 'bilibili') {
+    return stageBilibili(video, target, staging, connections, signal, onProgress, { ...options, headers });
+  }
+  if (video?.platform === 'internet-archive' || video?.platform === 'wikimedia') {
+    return stageDirectPublicPlatform(video, target, staging, signal, onProgress);
+  }
   const resolved = await resolvePlatformShortLink(video, signal);
   const transfers = new Map();
   const subArgs = target.subtitles ? ['--write-subs', '--sub-langs', 'zh.*,en.*,all', '--embed-subs'] : [];
