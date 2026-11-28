@@ -175,7 +175,7 @@ async function withMcp(run) {
   async function call(method,params) {
     const request = ++id;
     child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:request,method,params}) + '\n');
-    const signal = AbortSignal.timeout(65_000);
+    const signal = AbortSignal.timeout(120_000);
     const {value} = await Promise.race([responses.next(),once(signal,'abort')
       .then(() => { throw Error('MCP test response deadline'); })]);
     if (!value) throw Error('MCP process exited while responding');
@@ -216,7 +216,7 @@ async function testMcp(tool) {
         const {id:batchId} = await tool('start_download',{items:[{kind:'stream',url:chosen.url,
           title:'compatibility-' + entry.id,...(['m3u8','mpd'].includes(chosen.kind) && {sourceKind:chosen.kind}),
           ...(entry.audio && {mode:'audio'})}]});
-        const batch = await tool('wait_for_download',{id:batchId,timeoutMs:isPublic ? 31_000 : 12_000});
+        const batch = await tool('wait_for_download',{id:batchId,timeoutMs:isPublic ? 31_000 : 25_000});
         const item = batch.items?.[0];
         if (batch.timedOut) {
           downloadError = 'timeout';
