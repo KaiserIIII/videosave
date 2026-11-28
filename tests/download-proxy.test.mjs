@@ -27,6 +27,7 @@ test('uses the configured proxy for media while keeping loopback requests local'
     socket.on('error', () => upstream.destroy());
     socket.on('close', () => upstream.destroy());
     upstream.on('error', () => socket.destroy());
+    upstream.on('close', () => socket.destroy());
     socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
     if (head.length) upstream.write(head);
     socket.pipe(upstream).pipe(socket);
@@ -37,6 +38,8 @@ test('uses the configured proxy for media while keeping loopback requests local'
   });
   const outsideBypass = http.createServer((req, res) => res.end('direct'));
   for (const [server, host] of [[tunnelTarget,'127.0.0.1'],[proxy,'127.0.0.1'],[local,'127.0.0.1'],[outsideBypass,'127.0.0.2']]) {
+    server.on('clientError', (_err, socket) => socket.destroy());
+    server.on('connection', socket => socket.on('error', () => {}));
     server.listen(0, host);
     await once(server, 'listening');
     t.after(() => { server.closeAllConnections(); server.close(); });
@@ -136,10 +139,15 @@ test('owner proxy settings apply on restart and keep the three engine configurat
     socket.on('error',() => upstream.destroy());
     socket.on('close',() => upstream.destroy());
     upstream.on('error',() => socket.destroy());
+    upstream.on('close',() => socket.destroy());
     socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
     if (head.length) upstream.write(head);
     socket.pipe(upstream).pipe(socket);
   });
+  for (const srv of [tunnelTarget, proxy]) {
+    srv.on('clientError', (_err, socket) => socket.destroy());
+    srv.on('connection', socket => socket.on('error', () => {}));
+  }
   tunnelTarget.listen(0,'127.0.0.1');
   await once(tunnelTarget,'listening');
   t.after(() => { tunnelTarget.closeAllConnections(); tunnelTarget.close(); });
@@ -151,6 +159,8 @@ test('owner proxy settings apply on restart and keep the three engine configurat
     localRequests.push(req.url);
     res.end('direct');
   });
+  local.on('clientError', (_err, socket) => socket.destroy());
+  local.on('connection', socket => socket.on('error', () => {}));
   local.listen(0,'127.0.0.1');
   await once(local,'listening');
   t.after(() => { local.closeAllConnections(); local.close(); });
