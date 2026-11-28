@@ -21,7 +21,10 @@ const translations = {
     'dl.winTitle': 'Windows 便携完整包',
     'dl.winDesc': '包含浏览器扩展、本机伴侣、MCP 服务、CLI 与一键启动脚本，自动复用并校验 Node.js 与 FFmpeg。',
     'dl.crTitle': 'Chromium 浏览器扩展',
-    'dl.crDesc': 'Manifest V3 扩展包，支持离屏 HLS 暂存、5 套主题、中英双语与 AI & MCP 控制中心。',
+    'dl.crDesc': 'Chromium 和 Firefox 提供本地加载包。Firefox Android 使用单独的开发包。',
+    'footer.discussions': '社区讨论',
+    'footer.feedback': '反馈问题',
+    'footer.privacy': '隐私政策',
     'dl.ffTitle': 'Firefox 桌面与 Android 开发包',
     'dl.ffDesc': '包含 Firefox 136+ 桌面扩展及实验性 Android 直链辅助包。',
     'dl.sbomTitle': 'SHA-256 与 CycloneDX SBOM',
@@ -227,15 +230,16 @@ async function loadReports() {
     return 'windows';
   }
 
-  function applyDownloadSync(version, assets = []) {
+  function applyDownloadSync(version, assets) {
     const tag = 'v' + version;
     const baseDl = `https://github.com/KaiserIIII/videosave/releases/download/${tag}/`;
+    const releasePage = `https://github.com/KaiserIIII/videosave/releases/tag/${tag}`;
     const assetUrl = (name) => {
-      const found = assets.find(a => a.name === name);
-      return found ? found.browser_download_url : (baseDl + name);
+      if (!assets) return baseDl + name;
+      return assets.find(a => a.name === name)?.browser_download_url || releasePage;
     };
-    const apkAsset = assets.find(a => /^VideoSave-.*-android-universal\.apk$/.test(a.name))
-      || assets.find(a => /^VideoSave-.*-android-debug\.apk$/.test(a.name));
+    const apkAsset = assets?.find(a => /^VideoSave-.*-android-universal\.apk$/.test(a.name))
+      || assets?.find(a => /^VideoSave-.*-android-debug\.apk$/.test(a.name));
     const apkName = apkAsset ? apkAsset.name : `VideoSave-${version}-android-debug.apk`;
 
     const setLink = (id, name, label) => {
@@ -250,8 +254,11 @@ async function loadReports() {
     setLink('dl-apk-link', apkName);
     setLink('dl-deb-link', `videosave_${version}_all.deb`, `videosave_${version}_all.deb`);
     setLink('dl-unix-link', `VideoSave-${version}-unix.tar.gz`, `VideoSave-${version}-unix.tar.gz`);
-    setLink('dl-ext-link', `VideoSave-${version}-extension.zip`, `VideoSave-${version}-extension.zip`);
-    setLink('dl-sbom-link', 'SHA256SUMS.txt', 'SHA256SUMS.txt');
+    setLink('dl-ext-link', `VideoSave-${version}-extension.zip`, 'Chromium ZIP');
+    setLink('dl-fx-link', `VideoSave-${version}-firefox.zip`, 'Firefox ZIP');
+    setLink('dl-fx-android-link', `VideoSave-${version}-android-dev.zip`, 'Firefox Android dev ZIP');
+    setLink('dl-sums-link', 'SHA256SUMS.txt');
+    setLink('dl-sbom-link', `VideoSave-${version}-sbom.cdx.json`, 'CycloneDX SBOM');
 
     const osKind = detectClientOs();
     const recMap = {
@@ -295,7 +302,7 @@ async function loadReports() {
     index = await res.json();
     if (index.version) {
       document.getElementById('live-version').textContent = 'v' + index.version;
-      applyDownloadSync(index.version, []);
+      applyDownloadSync(index.version);
       // Best-effort sync with live GitHub Release asset list (only when live release >= site version)
       const cmpVer = (a, b) => {
         const pa = String(a || '').split('.').map(n => Number.parseInt(n, 10) || 0);

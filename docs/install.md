@@ -33,8 +33,8 @@ Choose one of three official options:
 
 ## 4. Browser Extensions & MCP (DSH / Codex / Claude / Cursor / Antigravity)
 
-- **Edge / Chrome / Brave**: Load `extension/` from the desktop package or extract `VideoSave-1.3.2-extension.zip` via Developer Mode (store listing packages ready; not yet published on Chrome Web Store / Edge Add-ons).
-- **Firefox 136+**: Load `VideoSave-1.3.2-firefox.zip` temporarily via `about:debugging` (AMO submission pending review).
+- **Edge / Chrome / Brave**: Load `extension/` from the desktop package or extract `VideoSave-1.3.2-extension.zip` via Developer Mode. Store listings are pending.
+- **Firefox 136+**: Load `VideoSave-1.3.2-firefox.zip` temporarily via `about:debugging`. Standard installation requires a Mozilla-signed package.
 - **MCP Setup**: Run `.\Start VideoSave.cmd -McpConfig` (Windows) or `./tools/start-unix.sh --mcp-config --client deepseek-harness` (macOS/Linux). See [docs/dsh-guide.md](dsh-guide.md).
 
 ## 5. Supply-Chain Verification, Upgrading & Uninstalling

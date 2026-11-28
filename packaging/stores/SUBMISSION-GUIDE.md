@@ -1,32 +1,8 @@
-# VideoSave Official Store & Package Registry Submission Kit
+# VideoSave Official Store & Package Registry Submission Kit\n\nThis directory contains ready-to-submit distribution manifests and store metadata for VideoSave. None of these channels are claimed as already published—submission to third-party stores requires maintainer developer accounts, store review, or upstream PR approval.\n\n## Browser store candidates
 
-This directory contains ready-to-submit distribution manifests and store metadata for VideoSave. None of these channels are claimed as already published—submission to third-party stores requires maintainer developer accounts, store review, or upstream PR approval.
+Use the separate VideoSave Commons package for Microsoft Edge Add-ons, Chrome Web Store, and desktop AMO. It saves user-selected original WebM and Ogg files from Wikimedia Commons. The [listing guide](edition/LISTING.md) contains the permission, source archive, test fixture, and listing copy for this edition. Its [privacy policy](edition/PRIVACY.md) applies to the store package. Submit the Chromium ZIP to Edge or Chrome and the Firefox ZIP and matching source ZIP to AMO. The full VideoSave release ZIPs are for direct installation. Firefox Android remains a separate developer build.
 
-## 1. Chrome Web Store & Microsoft Edge Add-ons
-- **Upload artifact**: `VideoSave-<version>-extension.zip` (MV3 service worker, zero `browser_specific_settings`).
-- **Permissions Justification**:
-  - `activeTab`: Inspect media elements and playback state on the active tab when invoked by the user.
-  - `alarms`: Maintain periodic local companion health checks and cleanup timers.
-  - `downloads`: Trigger browser-native saves for direct media URLs when requested by the user.
-  - `offscreen`: Perform in-browser HLS/fMP4 segment assembly when no local companion is connected.
-  - `scripting`: Inject isolated read-only media scanners into the current tab.
-  - `storage`: Persist user UI preferences, theme, and paired companion settings locally.
-  - `webRequest`: Observe media response headers (MIME type, Content-Length, manifest URLs) for accurate detection.
-  - `cookies` (optional): Requested only if the user explicitly approves sharing same-origin session state for one authorized tab.
-- **Privacy Policy URL**: `https://github.com/KaiserIIII/videosave/blob/main/docs/privacy.md`
-- **Single Purpose**: Discover, preview, and download authorized web video/audio streams using local-only processing.
 
-## 2. Firefox Add-ons (AMO) & Firefox Android
-- **Desktop artifact**: `VideoSave-<version>-firefox.zip` (gecko ID `videosave@local.extension`, `data_collection_permissions: { required: ["none"] }`, minimum Firefox 136.0).
-- **Android artifact**: `VideoSave-<version>-android-dev.zip` (`gecko_android` enabled, `downloads` permission removed for Android compatibility).
-- **Source submission**: Attach GitHub release source archive (pure vanilla ESM, zero bundler/minification required!).
+## WinGet, Scoop and Homebrew\n1. Match each manifest's version and SHA-256 to the published release. The WinGet submission uses `packaging/winget/setup/KaiserIIII.VideoSave.yaml` and the published `Setup.exe`. Run `winget validate --manifest packaging/winget/setup/KaiserIIII.VideoSave.yaml` before submitting.\n2. The portable ZIP reference preserves the exact `VideoSave-<version>\Start VideoSave.cmd` path for direct ZIP users. WinGet rejects `.cmd` as a nested installer.\n3. Scoop uses `VideoSave-<version>.zip`, and Homebrew uses `VideoSave-<version>-unix.tar.gz`. Validate installation and removal independently before submitting to a bucket or tap.\n\n## Official MCP Registry
 
-## 3. Winget, Scoop & Homebrew
-1. After the official GitHub Release tag is published, replace `REPLACE_WITH_RELEASE_SHA256_AFTER_TAG_BUILD` in:
-   - `packaging/winget/KaiserIIII.VideoSave.yaml` (from `VideoSave-<ver>.zip` SHA-256)
-   - `packaging/scoop/videosave.json` (from `VideoSave-<ver>.zip` SHA-256)
-   - `packaging/homebrew/videosave.rb` (from `VideoSave-<ver>-unix.tar.gz` SHA-256)
-2. Submit PRs to `microsoft/winget-pkgs`, your Scoop bucket (or `ScoopInstaller/Extras`), and your Homebrew tap (`brew tap KaiserIIII/videosave`).
-
-## 4. Official MCP Registry
-- Publish `packaging/mcp-registry/server.json` via `mcp-publisher publish` once GitHub OIDC authentication for `io.github.kaiseriiii` is enabled by the repository owner.
+The [MCP bundle guide](../mcp-registry/README.md) covers the standalone stdio package, Registry validation, and publication using GitHub OIDC.

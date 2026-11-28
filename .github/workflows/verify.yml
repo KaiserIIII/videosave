@@ -42,7 +42,7 @@ jobs:
           node --test tests/detection.test.mjs tests/media.test.mjs tests/media-source.test.mjs \
             tests/http-boundaries.test.mjs tests/download-proxy.test.mjs tests/platform-download.test.mjs \
             tests/range-performance.test.mjs tests/mcp-control.test.mjs tests/compatibility-policy.test.mjs \
-            tests/test-isolation-and-security.test.mjs
+            tests/test-isolation-and-security.test.mjs tests/store-edition.test.mjs
           dsh_cfg="$(bash tools/start-unix.sh --mcp-config --client deepseek-harness)"
           printf '%s\n' "$dsh_cfg" | grep -q 'videosave-mcp'
           codex_cfg="$(bash tools/start-unix.sh --mcp-config --client codex)"

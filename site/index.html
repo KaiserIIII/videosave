@@ -3,8 +3,37 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VideoSave — Open-Source Browser Media Extension, Local Companion &amp; MCP Server</title>
-  <meta name="description" content="Find, inspect, and save authorized web media with content-verified HLS &amp; DASH staging, SHA-256 resumable checkpoints, and permission-scoped MCP control for DSH, Codex, Claude, and Cursor.">
+  <title>VideoSave 视频快存 | Browser Video Downloader and Local MCP</title>
+  <meta name="description" content="VideoSave 视频快存 让你在本机保存有权下载的网页媒体。Save authorized web media with a browser extension, resumable HLS and DASH transfers, and a local MCP server.">
+  <link rel="canonical" href="https://kaiseriiii.github.io/videosave/">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="VideoSave 视频快存">
+  <meta property="og:description" content="Save authorized web media on your own device. Browser extension, resumable downloads, and local MCP.">
+  <meta property="og:url" content="https://kaiseriiii.github.io/videosave/">
+  <meta property="og:image" content="https://kaiseriiii.github.io/videosave/social-preview.png">
+  <meta property="og:image:width" content="1280">
+  <meta property="og:image:height" content="640">
+  <meta property="og:image:alt" content="VideoSave logo and a screenshot of its local management center">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="VideoSave 视频快存">
+  <meta name="twitter:description" content="Open-source browser media downloader with local verification, resume, and MCP.">
+  <meta name="twitter:image" content="https://kaiseriiii.github.io/videosave/social-preview.png">
+  <meta name="twitter:image:alt" content="VideoSave logo and a screenshot of its local management center">
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "VideoSave",
+      "alternateName": "视频快存",
+      "url": "https://kaiseriiii.github.io/videosave/",
+      "downloadUrl": "https://github.com/KaiserIIII/videosave/releases/latest",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Windows, Linux, macOS, Android (Beta)",
+      "description": "Local-first open-source media downloader with HLS and DASH resume and MCP.",
+      "license": "https://github.com/KaiserIIII/videosave/blob/main/LICENSE",
+      "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}
+    }
+  </script>
   <link rel="icon" type="image/svg+xml" href="./logo.svg">
   <link rel="stylesheet" href="./styles.css">
   <script type="module" src="./app.js"></script>
@@ -99,7 +128,7 @@
             <span class="tag tag-blue">Windows x64 · Official</span>
             <h3 data-i18n="dl.winSetupTitle">Windows Graphical Setup.exe</h3>
             <p data-i18n="dl.winSetupDesc">Native WinForms wizard (no admin rights, zero PATH changes). Auto-prepares verified Node.js 24, FFmpeg 8.1.2 &amp; yt-dlp, opens Local Management Center (/console).</p>
-            <a class="card-link" id="dl-win-setup-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">VideoSave-1.3.0-Setup.exe ↗</a>
+            <a class="card-link" id="dl-win-setup-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Windows Setup ↗</a>
           </article>
           <article class="card">
             <span class="tag tag-blue">Windows x64 · Offline &amp; Lite</span>
@@ -124,14 +153,17 @@
           <article class="card">
             <span class="tag">Edge · Chrome · Firefox</span>
             <h3 data-i18n="dl.crTitle">Browser Extensions</h3>
-            <p data-i18n="dl.crDesc">Manifest V3 packages for Chromium (Edge/Chrome/Brave), Firefox 136+, and Firefox Android (AMO submission ready).</p>
-            <a class="card-link" id="dl-ext-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Extension &amp; Firefox ZIPs ↗</a>
+            <p data-i18n="dl.crDesc">Download the unpacked Chromium or Firefox extension. Firefox Android is a separate developer build.</p>
+            <a class="card-link" id="dl-ext-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Chromium ZIP ↗</a> ·
+            <a class="card-link" id="dl-fx-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Firefox ZIP ↗</a> ·
+            <a class="card-link" id="dl-fx-android-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">Firefox Android dev ZIP ↗</a>
           </article>
           <article class="card">
             <span class="tag tag-green">Supply Chain</span>
             <h3 data-i18n="dl.sbomTitle">SHA-256 &amp; CycloneDX SBOM</h3>
             <p data-i18n="dl.sbomDesc">Verify every archive locally before running, including pinned upstream commit hashes and GitHub provenance attestations.</p>
-            <a class="card-link" id="dl-sbom-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt &amp; SBOM ↗</a>
+            <a class="card-link" id="dl-sums-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">SHA256SUMS.txt ↗</a> ·
+            <a class="card-link" id="dl-sbom-link" href="https://github.com/KaiserIIII/videosave/releases/latest" target="_blank" rel="noopener">CycloneDX SBOM ↗</a>
           </article>
         </div>
       </div>
@@ -319,7 +351,9 @@
         <a href="https://github.com/KaiserIIII/videosave" target="_blank" rel="noopener">Repository</a>
         <a href="https://github.com/KaiserIIII/videosave/releases" target="_blank" rel="noopener">Releases</a>
         <a href="https://github.com/KaiserIIII/videosave/blob/main/docs/mcp.md" target="_blank" rel="noopener">MCP Docs</a>
-        <a href="https://github.com/KaiserIIII/videosave/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="https://github.com/KaiserIIII/videosave/discussions" target="_blank" rel="noopener" data-i18n="footer.discussions">Discussions</a>
+        <a href="https://github.com/KaiserIIII/videosave/issues/new/choose" target="_blank" rel="noopener" data-i18n="footer.feedback">Report an issue</a>
+        <a href="https://github.com/KaiserIIII/videosave/blob/main/docs/privacy.md" target="_blank" rel="noopener" data-i18n="footer.privacy">Privacy</a>
       </div>
     </div>
   </footer>

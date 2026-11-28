@@ -14,6 +14,10 @@ const assertCond = (ok, msg) => { if (!ok) errors.push(msg); };
 
 const manifest = JSON.parse(readFileSync(path.join(root, 'extension/manifest.json'), 'utf8'));
 const version = manifest.version_name ?? manifest.version;
+const wingetManifest = readFileSync(path.join(root, 'packaging/winget/KaiserIIII.VideoSave.yaml'), 'utf8');
+const wingetNestedPath = /^\s*-\s+RelativeFilePath:[ \t]*([^\r\n]+)/m.exec(wingetManifest)?.[1].trim();
+assertCond(wingetNestedPath === `VideoSave-${version}\\Start VideoSave.cmd`,
+  `WinGet RelativeFilePath must point to Start VideoSave.cmd in the v${version} portable ZIP`);
 
 // 1. Version alignment across AndroidManifest, CHANGELOG, packaging, README, install
 const androidManifest = readFileSync(path.join(root, 'android/AndroidManifest.xml'), 'utf8');
@@ -24,6 +28,7 @@ assertCond(new RegExp(`^## ${version.replace(/\./g, '\\.')}\\b`, 'm').test(chang
 
 for (const rel of [
   'packaging/winget/KaiserIIII.VideoSave.yaml',
+  'packaging/winget/setup/KaiserIIII.VideoSave.yaml',
   'packaging/scoop/videosave.json',
   'packaging/homebrew/videosave.rb',
   'packaging/mcp-registry/server.json',
