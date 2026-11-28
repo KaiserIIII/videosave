@@ -340,6 +340,22 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
       const jsonSources = new Map();
       const jsonSummaries = [];
       const pendingBodies = new Set();
+      const inFlightBodyRequests = new Map();
+      const trackInFlight = (key) => {
+        let resolveDone;
+        const done = new Promise(resolve => { resolveDone = resolve; });
+        inFlightBodyRequests.set(key, { done, finish: () => { inFlightBodyRequests.delete(key); resolveDone(); } });
+      };
+      const finishInFlight = (key) => { inFlightBodyRequests.get(key)?.finish(); };
+      const readResponseBody = async (target, requestId) => {
+        try {
+          return await target.send('Network.getResponseBody', { requestId });
+        } catch (firstError) {
+          if (signal.aborted) throw firstError;
+          await sleep(60, undefined, { signal }).catch(() => {});
+          return target.send('Network.getResponseBody', { requestId });
+        }
+      };
       let captured = 0;
       let manifests = 0;
       const networkOptions = captureXhrBody ? {maxResourceBufferSize:jsonLimit,maxTotalBufferSize:50*jsonLimit} : {};
@@ -376,6 +392,7 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
             if (endpoint?.origin === URL.parse(frameUrls.get(frameId) ?? url.href)?.origin) {
               captured++;
               jsonRequests.set(requestId,{endpoint,frameId});
+              trackInFlight(`json:${requestId}`);
             }
           }
           const kind = classify(response.url, response.mimeType);
@@ -394,18 +411,22 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
             if (isPlaylist(kind) && manifests < 16) {
               manifests++;
               manifestRequests.set(requestId,{key,kind,entry});
+              trackInFlight(`manifest:${requestId}`);
             }
           }
         });
         target.on('Network.loadingFailed', ({requestId}) => {
           manifestRequests.delete(requestId);
           jsonRequests.delete(requestId);
+          finishInFlight(`manifest:${requestId}`);
+          finishInFlight(`json:${requestId}`);
         });
         target.on('Network.loadingFinished', ({requestId,encodedDataLength}) => {
           const manifest = manifestRequests.get(requestId);
           manifestRequests.delete(requestId);
+          finishInFlight(`manifest:${requestId}`);
           if (!manifest || encodedDataLength > 128 * 1024 || blockedFrames.has(manifest.entry.frameId)) return;
-          const pending = target.send('Network.getResponseBody',{requestId}).then(({body,base64Encoded}) => {
+          const pending = readResponseBody(target, requestId).then(({body,base64Encoded}) => {
             const max = 128 * 1024;
             if (base64Encoded) {
               if (body.length > Math.ceil(max / 3) * 4) return;
@@ -421,8 +442,9 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
           target.on('Network.loadingFinished', ({requestId,encodedDataLength}) => {
             const request = jsonRequests.get(requestId);
             jsonRequests.delete(requestId);
+            finishInFlight(`json:${requestId}`);
             if (!request || encodedDataLength > jsonLimit || blockedFrames.has(request.frameId)) return;
-            const pending = target.send('Network.getResponseBody',{requestId}).then(({body,base64Encoded}) => {
+            const pending = readResponseBody(target, requestId).then(({body,base64Encoded}) => {
               if (base64Encoded) {
                 if (body.length > Math.ceil(jsonLimit / 3) * 4) return;
                 body = Buffer.from(body,'base64');
@@ -434,7 +456,11 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
                 if (jsonSources.size >= 24) break;
                 jsonSources.set(request.frameId + ' ' + source.url,{...source,frameId:request.frameId,xhrJson:true});
               }
-            }).catch(() => {}).finally(() => pendingBodies.delete(pending));
+            }).catch(err => {
+              if (process.env.CI || process.env.VIDEOSAVE_DEBUG_BROWSER) {
+                console.error('[probe-xhr-body]', err?.message ?? String(err));
+              }
+            }).finally(() => pendingBodies.delete(pending));
             pendingBodies.add(pending);
           });
         }
@@ -532,7 +558,23 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
       const codes = Array.isArray(harvested?.codes) ? harvested.codes : [];
       const codeItems = Array.isArray(harvested?.codeItems) ? harvested.codeItems : [];
       const childFrames = includeFrames && !blocked ? await inspectChildFrames(page,embedded,expression,blockedFrames,signal) : null;
-      if (pendingBodies.size) await Promise.race([Promise.allSettled(pendingBodies),sleep(300,undefined,{signal})]);
+      // Separate bounded settlement budget for already-received responses and in-flight getResponseBody tasks
+      // so observation window expiry never truncates JSON/manifest body parsing that has already started.
+      if (inFlightBodyRequests.size) {
+        await Promise.race([
+          Promise.allSettled([...inFlightBodyRequests.values()].map(entry => entry.done)),
+          sleep(1500, undefined, { signal }),
+        ]).catch(() => {});
+      }
+      const bodySettleDeadline = Date.now() + 2000;
+      while (pendingBodies.size && Date.now() < bodySettleDeadline) {
+        const remaining = bodySettleDeadline - Date.now();
+        if (remaining <= 0) break;
+        await Promise.race([
+          Promise.allSettled([...pendingBodies]),
+          sleep(remaining, undefined, { signal }),
+        ]).catch(() => {});
+      }
       const allowedFrame = frameId => frameId === nav.frameId || childFrames?.urls.has(frameId);
       const observed = [...jsonSources.values(),...responses.values()]
         .filter(row => allowedFrame(row.frameId))

@@ -92,7 +92,7 @@ export async function getVersionInfo() {
     version: VERSION,
     browserVersion: manifest.version,
     installedVersion,
-    schemaVersion: '1.3.1',
+    schemaVersion: '1.3.2',
     channel: /-rc\./.test(VERSION) ? 'rc' : 'stable',
     versionMismatch,
     mismatch: versionMismatch,

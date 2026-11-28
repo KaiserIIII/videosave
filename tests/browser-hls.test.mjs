@@ -126,19 +126,52 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
         try { await inspector.send('Extensions.loadUnpacked', {path:path.join(project,'extension')}); }
         finally { inspector.close(); }
       }
-      const worker = await until(async () => (await list()).find(row => row.type === 'service_worker' && row.url.endsWith('/background.mjs')));
+      const findServiceWorker = async (excludeId = null) => (await list()).find(
+        row => row.type === 'service_worker' && row.url.endsWith('/background.mjs') && row.id !== excludeId,
+      );
+      let worker = await until(() => findServiceWorker());
       const tab = (await list()).find(row => row.url === 'about:blank');
       const page = await connectCdp(tab.webSocketDebuggerUrl, signal);
       let service = await connectCdp(worker.webSocketDebuggerUrl, signal);
+      const ensureServiceReady = async () => until(async () => {
+        try {
+          const ready = await service.evaluate(
+            'Boolean(globalThis.chrome?.storage?.local && globalThis.chrome?.downloads && globalThis.chrome?.runtime)',
+          );
+          if (ready) return true;
+        } catch (error) {
+          if (signal.aborted) throw error;
+          // MV3 worker may restart or expose a transient pre-binding context; rediscover the same extension worker.
+          const current = await findServiceWorker().catch(() => null);
+          if (current?.webSocketDebuggerUrl && current.id !== worker.id) {
+            worker = current;
+            service.close();
+            service = await connectCdp(worker.webSocketDebuggerUrl, signal);
+          }
+        }
+        return false;
+      });
+      const evalService = async expression => {
+        await ensureServiceReady();
+        try {
+          return await service.evaluate(expression);
+        } catch (error) {
+          if (signal.aborted || !/chrome is not defined|Execution context|调试连接已关闭/i.test(error?.message ?? '')) {
+            throw error;
+          }
+          await ensureServiceReady();
+          return service.evaluate(expression);
+        }
+      };
       const popupUrl = new URL('/popup.html', worker.url).href;
       let popup = page;
       let cdp;
       let phase = 'discover';
       let lastJob;
       try {
+        await ensureServiceReady();
         if (endpoint) {
-          await until(() => service.evaluate('Boolean(globalThis.chrome?.storage?.local)'));
-          await service.evaluate(`chrome.storage.local.set(${JSON.stringify({connection:{endpoint,token}})})`);
+          await evalService(`chrome.storage.local.set(${JSON.stringify({connection:{endpoint,token}})})`);
         }
         if (publicPage) {
           await page.send('Page.navigate', {url:publicPage});
@@ -164,7 +197,7 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
           document.querySelector('#manual').requestSubmit();`);
         await until(async () => {
           const state = await popup.evaluate('document.querySelector("#status")?.innerText');
-          const jobs = await service.evaluate('chrome.storage.local.get("downloadJobs").then(s => s.downloadJobs ?? [])');
+          const jobs = await evalService('chrome.storage.local.get("downloadJobs").then(s => s.downloadJobs ?? [])');
           assert.doesNotMatch(state, /需要连接本机服务|requires the local service|Connect the local service/i);
           assert.ok(jobs[0]?.state !== 'failed', jobs[0]?.note);
           if (jobs[0]) {
@@ -173,7 +206,7 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
           }
           return jobs[0]?.state === 'done';
         });
-        const files = await service.evaluate('chrome.downloads.search({state:"complete"})');
+        const files = await evalService('chrome.downloads.search({state:"complete"})');
         assert.equal(files.length, 1);
         assert.match(files[0].filename, /\.(?:ts|mp4)$/i);
         const output = JSON.parse(execFileSync(process.env.FFPROBE_BIN || 'ffprobe', ['-v','error','-of','json',
@@ -215,11 +248,11 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
           holdSegments = true;
           await popup.evaluate('document.querySelector("#manual").requestSubmit()');
           await until(() => requests.get(segment) > previous);
-          const id = await service.evaluate('chrome.storage.local.get("downloadJobs").then(s => s.downloadJobs[0].id)');
+          const id = await evalService('chrome.storage.local.get("downloadJobs").then(s => s.downloadJobs[0].id)');
           const result = await popup.evaluate(`chrome.runtime.sendMessage({scope:'media-downloads', action:'cancel',id:${JSON.stringify(id)}})`);
           assert.equal(result.jobs[0].state, 'cancelled', result.error);
-          assert.equal((await service.evaluate('chrome.downloads.search({})')).length, 1);
-          assert.deepEqual(await service.evaluate(`(async () => {
+          assert.equal((await evalService('chrome.downloads.search({})')).length, 1);
+          assert.deepEqual(await evalService(`(async () => {
             const root = await navigator.storage.getDirectory();
             const dir = await root.getDirectoryHandle('hls-downloads');
             return Array.fromAsync(dir.keys());
@@ -232,12 +265,12 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
           })`);
           assert.ifError(selected.error);
           await until(async () => {
-            const jobs = await service.evaluate('chrome.storage.local.get("downloadJobs").then(s => s.downloadJobs)');
+            const jobs = await evalService('chrome.storage.local.get("downloadJobs").then(s => s.downloadJobs)');
             const job = jobs.find(entry => entry.title === '240p');
             assert.notEqual(job?.state, 'failed', job?.note);
             return job?.state === 'done';
           });
-          const completed = await service.evaluate('chrome.downloads.search({state:"complete"})');
+          const completed = await evalService('chrome.downloads.search({state:"complete"})');
           assert.equal(completed.length, 2);
           assert.ok(completed.some(file => path.basename(file.filename) === '240p.' + (fragmented ? 'mp4' : 'ts')));
           assert.equal(requests.get('master.m3u8'), 1);
@@ -248,22 +281,23 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
           const beforeLast = requests.get(lastPart);
           await popup.evaluate('document.querySelector("#manual").requestSubmit()');
           await until(() => requests.get(lastPart) > beforeLast);
-          const unfinished = await until(() => service.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) => {
+          const unfinished = await until(() => evalService(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) => {
             const job = downloadJobs[0];
             return job.state === 'processing' && job.percent >= ${fragmented ? 90 : 89} && job.id;
           })`));
           const savedRequests = new Map(requests);
-          await service.evaluate('setTimeout(() => chrome.runtime.reload(), 100); true');
+          await evalService('setTimeout(() => chrome.runtime.reload(), 100); true');
           holdLastSegment = false;
           await until(async () => !(await list()).some(row => row.id === worker.id));
           cdp ??= await connectCdp(browserUrl, signal);
           await cdp.send('Target.createTarget', {url:popupUrl});
-          const newWorker = await until(async () => (await list()).find(row => row.type === 'service_worker' &&
-            row.url === worker.url && row.id !== worker.id));
+          const newWorker = await until(() => findServiceWorker(worker.id));
+          worker = newWorker;
           service.close();
           service = await connectCdp(newWorker.webSocketDebuggerUrl, signal);
+          await ensureServiceReady();
           await until(async () => {
-            const job = await service.evaluate(`globalThis.chrome?.storage?.local?.get("downloadJobs").then(({downloadJobs}) =>
+            const job = await evalService(`globalThis.chrome?.storage?.local?.get("downloadJobs").then(({downloadJobs}) =>
               downloadJobs.find(item=>item.id===${JSON.stringify(unfinished)}))`);
             assert.notEqual(job?.state, 'failed', job?.note);
             return job?.state === 'done';
@@ -274,7 +308,7 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
           }
           if (fragmented) assert.equal(requests.get('init.mp4'), savedRequests.get('init.mp4'));
           assert.equal(requests.get(lastPart), savedRequests.get(lastPart) + 1);
-          const restored = await service.evaluate(`chrome.storage.local.get("downloadJobs").then(({downloadJobs}) =>
+          const restored = await evalService(`chrome.storage.local.get("downloadJobs").then(({downloadJobs}) =>
             chrome.downloads.search({id:downloadJobs.find(item=>item.id===${JSON.stringify(unfinished)}).files[0].id}))`);
           assert.ok((await readFile(restored[0].filename)).equals(await readFile(files[0].filename)));
 
@@ -293,12 +327,12 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
             assert.ifError(result.error);
           } finally { sharedPanel.close(); }
           const sharedJob = await until(async () => {
-            const job = await service.evaluate(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
+            const job = await evalService(`chrome.storage.local.get('downloadJobs').then(({downloadJobs}) =>
               downloadJobs.find(item => item.title === 'Shared file'))`);
             assert.notEqual(job?.state, 'failed', job?.note);
             return job?.state === 'done' && job;
           });
-          const [saved] = await service.evaluate(`chrome.downloads.search({id:${sharedJob.files[0].id}})`);
+          const [saved] = await evalService(`chrome.downloads.search({id:${sharedJob.files[0].id}})`);
           const masterText = await readFile(path.join(directory,'shared.m3u8'),'utf8');
           const expectedRanges = [...masterText.matchAll(/(?:BYTERANGE="|#EXT-X-BYTERANGE:)(\d+)@(\d+)/g)]
             .map(([,length,start]) => `bytes=${start}-${Number(start) + Number(length) - 1}`);

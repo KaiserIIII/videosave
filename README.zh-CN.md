@@ -4,22 +4,22 @@
 [![Latest Release](https://img.shields.io/github/v/release/KaiserIIII/videosave)](https://github.com/KaiserIIII/videosave/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](LICENSE)
 
-[English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载 v1.3.1](https://github.com/KaiserIIII/videosave/releases/latest) · [Android 与鸿蒙指南](docs/android-harmonyos.md) · [安全审查报告](docs/security-audit-v1.3.1.md)
+[English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载 v1.3.2](https://github.com/KaiserIIII/videosave/releases/latest) · [Android 与鸿蒙指南](docs/android-harmonyos.md) · [安全审查报告](docs/security-audit-v1.3.1.md)
 
-[更新日志](CHANGELOG.md#131) · [AI 与 CLI 实战手册](docs/ai-recipes.zh-CN.md) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [宣传材料包](docs/launch-kit.md) · [常见问题](docs/faq.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
+[更新日志](CHANGELOG.md#132) · [AI 与 CLI 实战手册](docs/ai-recipes.zh-CN.md) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [宣传材料包](docs/launch-kit.md) · [常见问题](docs/faq.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
 
-扫描网页视频、实测验证可用画质并高速可靠保存。视频快存免费开源、本地优先、**零 npm 第三方依赖**。**v1.3.1**（Final Polish）提供内置 **Bilibili 原生下载引擎**（无需安装 `yt-dlp`，**11/11 真实公网视频完整下载并经 FFprobe + 解码验证 100% 通过，11/11 画质协商与成片完全一致，严格拒绝不满足的 `exact:HEIGHT`**）、Internet Archive / Wikimedia Commons 原生适配器、经 **Android 16 模拟器端到端实测** 的 Android 静态 DASH `MediaMuxer` 与历史备份迁移、统一 `quick`/`standard`/`deep` 验证等级、加固 DSH-12 递归 OS 审计、含同并发对照组的公平 3 轮竞品基准、Windows 图形化 `Setup.exe` / 真离线便携包、Linux x64/ARM64 全自动校验自举（Node 24 + FFmpeg 8.1 + yt-dlp）、本机管理中心（`/console`）与 27 个 MCP 工具。
+扫描网页视频、实测验证可用画质并高速可靠保存。视频快存免费开源、本地优先、**零 npm 第三方依赖**。**v1.3.2**（基于 `v1.3.1` 实测基线的稳定性修缮版，修复 MV3 Service Worker 就绪态与 XHR-JSON 响应收尾竞争）提供内置 **Bilibili 原生下载引擎**（无需安装 `yt-dlp`，**11/11 真实公网视频完整下载并经 FFprobe + 解码验证 100% 通过，11/11 画质协商与成片完全一致，严格拒绝不满足的 `exact:HEIGHT`**）、Internet Archive / Wikimedia Commons 原生适配器、经 **Android 16 模拟器端到端实测** 的 Android 静态 DASH `MediaMuxer` 与历史备份迁移、统一 `quick`/`standard`/`deep` 验证等级、加固 DSH-12 递归 OS 审计、含同并发对照组的公平 3 轮竞品基准、Windows 图形化 `Setup.exe` / 真离线便携包、Linux x64/ARM64 全自动校验自举（Node 24 + FFmpeg 8.1 + yt-dlp）、本机管理中心（`/console`）与 27 个 MCP 工具。
 
 ## 平台支持矩阵
 
 | 平台 | 发行文件 | 支持状态 | 说明 |
 | :--- | :--- | :--- | :--- |
-| **Windows x64** | `VideoSave-1.3.1-Setup.exe`、`VideoSave-1.3.1-win-x64-offline.zip`、`VideoSave-1.3.1.zip` | **正式支持（未签名）** | 图形化向导（免管理员、不改 PATH），已通过无依赖与断网离线实测；暂未配置付费 Authenticode 证书 |
-| **Linux (x64 / ARM64)** | `videosave_1.3.1_all.deb`、`VideoSave-1.3.1-unix.tar.gz` | **正式支持** | 自动校验自举 Node.js 24 LTS、FFmpeg/FFprobe 8.1.3 与 yt-dlp；x64 已通过 Ubuntu 24.04 CI 验证 |
-| **macOS (Apple Silicon / Intel)** | `VideoSave-1.3.1-unix.tar.gz`（含 `Launch VideoSave.command`） | **正式支持（未公证）** | 自动校验引导 Node.js 24 LTS 与 yt-dlp；ARM64 已通过 macOS 15 CI 验证；未含 Apple Developer 公证 |
-| **Android 8–16 / 鸿蒙 4.x** | `VideoSave-1.3.1-android-debug.apk` | **测试版 (Beta)** | 独立 APK，免 Root/Termux（内置 Bilibili / 静态 DASH `MediaMuxer` / 严格 416 / JSON 备份导出，24/24 JVM 单测 + Android 16 模拟器实测通过）；正式签名待配置密钥，华为 Mate 60 Pro 待真机验收，详见 [Android 与鸿蒙指南](docs/android-harmonyos.md) |
+| **Windows x64** | `VideoSave-1.3.2-Setup.exe`、`VideoSave-1.3.2-win-x64-offline.zip`、`VideoSave-1.3.2.zip` | **正式支持（未签名）** | 图形化向导（免管理员、不改 PATH），已通过无依赖与断网离线实测；暂未配置付费 Authenticode 证书 |
+| **Linux (x64 / ARM64)** | `videosave_1.3.2_all.deb`、`VideoSave-1.3.2-unix.tar.gz` | **正式支持** | 自动校验自举 Node.js 24 LTS、FFmpeg/FFprobe 8.1.3 与 yt-dlp；x64 已通过 Ubuntu 24.04 CI 验证 |
+| **macOS (Apple Silicon / Intel)** | `VideoSave-1.3.2-unix.tar.gz`（含 `Launch VideoSave.command`） | **正式支持（未公证）** | 自动校验引导 Node.js 24 LTS 与 yt-dlp；ARM64 已通过 macOS 15 CI 验证；未含 Apple Developer 公证 |
+| **Android 8–16 / 鸿蒙 4.x** | `VideoSave-1.3.2-android-debug.apk` | **测试版 (Beta)** | 独立 APK，免 Root/Termux（内置 Bilibili / 静态 DASH `MediaMuxer` / 严格 416 / JSON 备份导出，24/24 JVM 单测 + Android 16 模拟器实测通过）；正式签名待配置密钥，华为 Mate 60 Pro 待真机验收，详见 [Android 与鸿蒙指南](docs/android-harmonyos.md) |
 | **HarmonyOS NEXT (5.0+)** | — | **计划支持** | 纯血鸿蒙不支持原生 APK，ArkTS/ArkUI 路线图见 [docs/android-harmonyos.md](docs/android-harmonyos.md) |
-| **浏览器扩展** | `VideoSave-1.3.1-extension.zip`、`VideoSave-1.3.1-firefox.zip`、`VideoSave-1.3.1-android-dev.zip` | **正式支持（本地加载）/ 商店提交就绪** | Edge、Chrome、Brave、Firefox 136+、Firefox Android |
+| **浏览器扩展** | `VideoSave-1.3.2-extension.zip`、`VideoSave-1.3.2-firefox.zip`、`VideoSave-1.3.2-android-dev.zip` | **正式支持（本地加载）/ 商店提交就绪** | Edge、Chrome、Brave、Firefox 136+、Firefox Android |
 
 ![本机管理中心 /console](docs/screenshots/console-desktop.png)
 

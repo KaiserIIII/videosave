@@ -1,8 +1,8 @@
 class Videosave < Formula
   desc "Local-first media downloader, browser companion, and native MCP server for AI agents"
   homepage "https://kaiseriiii.github.io/videosave/"
-  url "https://github.com/KaiserIIII/videosave/releases/download/v1.3.1/VideoSave-1.3.1-unix.tar.gz"
-  sha256 "9d89b8b1ef6801cb24f8babb1cf9780177122695d161c95a4736da2037a02d41"
+  url "https://github.com/KaiserIIII/videosave/releases/download/v1.3.2/VideoSave-1.3.2-unix.tar.gz"
+  sha256 "6e22d33ba467f468cca28252ff176e9912e814b9c2c7224771dd9aa98ac02a51"
   license "MIT"
 
   depends_on "node@24"

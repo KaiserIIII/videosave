@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.2
+
+- **Stability Patch (Browser & XHR-JSON Probe Reliability; Tag-Immutability Patch over Unpublished `v1.3.1` Tag)**:
+  - During the `v1.3.1` tag release pipeline (`46137161872`, job `140954910940` on `9d329c7`), two browser-timing race conditions failed on `windows-2025` (`tests/browser-hls.test.mjs:167` `ReferenceError: chrome is not defined` and `tests/mcp-selection.test.mjs:290` `xhr-json` response settlement). Rather than overwriting or moving the pushed `v1.3.1` tag, this minimal patch ships both fixes as `v1.3.2` with zero new features.
+  - **`tools/media-source.mjs`**: Separated bounded response-body settlement from the `waitMs` observation window — tracks already-received `inFlightBodyRequests` (`Network.responseReceived` → `Network.loadingFinished`, up to 1.5s) and settles `pendingBodies` (`Network.getResponseBody` with 1 bounded 60ms retry, up to 2.0s) so already-started XHR/Fetch JSON and manifest reads are not truncated under heavy load while preserving all sensitive-field redaction guarantees.
+  - **`tests/browser-hls.test.mjs`**: Unconditionally waits for MV3 `service_worker` extension bindings (`chrome.storage.local`, `chrome.downloads`, `chrome.runtime`) with worker-restart rediscovery before calling Chrome extension APIs (previously gated behind `if (endpoint)`).
+  - **Includes all `v1.3.1` Final Polish improvements below**: Bilibili quality negotiation consistency (11/11 verified public samples), Android 16 Emulator E2E & 24/24 JVM self-tests, unified verification levels, Linux FFmpeg 8.1.3 auto-bootstrap, hardened DSH-12, and CI doc-consistency gate. All prior baseline evidence (`docs/compatibility-data/v1.3.1-*.json`) and transparency disclosures remain unchanged.
+
 ## 1.3.1
 
 - **P0 — Bilibili Quality Negotiation Consistency, Subtitles & Multi-P Safety (`tools/quality-negotiator.mjs`, `tools/bilibili-adapter.mjs`, `tools/media-downloads.mjs`)**:

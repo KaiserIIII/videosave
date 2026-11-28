@@ -105,7 +105,7 @@ themeToggle.addEventListener('click', () => {
 function renderConfig() {
   const client = document.getElementById('cfg-client').value;
   const mode = document.getElementById('cfg-mode').value;
-  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.3.1';
+  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.3.2';
   const entry = rawPath.replace(/\\/g, '/') + '/tools/mcp-server.mjs';
   const clientId = document.getElementById('cfg-client-id').value.trim() || 'dsh-main';
   document.getElementById('cfg-client-id-wrap').hidden = mode !== 'managed';
