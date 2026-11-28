@@ -113,7 +113,7 @@ public final class AndroidCoreSelfTest {
                 100, 256, "bytes 0-255/256", "\"v1\"", "\"v1\"", "", "");
         check(bad206.decision == HttpRangeValidator.Decision.RESTART_FROM_ZERO, "Reject HTTP 206 start offset mismatch");
 
-        // 4. Bilibili input recognition & CDN mirror ranking
+        // 4. Bilibili input recognition, CDN mirror ranking & XXE/SegmentTimeline hardening
         check(BilibiliResolver.isBilibiliInput("BV1xx411c7mD"), "Recognize bare BV ID");
         check(BilibiliResolver.isBilibiliInput("https://b23.tv/BV1GJ411x7h7"), "Recognize b23.tv short link");
         List<String> ranked = BilibiliResolver.rankMirrors(Arrays.asList(
@@ -122,6 +122,31 @@ public final class AndroidCoreSelfTest {
                 "https://upos-sz-mirrorcos.bilivideo.com/a.m4s"
         ));
         check(ranked.get(0).contains("upos-sz-mirrorcos.bilivideo.com"), "Prioritize stable domestic UPOS mirror over cosov/mcdn");
+
+        // 5. DASH SegmentTimeline + XXE DOCTYPE rejection + valid 206 resume check
+        String timelineMpd = "<?xml version=\"1.0\"?><MPD type=\"static\" mediaPresentationDuration=\"PT6S\">"
+                + "<Period><AdaptationSet contentType=\"video\" mimeType=\"video/mp4\">"
+                + "<Representation id=\"v480\" width=\"854\" height=\"480\" bandwidth=\"800000\">"
+                + "<SegmentTemplate initialization=\"init.mp4\" media=\"seg-$Time$.m4s\" timescale=\"1000\">"
+                + "<SegmentTimeline><S t=\"0\" d=\"2000\" r=\"2\"/></SegmentTimeline>"
+                + "</SegmentTemplate></Representation></AdaptationSet></Period></MPD>";
+        DashEngine.DashPlan tlPlan = DashEngine.parseMpd("https://cdn.example.test/tl/manifest.mpd", timelineMpd);
+        check(tlPlan.supported && tlPlan.videoTracks.get(0).segmentUrls.size() == 3, "Parse DASH SegmentTimeline with r=2 -> 3 segments");
+        check("https://cdn.example.test/tl/seg-4000.m4s".equals(tlPlan.videoTracks.get(0).segmentUrls.get(2)), "Expand $Time$ accurately");
+
+        String xxeMpd = "<?xml version=\"1.0\"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]><MPD type=\"static\"><Period/></MPD>";
+        DashEngine.DashPlan xxePlan = DashEngine.parseMpd("https://cdn.example.test/xxe.mpd", xxeMpd);
+        check(!xxePlan.supported, "Reject XXE DOCTYPE MPD manifest");
+
+        HttpRangeValidator.ValidationOutcome ok206 = HttpRangeValidator.evaluate206(
+                100, 256, "bytes 100-255/256", "\"v1\"", "\"v1\"", "", "");
+        check(ok206.decision == HttpRangeValidator.Decision.APPEND_VERIFIED && ok206.verifiedTotalLength == 256,
+                "Accept valid HTTP 206 resume when offset, length, and ETag match");
+
+        HttpRangeValidator.ValidationOutcome badEtag206 = HttpRangeValidator.evaluate206(
+                100, 256, "bytes 100-255/256", "\"v1\"", "\"v2\"", "", "");
+        check(badEtag206.decision == HttpRangeValidator.Decision.RESTART_FROM_ZERO,
+                "Reject HTTP 206 resume when ETag changed mid-download");
 
         System.out.println("ANDROID_CORE_SELF_TEST_PASSED total=" + passed);
     }

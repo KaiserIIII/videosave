@@ -79,6 +79,8 @@ export function platformFailure(platform, { failure, stdout = '', stderr = '' })
   const status = Number(/(?:HTTP Error|Server returned) (\d{3})/i.exec(stderr)?.[1] ??
     /^\[download\].*?\bHTTP Error (\d{3})/im.exec(stdout)?.[1]);
   const detail = { platform, ...(status && { status }) };
+  // HTTP 401/402/403/451 and Bilibili's non-standard HTTP 567 are treated strictly as access/policy restrictions
+  // rather than generic network glitches, so VideoSave never attempts to evade platform controls.
   if ([401, 402, 403, 451].includes(status) || (platform === 'bilibili' && status === 567)) {
     return new ApiError('MEDIA_ACCESS_RESTRICTED', `平台媒体服务器拒绝访问（HTTP ${status}）`, 403, detail);
   }
@@ -184,7 +186,7 @@ export async function stagePlatform(video, target, staging, connections, signal,
     return stageBilibili(video, target, staging, connections, signal, onProgress, { ...options, headers });
   }
   if (video?.platform === 'internet-archive' || video?.platform === 'wikimedia') {
-    return stageDirectPublicPlatform(video, target, staging, signal, onProgress);
+    return stageDirectPublicPlatform(video, target, staging, signal, onProgress, options);
   }
   const resolved = await resolvePlatformShortLink(video, signal);
   const transfers = new Map();

@@ -1,0 +1,56 @@
+{
+  "recordedAt": "2026-11-28T08:14:29.696Z",
+  "version": "1.3.1",
+  "apk": "VideoSave-1.3.1-android-debug.apk",
+  "emulatorImage": "android-36.1/google_apis_playstore/x86_64",
+  "booted": true,
+  "installed": true,
+  "launched": true,
+  "downloadServiceNotExportedVerified": true,
+  "screenshotCaptured": true,
+  "httpMp4DownloadVerified": true,
+  "staticDashMuxVerified": true,
+  "fakeXmlRejected": true,
+  "crashFreeLogcat": true,
+  "details": {
+    "homeScreenshotBytes": 137419,
+    "dashButtonTapped": {
+      "text": "下载 · DASH 240p · 539 kbps + Audio [static]",
+      "x": 540,
+      "y": 1134
+    },
+    "mp4ButtonTapped": {
+      "text": "下载 · Direct Media (300.5 KB)",
+      "x": 540,
+      "y": 1134
+    },
+    "fakeXmlButtonTapped": {
+      "text": "下载 · Direct Media (162 B)",
+      "x": 540,
+      "y": 1134
+    },
+    "queueScreenshotBytes": 165819,
+    "savedFiles": [
+      "sample.mp4",
+      "stream.mp4"
+    ],
+    "sample.mp4": {
+      "size": 307685,
+      "durationSec": 4,
+      "hasVideo": true,
+      "hasAudio": true,
+      "decodedOk": true,
+      "verified": true
+    },
+    "stream.mp4": {
+      "size": 307830,
+      "durationSec": 4.011,
+      "hasVideo": true,
+      "hasAudio": true,
+      "decodedOk": true,
+      "verified": true
+    },
+    "crashLogSnippet": ""
+  },
+  "error": null
+}

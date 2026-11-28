@@ -19,7 +19,12 @@
 - LL-HLS (`EXT-X-PART`/`PRELOAD-HINT`/`SERVER-CONTROL`), sliding-window live HLS, and Dynamic DASH bounded recording.
 - Standalone native Android Beta APK (`aapt2 + javac + d8 + zipalign + apksigner`) and official Release update verifier.
 
-### v1.3.0 — Compatibility & Reliability (Current)
+### v1.3.1 — Final Polish (Current)
+- **Unified Quality Negotiation & Bilibili Subtitle/Multi-P Fidelity**: Eliminated nominal-vs-actual quality contradictions (`requestedQuality` / `availableQualities` / `declaredQuality` / `selectedQuality` / post-FFprobe `actualQuality`), enforced strict `exact:HEIGHT` rejection, upgraded validated VTT/SRT subtitle conversion + `mov_text` embedding with honest `none-available`/`login-required` status, and added Multi-P safety (`current` default).
+- **Android 16 Emulator E2E & Debug→Release Backup Migration**: Per-task cancel isolation, immediate I/O cancel stop, duplicate-enqueue guard, cache pruning, JSON history backup export, signing cert SHA-256 display, 24 JVM self-tests, and verified live execution on Android 16 Emulator.
+- **Unified Verification Levels, Unix FFmpeg Auto-Bootstrap & Automated Doc Consistency Gate**: Explicit `quick`/`standard`/`deep` verification semantics, SQLite WAL mode, Linux x64/ARM64 SHA-256-verified FFmpeg/FFprobe auto-bootstrap, same-concurrency (8 conn vs 8 conn) + 60ms RTT competitor benchmarks, and CI-enforced `tools/check_doc_consistency.mjs`.
+
+### v1.3.0 — Compatibility & Reliability
 - **Native Bilibili Engine (`bilibili-native`)**: Zero `yt-dlp` required; solves HTTP 567 via official UPOS CDN mirror ranking & automatic `backup_url` failover, multi-connection Range resume, lossless FFmpeg MP4 muxing, multi-P, bare BV ID, `b23.tv` short links, audio-only, and legal subtitles — **11/11 real public Bilibili videos verified by FFprobe + bitstream decode (361+ MB, 100%)**.
 - **Android Core Fixes & Modern UI**: Real Static DASH downloader + `MediaMuxer` muxing (never saves MPD XML as MP4), strict RFC 9110 HTTP 416/206 validator, streaming HLS with SHA-256 checkpoints & independent audio mux, native Bilibili on Android, persistent queue with Pause/Resume/Retry/Boot recovery, modern 4-tab UI, and automated `AndroidCoreSelfTest` JVM suite on every build & CI.
 - **Hardened DSH-12 OS Audit**: Recursive OS kernel watchers on protected dirs catching create+immediate-delete and deep-subdir writes; strict incompleteness failure on watcher errors or event overflow.

@@ -9,15 +9,26 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.ContentValues;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.pm.Signature;
+import android.content.pm.SigningInfo;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.StatFs;
+import android.provider.MediaStore;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.Locale;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -232,7 +243,10 @@ public final class MainActivity extends Activity {
         headerTitle.setTextColor(cText());
         headerSub.setTextColor(cMuted());
         headerTitle.setText("VideoSave");
-        headerSub.setText(isZh ? "v1.3.0 · 本地优先 · Bilibili / DASH / HLS / HTTP" : "v1.3.0 · Local-first · Bilibili / DASH / HLS / HTTP");
+        String appVer = getInstalledVersionName();
+        headerSub.setText(isZh
+                ? "v" + appVer + " · 本地优先 · Bilibili / DASH / HLS / HTTP"
+                : "v" + appVer + " · Local-first · Bilibili / DASH / HLS / HTTP");
         langBtn.setText(isZh ? "EN" : "中文");
         themeBtn.setText(isDark ? "☀" : "☾");
         stylePillButton(langBtn, false);
@@ -610,10 +624,10 @@ public final class MainActivity extends Activity {
         prefCard.addView(saveBtn, marginTop(10));
         contentContainer.addView(prefCard);
 
-        // Component, Storage & Signing Status Card
+        // Component, Storage, Signing Fingerprint & Data Migration Card
         LinearLayout infoCard = makeCard();
-        infoCard.addView(makeSectionTitle(isZh ? "版本、存储与安全边界" : "Build, Storage & Compatibility Status"));
-        String verText = "1.3.0";
+        infoCard.addView(makeSectionTitle(isZh ? "版本、签名指纹与数据迁移" : "Build, Signing & Data Migration"));
+        String verText = getInstalledVersionName();
         try {
             PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
             verText = pi.versionName + " (versionCode=" + pi.getLongVersionCode() + ")";
@@ -623,21 +637,89 @@ public final class MainActivity extends Activity {
             StatFs sf = new StatFs(getCacheDir().getAbsolutePath());
             freeStr = MediaProbeEngine.formatSize(sf.getAvailableBytes());
         } catch (Exception ignored) {}
+        String certFp = getSigningCertFingerprintShort();
 
         TextView details = new TextView(this);
         details.setTextSize(12.5f);
         details.setTextColor(cMuted());
         details.setText((isZh
-                ? "版本：" + verText + "\n可用存储：" + freeStr
+                ? "版本：" + verText + "\n签名证书 SHA-256：" + certFp + "\n可用存储：" + freeStr
                 + "\n内置引擎：Bilibili 原生（免 Termux/Python）、静态 DASH（MediaMuxer 封装）、HLS（SHA-256 续传+AES-128）、严格 HTTP 416 校验"
                 + "\n华为 Mate 60 Pro / HarmonyOS：HarmonyOS 4.x 可直接安装本 APK；HarmonyOS NEXT 纯血版不支持原生 APK。"
-                + "\n隐私与合规：零后台遥测，绝不绕过 DRM 或付费访问限制。"
-                : "Version: " + verText + "\nAvailable storage: " + freeStr
+                + "\n升级迁移提示：从临时 Debug 版切换到正式签名版前，请先点击下方「导出历史备份」，卸载旧版安装新版后再导入。"
+                : "Version: " + verText + "\nSigning Cert SHA-256: " + certFp + "\nAvailable storage: " + freeStr
                 + "\nEngines: Native Bilibili, Static DASH (MediaMuxer), Resumable HLS (SHA-256 + AES-128), Strict HTTP 416 validator"
                 + "\nHuawei Mate 60 Pro / HarmonyOS: Supported on HarmonyOS 4.x; HarmonyOS NEXT does not support native APKs."
-                + "\nPrivacy & Scope: Local-first, zero telemetry, never bypasses DRM or paywalls."));
+                + "\nUpgrade migration: Before switching from a debug APK to a release-signed APK, export your history backup below first."));
         infoCard.addView(details, marginTop(6));
+
+        Button exportBackupBtn = makeActionButton(isZh ? "导出历史与队列备份 (JSON)" : "Export History Backup (JSON)", "#059669");
+        exportBackupBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) { exportMigrationBackup(); }
+        });
+        infoCard.addView(exportBackupBtn, marginTop(10));
         contentContainer.addView(infoCard, marginTop(12));
+    }
+
+    private String getInstalledVersionName() {
+        try {
+            return getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception ignored) {
+            return "1.3.1";
+        }
+    }
+
+    private String getSigningCertFingerprintShort() {
+        try {
+            PackageInfo pi = getPackageManager().getPackageInfo(
+                    getPackageName(),
+                    Build.VERSION.SDK_INT >= 28 ? PackageManager.GET_SIGNING_CERTIFICATES : PackageManager.GET_SIGNATURES);
+            Signature sig = null;
+            if (Build.VERSION.SDK_INT >= 28 && pi.signingInfo != null) {
+                Signature[] sigs = pi.signingInfo.getApkContentsSigners();
+                if (sigs != null && sigs.length > 0) sig = sigs[0];
+            } else if (pi.signatures != null && pi.signatures.length > 0) {
+                sig = pi.signatures[0];
+            }
+            if (sig == null) return "unavailable";
+            byte[] d = MessageDigest.getInstance("SHA-256").digest(sig.toByteArray());
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < Math.min(8, d.length); i++) {
+                if (i > 0) sb.append(':');
+                sb.append(String.format(Locale.US, "%02X", d[i] & 0xff));
+            }
+            return sb.toString() + "...";
+        } catch (Exception e) {
+            return "unavailable";
+        }
+    }
+
+    private void exportMigrationBackup() {
+        try {
+            String json = DownloadHistoryStore.exportMigrationJson(this);
+            byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
+            String name = "videosave-backup.json";
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues cv = new ContentValues();
+                cv.put(MediaStore.Downloads.DISPLAY_NAME, name);
+                cv.put(MediaStore.Downloads.MIME_TYPE, "application/json");
+                cv.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/VideoSave");
+                Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                if (uri != null) {
+                    OutputStream os = getContentResolver().openOutputStream(uri);
+                    if (os != null) { try { os.write(bytes); } finally { os.close(); } }
+                }
+            } else {
+                File dir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "VideoSave");
+                if (!dir.exists()) dir.mkdirs();
+                FileOutputStream fos = new FileOutputStream(new File(dir, name));
+                try { fos.write(bytes); } finally { fos.close(); }
+            }
+            Toast.makeText(this, isZh ? "已导出备份至 Downloads/VideoSave/videosave-backup.json" : "Backup saved to Downloads/VideoSave/videosave-backup.json", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Export failed: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private void runProbe() {
@@ -678,8 +760,24 @@ public final class MainActivity extends Activity {
         String[] lines = raw.split("\\r?\\n");
         int count = 0;
         for (String line : lines) {
-            String u = line.trim();
-            if (u.startsWith("http://") || u.startsWith("https://")) {
+            final String u = line.trim();
+            if (BilibiliResolver.isBilibiliInput(u)) {
+                count++;
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        MediaProbeEngine.ProbeResult res = BilibiliResolver.probe(u);
+                        if ("ok".equals(res.status) && !res.candidates.isEmpty()) {
+                            final MediaProbeEngine.QualityCandidate best = res.candidates.get(0);
+                            final String title = res.title;
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() { startCandidateDownload(best, title); }
+                            });
+                        }
+                    }
+                }).start();
+            } else if (u.startsWith("http://") || u.startsWith("https://")) {
                 String kind = u.toLowerCase().contains(".m3u8") ? "hls"
                         : u.toLowerCase().contains(".mpd") ? "dash" : "mp4";
                 startCandidateDownload(new MediaProbeEngine.QualityCandidate(u, u, kind, 0, 0, -1, "available", 200),

@@ -18,7 +18,10 @@ function withDatabase(run) {
   if (!existsSync(file)) mkdirSync(path.dirname(file), {recursive:true,mode:0o700});
   const connection = new DatabaseSync(file, {timeout:5000});
   try {
-    connection.exec(`CREATE TABLE IF NOT EXISTS download_batches (
+    connection.exec(`PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA busy_timeout = 5000;
+    CREATE TABLE IF NOT EXISTS download_batches (
       id TEXT PRIMARY KEY, request_hash TEXT NOT NULL, owner INTEGER NOT NULL,
       status TEXT NOT NULL, created_at TEXT NOT NULL, data TEXT NOT NULL
     );

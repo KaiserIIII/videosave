@@ -115,6 +115,7 @@ code {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  white-space: nowrap;
   border-radius: 8px;
   font: 600 14px/1 inherit;
   cursor: pointer;

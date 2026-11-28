@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.1
+
+- **P0 — Bilibili Quality Negotiation Consistency, Subtitles & Multi-P Safety (`tools/quality-negotiator.mjs`, `tools/bilibili-adapter.mjs`, `tools/media-downloads.mjs`)**:
+  - Resolved the `v1.3.0` quality negotiation reporting bug where `selectBilibiliVideoTrack` missed `spec.height` and Bilibili's nominal `durl` `qn=64` inflated lower-resolution sources (e.g. `512×384` reported as `720p`). Now delegates directly to `negotiateQuality`, clamps nominal `durl` heights using true `view.data.dimension` + DASH pixel heights, and reconciles every completed task's `qualityNegotiation` (`requestedQuality`, `availableQualities`, `declaredQuality`, `selectedQuality`, `actualQuality`, `fallbackApplied`, `fallbackReason`, `verificationLevel`, `verificationStatus`) against post-FFprobe ground truth.
+  - Enforced strict `exact:HEIGHT` rejection (`QUALITY_UNAVAILABLE`) when exact height cannot be satisfied — never silently downgrading. Eliminated wasted FFmpeg downscaling on Bilibili (34-minute `BV1xx411c7mD` dropped from 19.16s to 4.09s).
+  - Upgraded Bilibili subtitle handling: structured `item.subtitles` report with language filtering (`subtitleLanguages`), validated WebVTT & SRT sidecar generation (`subtitleFormat: vtt|srt|both`) plus `mov_text` container embedding on both DASH and `durl` paths, and explicit `none-available` / `login-required` status when no public subtitles exist.
+  - Added Multi-P safety (`partSelection` defaulting strictly to `current` P so single-URL downloads never unexpectedly explode into hundreds of episodes; explicit `selected`/`all` with safety cap).
+  - Tightened HTTP error boundaries: non-standard Bilibili HTTP `567` and `401/402/403/412/451` strictly abort as `MEDIA_ACCESS_RESTRICTED` without mirror rotation; official `backup_url` failover applies exclusively to RFC transient 5xx/408 failures.
+- **P0 — Android Reliability Hardening, Android 16 Emulator E2E & Debug→Release Migration (`android/`, `tools/build_android_apk.py`, `docs/android-harmonyos.md`)**:
+  - Upgraded `DownloadService.java` with per-task cancellation (cancelling one item never halts queued items), immediate I/O & `MediaMuxer` stop on cancel/pause, duplicate active URL guard, 48h stale staging cache pruning, immediate cache cleanup on cancel/fatal error, and stricter `MediaExtractor` track verification.
+  - Fixed `BilibiliResolver.java` nominal `durl` height clamping, added bare-BV batch intake, dynamic version display, APK signing certificate SHA-256 display, and **Export History Backup (JSON)** (`Downloads/VideoSave/videosave-backup.json`) so Debug-APK users can upgrade to future release-signed APKs without losing history.
+  - Expanded `AndroidCoreSelfTest.java` to 24 JVM assertions and verified live end-to-end execution (install, `android:exported="false"` security check, Static DASH `MediaMuxer` MP4 muxing, HTTP MP4 download, fake XML rejection, zero crashes, and real UI screenshots) on **Android 16 Emulator (`android-36.1`)**.
+- **P0 — Unified Verification Levels, Hardened DSH-12, Unix FFmpeg Auto-Bootstrap & Automated Consistency Gate**:
+  - Added explicit `verificationLevel` (`quick` | `standard` | `deep`) in `tools/media-source.mjs` and `verify_download` so header/FFprobe checks are never misrepresented as full decode; added per-phase `timings` (`downloadMs`, `muxMs`, `verifyMs`) and SQLite WAL mode (`tools/download-history.mjs`).
+  - Enhanced `tools/fs-audit-monitor.mjs` with dynamic newly-created subdirectory watching on Linux and explicit `auditBoundary` disclosure; DSH-12 remains transparently marked pending independent user re-verification.
+  - Upgraded `tools/start-unix.sh` to auto-bootstrap SHA-256-verified **FFmpeg & FFprobe 8.1.3** on Linux x64/ARM64 alongside Node 24 & `yt-dlp`.
+  - Added `tools/check_doc_consistency.mjs` (wired into CI), `tools/sync_packaging_checksums.mjs`, `tools/extract_release_notes.mjs` (curated GitHub Release notes), `docs/security-audit-v1.3.1.md`, `docs/launch-kit.md`, and same-concurrency (8 conn vs 8 conn) + 60ms high-latency competitor benchmarks.
+
 ## 1.3.0
 
 - **Native Built-In Bilibili Engine (`tools/bilibili-adapter.mjs`, `tools/platform-downloads.mjs`) — 11/11 Real Public Samples Verified (100%)**:

@@ -22,7 +22,7 @@ RELEASE_DOCS = (
     "docs/dsh-guide.md", "docs/dsh-guide.zh-CN.md", "docs/dsh-feedback-tracker.md",
     "docs/ai-recipes.md", "docs/ai-recipes.zh-CN.md", "docs/third-party-notices.md", "docs/faq.md",
     "docs/launch-kit.md", "docs/hls-benchmark.zh-CN.md", "docs/v1-security.md",
-    "docs/android-harmonyos.md", "docs/security-audit-v1.2.md", "docs/security-audit-v1.3.md", "docs/roadmap.md",
+    "docs/android-harmonyos.md", "docs/security-audit-v1.2.md", "docs/security-audit-v1.3.md", "docs/security-audit-v1.3.1.md", "docs/roadmap.md",
     "tests/benchmark-hls.mjs", "tests/dash-public.mjs",
 )
 EXECUTABLE_SCRIPTS = frozenset({

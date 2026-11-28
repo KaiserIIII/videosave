@@ -172,7 +172,7 @@ def build_android_apk(dist_dir: Path, run_tests: bool = True) -> dict:
             ], check=True, env=env)
             test_res = subprocess.run(
                 [java, "-cp", f"{test_cls_dir}{os.pathsep}{cls_dir}", "AndroidCoreSelfTest"],
-                check=True, capture_output=True, text=True, env=env,
+                check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env,
             )
             self_test_passed = "ANDROID_CORE_SELF_TEST_PASSED" in test_res.stdout
             if not self_test_passed:
@@ -229,10 +229,12 @@ def build_android_apk(dist_dir: Path, run_tests: bool = True) -> dict:
             str(aligned_apk),
         ], check=True, env=env)
 
-        # 8. Strictly verify APK signature + badging
-        verify_res = subprocess.run([apksigner, "verify", "--verbose", str(out_apk)], check=True, capture_output=True, text=True, env=env)
-        badging_res = subprocess.run([aapt2, "dump", "badging", str(out_apk)], check=True, capture_output=True, text=True, env=env)
+        # 8. Strictly verify APK signature + signing certificate SHA-256 fingerprint + badging
+        verify_res = subprocess.run([apksigner, "verify", "--verbose", "--print-certs", str(out_apk)], check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
+        badging_res = subprocess.run([aapt2, "dump", "badging", str(out_apk)], check=True, capture_output=True, text=True, encoding="utf-8", errors="replace", env=env)
         Path(str(out_apk) + ".idsig").unlink(missing_ok=True)
+        cert_match = re.search(r"Signer #1 certificate SHA-256 digest:\s*([0-9a-fA-F]+)", verify_res.stdout)
+        cert_sha256 = cert_match.group(1).lower() if cert_match else None
 
     digest = sha256(out_apk.read_bytes()).hexdigest()
     return {
@@ -243,6 +245,7 @@ def build_android_apk(dist_dir: Path, run_tests: bool = True) -> dict:
         "versionName": version,
         "versionCode": version_code,
         "signingMode": "release-keystore" if is_release_signed else "ephemeral-debug-build",
+        "signingCertSha256": cert_sha256,
         "buildTools": build_tools.name,
         "compileSdk": platform_dir.name,
         "selfTestPassed": self_test_passed,
