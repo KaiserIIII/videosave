@@ -274,7 +274,7 @@ function visibleReferenceCodes(patternSource) {
 const emptyPage = reason => ({pageTitle:null,pageContext:null,streams:[],pages:[],candidates:[],reason});
 
 export async function discover(url,cookies,signal,options = {}) {
-  const launchBudget = AbortSignal.timeout(Math.min(20_000, options.timeoutBudget ?? 20_000));
+  const launchBudget = AbortSignal.timeout(Math.min(30_000, options.timeoutBudget ?? 30_000));
   const overallSignal = options.timeoutBudget
     ? AbortSignal.any([signal, AbortSignal.timeout(options.timeoutBudget)])
     : signal;
@@ -311,11 +311,17 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
   const startupSignal = AbortSignal.any([signal,setup.signal]);
   return withChromium(['--autoplay-policy=no-user-gesture-required'], async ({ list }) => {
     setStage('target');
-    const targetDeadline = performance.now() + 600;
+    const targetStarted = performance.now();
+    const targetDeadline = targetStarted + 8_000;
     let target;
     do {
       const targets = await list();
-      target = Array.isArray(targets) && targets.find(t => t.type === 'page' && t.url === 'about:blank');
+      if (Array.isArray(targets)) {
+        target = targets.find(t => t.type === 'page' && t.url === 'about:blank' && t.webSocketDebuggerUrl)
+          ?? (performance.now() - targetStarted >= 1500
+            ? targets.find(t => t.type === 'page' && (!t.url || t.url === 'about:blank') && t.webSocketDebuggerUrl)
+            : undefined);
+      }
       if (target?.webSocketDebuggerUrl) break;
       await sleep(75,undefined,{signal:startupSignal});
     } while (performance.now() < targetDeadline);
@@ -450,52 +456,73 @@ async function discoverOnce(url, cookies, signal, launchBudget, {
         const reason = /BLOCKED|CERT_/i.test(nav.errorText) ? 'blocked' : 'timeout';
         return emptyPage(reason);
       }
+      const expression = `({...(${scanDocument})(true, ${includeText}), blocker: (${visiblePageBlocker})()})`;
+      const isAboutTarget = url.protocol === 'about:';
+      let found;
+      const evalDocument = () => page.evaluate(expression).catch(error => {
+        if (signal.aborted || !/context.*(destroyed|find)/i.test(error.message) &&
+            !/Cannot find context/i.test(error.message)) throw error;
+        return undefined;
+      });
+      // Wait for initial document commit & DOM readiness in a dedicated bounded navigation window
+      // so slow browser startup / navigation commit never starves a short waitMs media observation window.
+      const navCommitDeadline = Date.now() + Math.min(8_000, Math.max(3_000, waitMs));
+      while (Date.now() < navCommitDeadline) {
+        if (blockedFrames.has(nav.frameId)) break;
+        const snapshot = await evalDocument();
+        if (snapshot && (isAboutTarget || snapshot.documentUrl !== 'about:blank')) {
+          found = snapshot;
+          if (found.ready || found.encrypted || found.blocker) break;
+        }
+        await sleep(80, undefined, { signal });
+      }
       setStage('observe');
       const deadline = Date.now() + waitMs;
       let collectUntil = deadline;
       let lastSignal;
       let stableSince = 0;
-      let found;
       let clicked = false;
-      const expression = `({...(${scanDocument})(true, ${includeText}), blocker: (${visiblePageBlocker})()})`;
-      do {
-        await sleep(300, undefined, { signal });
-        found = await page.evaluate(expression).catch(error => {
-          if (signal.aborted || !/context.*(destroyed|find)/i.test(error.message) &&
-              !/Cannot find context/i.test(error.message)) throw error;
-        });
-        if (blockedFrames.has(nav.frameId) || found?.encrypted || found?.blocker) break;
-        if (clickPlay && !clicked && found?.ready) {
-          const children = includeFrames ? (await inspectChildFrames(page,embedded,expression,blockedFrames,signal)).frames
-            .filter(frame => frame.target) : [];
-          const playerCount = (found.playerCount ?? 0) + children.reduce((total,frame) => total + frame.result.playerCount,0);
-          if (playerCount === 1) {
-            const frame = children.find(frame => frame.result.playerCount === 1);
-            clicked = await (frame?.target ?? page).evaluate(`(${startVisiblePlayback})()`,frame?.executionContextId);
+      if (!blockedFrames.has(nav.frameId) && !found?.encrypted && !found?.blocker) {
+        do {
+          const remaining = collectUntil - Date.now();
+          if (remaining > 0) await sleep(Math.min(250, remaining), undefined, { signal });
+          const snapshot = await evalDocument();
+          if (snapshot && (isAboutTarget || snapshot.documentUrl !== 'about:blank')) {
+            found = snapshot;
           }
-        }
-        const credible = found?.candidates.some(candidate => candidate.mediaElement &&
-          /^(?:https?):/.test(candidate.url) && classify(candidate.url, candidate.mime, true) &&
-          !assessCandidates([candidate])[0].evidence.includes('preview-label'));
-        const adaptive = [...responses.values()].some(row => isPlaylist(classify(row.url,row.mime)) && !row.drm && row.frameId === nav.frameId) ||
-          found?.opaqueCount === 1 && [...responses.values()].some(row =>
-            isPlaylist(classify(row.url,row.mime)) && !/\/(?:ads?|preroll|midroll)\//i.test(new URL(row.url).pathname));
-        const signature = JSON.stringify([found?.documentUrl,found?.candidates
-          .filter(row => row.mediaElement && !assessCandidates([row])[0].evidence.includes('preview-label'))
-          .map(row => row.url), [...responses.values()].filter(row => row.manifestRole === 'master').map(row => row.url),
-          [...jsonSources.keys()]]);
-        const now = Date.now();
-        if (signature !== lastSignal) {
-          lastSignal = signature;
-          stableSince = now;
-        }
-        if (credible || adaptive && found?.opaqueCount === 1 || jsonSources.size && found?.playerCount) {
-          collectUntil = Math.min(deadline,stableSince + 1800);
-        } else {
-          collectUntil = found?.ready && !found.playerCount && found.detailPages.length && !found.iframeCount
-            ? Math.min(deadline,stableSince + 3000) : deadline;
-        }
-      } while (Date.now() < collectUntil);
+          if (blockedFrames.has(nav.frameId) || found?.encrypted || found?.blocker) break;
+          if (clickPlay && !clicked && found?.ready) {
+            const children = includeFrames ? (await inspectChildFrames(page,embedded,expression,blockedFrames,signal)).frames
+              .filter(frame => frame.target) : [];
+            const playerCount = (found.playerCount ?? 0) + children.reduce((total,frame) => total + frame.result.playerCount,0);
+            if (playerCount === 1) {
+              const frame = children.find(frame => frame.result.playerCount === 1);
+              clicked = await (frame?.target ?? page).evaluate(`(${startVisiblePlayback})()`,frame?.executionContextId);
+            }
+          }
+          const credible = found?.candidates.some(candidate => candidate.mediaElement &&
+            /^(?:https?):/.test(candidate.url) && classify(candidate.url, candidate.mime, true) &&
+            !assessCandidates([candidate])[0].evidence.includes('preview-label'));
+          const adaptive = [...responses.values()].some(row => isPlaylist(classify(row.url,row.mime)) && !row.drm && row.frameId === nav.frameId) ||
+            found?.opaqueCount === 1 && [...responses.values()].some(row =>
+              isPlaylist(classify(row.url,row.mime)) && !/\/(?:ads?|preroll|midroll)\//i.test(new URL(row.url).pathname));
+          const signature = JSON.stringify([found?.documentUrl,found?.candidates
+            .filter(row => row.mediaElement && !assessCandidates([row])[0].evidence.includes('preview-label'))
+            .map(row => row.url), [...responses.values()].filter(row => row.manifestRole === 'master').map(row => row.url),
+            [...jsonSources.keys()]]);
+          const now = Date.now();
+          if (signature !== lastSignal) {
+            lastSignal = signature;
+            stableSince = now;
+          }
+          if (credible || adaptive && found?.opaqueCount === 1 || jsonSources.size && found?.playerCount) {
+            collectUntil = Math.min(deadline,stableSince + 1800);
+          } else {
+            collectUntil = found?.ready && !found.playerCount && found.detailPages.length && !found.iframeCount
+              ? Math.min(deadline,stableSince + 3000) : deadline;
+          }
+        } while (Date.now() < collectUntil);
+      }
       const blocker = frameBlockers.get(nav.frameId) || (found?.encrypted ? 'drm' : found?.blocker);
       const blocked = blockedFrames.has(nav.frameId) || Boolean(blocker);
       const harvested = harvestCodes && !blocked ? await page.evaluate(`(${visibleReferenceCodes})(${JSON.stringify(idPattern ?? null)})`).catch(() => {

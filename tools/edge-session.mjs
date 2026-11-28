@@ -1,6 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -270,6 +270,16 @@ export async function withChromium(args, run, signal, options = {}) {
             };
           }
           onLaunchTelemetry?.(error?.launchTelemetry);
+          if (process.env.CI || process.env.VIDEOSAVE_DEBUG_BROWSER) {
+            console.error('[browser-launch-diagnostic]', JSON.stringify({
+              stage,
+              attempts: attempt,
+              elapsedMs,
+              exitCode: error?.exitCode ?? null,
+              message: error?.message ?? String(error),
+              stderrTail: error?.stderrTail ?? undefined,
+            }));
+          }
           throw error;
         }
         await sleep(300 * attempt, undefined, { signal }).catch(() => {});
@@ -344,6 +354,10 @@ async function runChromiumOnce(args, run, signal, {
     edge.stderr?.on('data', chunk => {
       stderrBuf = (stderrBuf + chunk).slice(-4096);
     });
+    const edgeExited = new Promise(resolve => {
+      if (edge.exitCode !== null || edge.signalCode !== null) resolve();
+      else edge.once('exit', () => resolve());
+    });
     let startupError;
     let activeBrowserUrl;
     edge.once('error', error => { startupError = error; });
@@ -406,17 +420,33 @@ async function runChromiumOnce(args, run, signal, {
         try {
           return await run({ list, profile, dedicated: Boolean(dedicated), browserUrl: activeBrowserUrl, pid: edge.pid });
         } finally {
-          // For dedicated profiles, ask Chromium to close cleanly so cookies & storage flush to disk.
+          // For dedicated profiles, ask Chromium to close cleanly and wait for its process &
+          // NetworkService SQLite cookie store to flush to disk before ever forcing termination.
           if (dedicated && activeBrowserUrl && edge.exitCode === null && edge.signalCode === null) {
-            try {
-              const browserCdp = await connectCdp(activeBrowserUrl, AbortSignal.timeout(1500));
-              await browserCdp.send('Browser.close').catch(() => {});
-              browserCdp.close();
-              await Promise.race([
-                new Promise(resolve => edge.once('exit', resolve)),
-                sleep(2500),
-              ]);
-            } catch {}
+            let closedViaCdp = false;
+            for (let closeTry = 0; closeTry < 2 && !closedViaCdp && edge.exitCode === null && edge.signalCode === null; closeTry++) {
+              try {
+                const browserCdp = await connectCdp(activeBrowserUrl, AbortSignal.timeout(5000));
+                try {
+                  await browserCdp.send('Browser.close').catch(() => {});
+                  closedViaCdp = true;
+                } finally {
+                  browserCdp.close();
+                }
+              } catch {
+                if (closeTry === 0) await sleep(200);
+              }
+            }
+            await Promise.race([edgeExited, sleep(10_000)]);
+            if (edge.exitCode === null && edge.signalCode === null) {
+              if (process.platform === 'win32') {
+                await exec('taskkill.exe', ['/PID', String(edge.pid)], { windowsHide: true, timeout: 4000 }).catch(() => {});
+                await Promise.race([edgeExited, sleep(4000)]);
+              } else {
+                try { process.kill(-edge.pid, 'SIGTERM'); } catch {}
+                await Promise.race([edgeExited, sleep(4000)]);
+              }
+            }
           }
         }
       }
@@ -437,6 +467,18 @@ async function runChromiumOnce(args, run, signal, {
       }
     }
     if (dedicated) {
+      // Wait briefly for NetworkService SQLite cookie journal / WAL flush to settle (size === 0 or absent) before releasing lock.
+      const settleDeadline = Date.now() + 2500;
+      const cookieJournals = [
+        path.join(profile, 'Default', 'Network', 'Cookies-journal'),
+        path.join(profile, 'Default', 'Network', 'Cookies-wal'),
+        path.join(profile, 'Default', 'Cookies-journal'),
+      ];
+      while (Date.now() < settleDeadline) {
+        const pendingBytes = await Promise.all(cookieJournals.map(p => stat(p).then(s => s.size > 0, () => false)));
+        if (!pendingBytes.some(Boolean)) break;
+        await sleep(80);
+      }
       await rm(path.join(profile, 'DevToolsActivePort'), { force: true }).catch(() => {});
       await dedicated.release();
     } else {

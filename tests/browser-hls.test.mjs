@@ -36,6 +36,8 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
   let laterRequestBeforeFirstResponse = false;
   let firstResponseStarted = false;
   let firstResponseSent = false;
+  let releaseFirstSegment;
+  const firstSegmentBarrier = new Promise(resolve => { releaseFirstSegment = resolve; });
   let stalledAt;
   let retriedAt;
   let resumedRange;
@@ -62,11 +64,14 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
     if (holdLastSegment && filename === 'film9.' + segmentExtension) return;
     if (filename === 'film0.' + segmentExtension && count === 1) {
       firstResponseStarted = true;
-      await sleep(600);
+      // Hold segment 0 at an explicit synchronization barrier until a later segment arrives
+      // (with a bounded safety timeout so broken serial scheduling still fails the assertion).
+      await Promise.race([firstSegmentBarrier, sleep(8000, undefined, { signal }).catch(() => {})]);
       firstResponseSent = true;
     }
     if (filename === 'film8.' + segmentExtension && firstResponseStarted && !firstResponseSent) {
       laterRequestBeforeFirstResponse = true;
+      releaseFirstSegment?.();
     }
     if (filename === 'film1.' + segmentExtension && count === 1) return res.writeHead(503).end();
     if (filename === 'film2.' + segmentExtension) {
@@ -311,6 +316,7 @@ test(endpoint ? 'Chromium saves complete HLS video through the paired panel'
       }
     }, signal, {downloadsDirectory:directory, ...(browser && {executable:browser})});
   } finally {
+    releaseFirstSegment?.();
     server.closeAllConnections();
     server.close();
   }
