@@ -17,8 +17,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Native Android media probe engine supporting Direct HTTP media, HLS Master/Variant
- * playlists (with 2-byte Range availability check), static DASH MPDs, and HTML media extraction.
+ * Native Android media probe engine (v1.3.0) supporting:
+ * - Native Bilibili (bare BV, bilibili.com/video, b23.tv) with CDN mirror ranking
+ * - Direct HTTP media (2-byte Range probe)
+ * - HLS Master/Variant playlists (with 2-byte Range availability check & independent audio track parsing)
+ * - Static DASH MPDs (strictly validating static/non-DRM/supported templates via DashEngine)
+ * - HTML page static media extraction
  * Strictly respects HTTP 401/403/451 access controls and DRM declarations without circumvention.
  */
 public final class MediaProbeEngine {
@@ -26,15 +30,27 @@ public final class MediaProbeEngine {
     public static final class QualityCandidate {
         public final String label;
         public final String url;
-        public final String kind; // mp4 | hls | dash | audio
+        public final String kind; // mp4 | hls | dash | audio | bilibili-mp4 | bilibili-dash
         public final int height;
         public final long bandwidth;
         public final long contentLength;
-        public final String availability; // available | unavailable | restricted | drm | unknown
+        public final String availability; // available | unavailable | restricted | drm | unsupported | unknown
         public final int probeStatus;
+        public final String audioUrl;
+        public final List<String> mirrorUrls;
+        public final List<String> audioMirrorUrls;
+        public final String refererOverride;
 
         public QualityCandidate(String label, String url, String kind, int height,
                                 long bandwidth, long contentLength, String availability, int probeStatus) {
+            this(label, url, kind, height, bandwidth, contentLength, availability, probeStatus,
+                    null, Collections.<String>emptyList(), Collections.<String>emptyList(), null);
+        }
+
+        public QualityCandidate(String label, String url, String kind, int height,
+                                long bandwidth, long contentLength, String availability, int probeStatus,
+                                String audioUrl, List<String> mirrorUrls, List<String> audioMirrorUrls,
+                                String refererOverride) {
             this.label = label;
             this.url = url;
             this.kind = kind;
@@ -43,13 +59,17 @@ public final class MediaProbeEngine {
             this.contentLength = contentLength;
             this.availability = availability;
             this.probeStatus = probeStatus;
+            this.audioUrl = audioUrl;
+            this.mirrorUrls = mirrorUrls == null ? Collections.<String>emptyList() : mirrorUrls;
+            this.audioMirrorUrls = audioMirrorUrls == null ? Collections.<String>emptyList() : audioMirrorUrls;
+            this.refererOverride = refererOverride;
         }
     }
 
     public static final class ProbeResult {
         public final String inputUrl;
         public final String title;
-        public final String status; // ok | restricted | drm | no-media | error
+        public final String status; // ok | restricted | drm | unsupported | no-media | error
         public final String message;
         public final List<QualityCandidate> candidates;
 
@@ -64,15 +84,20 @@ public final class MediaProbeEngine {
 
     private static final Pattern RES_PATTERN = Pattern.compile("RESOLUTION=\\d+x(\\d+)");
     private static final Pattern BW_PATTERN = Pattern.compile("BANDWIDTH=(\\d+)");
+    private static final Pattern AUDIO_GROUP_PATTERN = Pattern.compile("AUDIO=\"([^\"]+)\"");
+    private static final Pattern GROUP_ID_PATTERN = Pattern.compile("GROUP-ID=\"([^\"]+)\"");
+    private static final Pattern URI_ATTR_PATTERN = Pattern.compile("URI=\"([^\"]+)\"");
     private static final Pattern TITLE_PATTERN = Pattern.compile("<title[^>]*>([^<]{1,140})</title>", Pattern.CASE_INSENSITIVE);
     private static final Pattern MEDIA_URL_PATTERN = Pattern.compile(
             "(https?://[^\"'\\s<>]+\\.(?:m3u8|mpd|mp4|m4a|mp3|webm)(?:\\?[^\"'\\s<>]*)?)",
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern DASH_REP_PATTERN = Pattern.compile(
-            "<Representation[^>]*height=\"(\\d+)\"[^>]*bandwidth=\"(\\d+)\"[^>]*>",
-            Pattern.CASE_INSENSITIVE);
 
     public static HttpURLConnection openConnection(String rawUrl, String userAgent, String referer, String rangeHeader) throws Exception {
+        return openConnection(rawUrl, userAgent, referer, rangeHeader, null);
+    }
+
+    public static HttpURLConnection openConnection(String rawUrl, String userAgent, String referer,
+                                                   String rangeHeader, String ifRange) throws Exception {
         URL u = new URL(rawUrl);
         if (!"http".equalsIgnoreCase(u.getProtocol()) && !"https".equalsIgnoreCase(u.getProtocol())) {
             throw new IllegalArgumentException("Only HTTP/HTTPS URLs are supported");
@@ -83,12 +108,15 @@ public final class MediaProbeEngine {
         conn.setInstanceFollowRedirects(true);
         conn.setRequestProperty("User-Agent", (userAgent != null && !userAgent.trim().isEmpty())
                 ? userAgent.trim()
-                : "VideoSave-Android/1.2.0");
+                : "VideoSave-Android/1.3.0");
         if (referer != null && !referer.trim().isEmpty()) {
             conn.setRequestProperty("Referer", referer.trim());
         }
-        if (rangeHeader != null) {
+        if (rangeHeader != null && !rangeHeader.isEmpty()) {
             conn.setRequestProperty("Range", rangeHeader);
+        }
+        if (ifRange != null && !ifRange.isEmpty()) {
+            conn.setRequestProperty("If-Range", ifRange);
         }
         return conn;
     }
@@ -99,21 +127,24 @@ public final class MediaProbeEngine {
             if (trimmed.isEmpty()) {
                 return new ProbeResult("", "", "error", "Empty URL", Collections.<QualityCandidate>emptyList());
             }
-            if (trimmed.matches("^BV[A-Za-z0-9]{10}$")) {
-                trimmed = "https://www.bilibili.com/video/" + trimmed + "/";
+
+            // 1. Native Bilibili support (bare BV, bilibili.com/video, b23.tv)
+            if (BilibiliResolver.isBilibiliInput(trimmed)) {
+                return BilibiliResolver.probe(trimmed);
             }
+
             String lower = trimmed.toLowerCase(Locale.US);
 
-            // 1. HLS Playlist
+            // 2. HLS Playlist
             if (lower.contains(".m3u8")) {
                 return probeHls(trimmed, userAgent, referer);
             }
-            // 2. DASH MPD
+            // 3. DASH MPD (validated through real DashEngine!)
             if (lower.contains(".mpd")) {
                 return probeDash(trimmed, userAgent, referer);
             }
 
-            // 3. Direct HTTP Range probe (2 bytes)
+            // 4. Direct HTTP Range probe (2 bytes)
             HttpURLConnection conn = openConnection(trimmed, userAgent, referer, "bytes=0-1");
             int code = conn.getResponseCode();
             String ct = conn.getContentType() == null ? "" : conn.getContentType().toLowerCase(Locale.US);
@@ -144,7 +175,7 @@ public final class MediaProbeEngine {
                 return new ProbeResult(trimmed, inferTitle(trimmed), "ok", "Direct media ready", list);
             }
 
-            // 4. HTML page scan
+            // 5. HTML page scan
             return probeHtmlPage(trimmed, userAgent, referer);
         } catch (Exception e) {
             return new ProbeResult(rawUrl, "", "error", e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(),
@@ -177,6 +208,23 @@ public final class MediaProbeEngine {
         List<QualityCandidate> variants = new ArrayList<QualityCandidate>();
         URL base = new URL(m3u8Url);
         String[] lines = body.split("\\r?\\n");
+
+        // Parse EXT-X-MEDIA TYPE=AUDIO independent audio renditions
+        java.util.Map<String, String> audioGroups = new java.util.HashMap<String, String>();
+        for (String raw : lines) {
+            String line = raw.trim();
+            if (line.startsWith("#EXT-X-MEDIA:") && line.contains("TYPE=AUDIO")) {
+                Matcher gm = GROUP_ID_PATTERN.matcher(line);
+                Matcher um = URI_ATTR_PATTERN.matcher(line);
+                if (gm.find() && um.find()) {
+                    String g = gm.group(1);
+                    if (!audioGroups.containsKey(g) || line.contains("DEFAULT=YES")) {
+                        audioGroups.put(g, new URL(base, um.group(1)).toString());
+                    }
+                }
+            }
+        }
+
         if (body.contains("#EXT-X-STREAM-INF:")) {
             for (int i = 0; i < lines.length; i++) {
                 String line = lines[i].trim();
@@ -187,6 +235,10 @@ public final class MediaProbeEngine {
                     if (rm.find()) height = Integer.parseInt(rm.group(1));
                     Matcher bm = BW_PATTERN.matcher(line);
                     if (bm.find()) bw = Long.parseLong(bm.group(1));
+                    String audioUri = null;
+                    Matcher am = AUDIO_GROUP_PATTERN.matcher(line);
+                    if (am.find()) audioUri = audioGroups.get(am.group(1));
+
                     String nextUri = null;
                     for (int j = i + 1; j < lines.length; j++) {
                         String cand = lines[j].trim();
@@ -202,8 +254,10 @@ public final class MediaProbeEngine {
                                 : "unavailable";
                         String label = (height > 0 ? height + "p" : "HLS") +
                                 (bw > 0 ? " · " + (bw / 1000) + " kbps" : "") +
+                                (audioUri != null ? " + Audio" : "") +
                                 " [" + avail + "]";
-                        variants.add(new QualityCandidate(label, nextUri, "hls", height, bw, -1, avail, probeStatus));
+                        variants.add(new QualityCandidate(label, nextUri, "hls", height, bw, -1, avail, probeStatus,
+                                audioUri, Collections.<String>emptyList(), Collections.<String>emptyList(), null));
                     }
                 }
             }
@@ -259,22 +313,35 @@ public final class MediaProbeEngine {
             conn.disconnect();
             return new ProbeResult(mpdUrl, inferTitle(mpdUrl), "restricted", "HTTP " + code + " on DASH MPD", Collections.<QualityCandidate>emptyList());
         }
-        String xml = readLimitedText(conn.getInputStream(), 512 * 1024);
+        if (code >= 400) {
+            conn.disconnect();
+            return new ProbeResult(mpdUrl, inferTitle(mpdUrl), "no-media", "HTTP " + code + " on DASH MPD", Collections.<QualityCandidate>emptyList());
+        }
+        String xml = readLimitedText(conn.getInputStream(), 1024 * 1024);
         conn.disconnect();
-        if (xml.contains("ContentProtection") && (xml.contains("edef8ba9") || xml.contains("9a04f079") || xml.contains("cenc"))) {
-            return new ProbeResult(mpdUrl, inferTitle(mpdUrl), "drm", "DRM-protected DASH stream is not supported", Collections.<QualityCandidate>emptyList());
+
+        DashEngine.DashPlan plan = DashEngine.parseMpd(mpdUrl, xml);
+        if (!plan.supported) {
+            String status = "DRM".equals(plan.errorCode) ? "drm" : "unsupported";
+            return new ProbeResult(mpdUrl, inferTitle(mpdUrl), status, plan.message, Collections.<QualityCandidate>emptyList());
         }
+
         List<QualityCandidate> list = new ArrayList<QualityCandidate>();
-        Matcher m = DASH_REP_PATTERN.matcher(xml);
-        while (m.find() && list.size() < 6) {
-            int h = Integer.parseInt(m.group(1));
-            long bw = Long.parseLong(m.group(2));
-            list.add(new QualityCandidate("DASH " + h + "p · " + (bw / 1000) + " kbps", mpdUrl, "dash", h, bw, -1, "available", 200));
+        for (int i = 0; i < Math.min(plan.videoTracks.size(), 6); i++) {
+            DashEngine.DashTrack v = plan.videoTracks.get(i);
+            String label = "DASH " + (v.height > 0 ? v.height + "p" : "Video")
+                    + (v.bandwidth > 0 ? " · " + (v.bandwidth / 1000) + " kbps" : "")
+                    + (!plan.audioTracks.isEmpty() ? " + Audio" : "")
+                    + " [static]";
+            // Encode selected representation ID into candidate URL fragment (#vsrep=ID) so DownloadService picks exact track
+            String repTag = v.id != null && !v.id.isEmpty() ? (mpdUrl + "#vsrep=" + v.id) : mpdUrl;
+            list.add(new QualityCandidate(label, repTag, "dash", v.height, v.bandwidth, -1, "available", 200));
         }
-        if (list.isEmpty()) {
-            list.add(new QualityCandidate("DASH Manifest", mpdUrl, "dash", 0, 0, -1, "available", 200));
+        if (list.isEmpty() && !plan.audioTracks.isEmpty()) {
+            DashEngine.DashTrack a = plan.audioTracks.get(0);
+            list.add(new QualityCandidate("DASH Audio · " + (a.bandwidth / 1000) + " kbps", mpdUrl, "dash", 0, a.bandwidth, -1, "available", 200));
         }
-        return new ProbeResult(mpdUrl, inferTitle(mpdUrl), "ok", "DASH manifest probed (" + list.size() + " tracks)", list);
+        return new ProbeResult(mpdUrl, inferTitle(mpdUrl), "ok", plan.message, list);
     }
 
     private static ProbeResult probeHtmlPage(String pageUrl, String ua, String referer) throws Exception {
@@ -297,7 +364,7 @@ public final class MediaProbeEngine {
         }
         if (found.isEmpty()) {
             return new ProbeResult(pageUrl, title, "no-media",
-                    "No direct media stream found in static HTML. For JS-rendered or platform pages, paste the stream URL or use VideoSave Desktop/Firefox Extension.",
+                    "No direct media stream found in static HTML. For JS-rendered pages, paste the stream URL or use VideoSave Desktop.",
                     Collections.<QualityCandidate>emptyList());
         }
         List<QualityCandidate> list = new ArrayList<QualityCandidate>();
@@ -313,7 +380,8 @@ public final class MediaProbeEngine {
         String cr = conn.getHeaderField("Content-Range");
         if (cr != null && cr.contains("/")) {
             try {
-                return Long.parseLong(cr.substring(cr.lastIndexOf('/') + 1).trim());
+                String tail = cr.substring(cr.lastIndexOf('/') + 1).trim();
+                if (!"*".equals(tail)) return Long.parseLong(tail);
             } catch (Exception ignored) {}
         }
         return conn.getContentLengthLong();

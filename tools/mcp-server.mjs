@@ -342,7 +342,7 @@ const batchResult = object({
 const outputSchemas = {
   probe_page: object({
     downloadTargets: array(object({
-      kind: { const: 'page' }, platform: { enum: ['bilibili', 'youtube'] }, url: string, title: string,
+      kind: { const: 'page' }, platform: { enum: ['bilibili', 'youtube', 'vimeo', 'internet-archive', 'wikimedia'] }, url: string, title: string,
       duration: { type: ['number', 'null'] }, width: { type: ['integer', 'null'] }, height: { type: 'integer' }, qualities: array({ type: 'integer' }),
     }, ['kind', 'platform', 'url', 'title'])),
     streams: array(object({ url: string, kind: string, strategies: array(string), evidence: array(string) }, ['url', 'kind'])),

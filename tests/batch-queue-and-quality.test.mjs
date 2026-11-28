@@ -136,7 +136,7 @@ test('batch queue controls, identifier extraction, quality verification, cookie 
   assert.equal(caps.features.netscapeCookieFile, true);
   assert.equal(caps.features.smartQualityNegotiation, true);
   const engines = await mcp.tool('get_engine_capabilities', {});
-  assert.deepEqual(engines.transfer, ['http', 'hls', 'dash-static']);
+  assert.deepEqual(engines.transfer, ['http', 'hls', 'dash-static', 'bilibili-native', 'internet-archive-native', 'wikimedia-native']);
   assert.equal(engines.ffmpeg.available, true);
   const eff = await mcp.tool('get_effective_settings', {});
   assert.equal(eff.download.outDir, sandbox.downloads);

@@ -32,7 +32,7 @@
         <img src="/console/logo.svg" alt="VideoSave" width="28" height="28" />
         <div>
           <div class="brand-name">VideoSave</div>
-          <div id="version-badge" class="pill subtle">v1.2.0</div>
+          <div id="version-badge" class="pill subtle">v1.3.0</div>
         </div>
       </div>
       <nav class="nav" id="nav">
@@ -73,7 +73,7 @@
           </div>
           <div id="action-banner" class="alert hidden" role="status"></div>
           <form id="quick-form" class="row">
-            <input id="quick-url" type="url" required placeholder="https://example.com/watch/... or .m3u8 / .mpd / Bilibili / YouTube" />
+            <input id="quick-url" type="text" required placeholder="BV1... / https://www.bilibili.com/... / YouTube / .m3u8 / .mpd" />
             <button type="submit" class="btn primary" data-i18n="probeNow">探测可用画质</button>
           </form>
         </div>
@@ -94,7 +94,7 @@
           <div class="card-head"><h3 data-i18n="probeHeading">媒体链接探测与画质验证</h3></div>
           <form id="probe-form" class="stack">
             <div class="row">
-              <input id="probe-url" type="url" required placeholder="https://..." />
+              <input id="probe-url" type="text" required placeholder="BV1... / https://..." />
               <select id="probe-compat">
                 <option value="adaptive">Adaptive</option>
                 <option value="standard">Standard</option>

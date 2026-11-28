@@ -4,22 +4,22 @@
 [![Latest Release](https://img.shields.io/github/v/release/KaiserIIII/videosave)](https://github.com/KaiserIIII/videosave/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](LICENSE)
 
-[English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载 v1.2.0](https://github.com/KaiserIIII/videosave/releases/latest) · [Android 与鸿蒙指南](docs/android-harmonyos.md) · [安全审查报告](docs/security-audit-v1.2.md)
+[English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载 v1.3.0](https://github.com/KaiserIIII/videosave/releases/latest) · [Android 与鸿蒙指南](docs/android-harmonyos.md) · [安全审查报告](docs/security-audit-v1.3.md)
 
-[更新日志](CHANGELOG.md#120) · [AI 与 CLI 实战手册](docs/ai-recipes.zh-CN.md) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [常见问题](docs/faq.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
+[更新日志](CHANGELOG.md#130) · [AI 与 CLI 实战手册](docs/ai-recipes.zh-CN.md) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [常见问题](docs/faq.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
 
-扫描网页视频、实测验证可用画质并高速可靠保存。视频快存免费开源、本地优先、**零 npm 第三方依赖**。**v1.2.0** 新增 Windows 图形化 `Setup.exe` 安装向导、零网络依赖的完整离线便携包、macOS/Linux 自动引导安装与 `.deb` 软件包、独立 Android APK（Beta）、LL-HLS/动态 DASH 有界录制、官方 SHA-256 自动更新校验、独立本机管理中心（`http://127.0.0.1:8765/console`）以及 27 个 MCP 工具，原生支持 DeepSeek Harness (DSH)、Codex、Claude Code、Claude Desktop、Cursor 与 Antigravity。
+扫描网页视频、实测验证可用画质并高速可靠保存。视频快存免费开源、本地优先、**零 npm 第三方依赖**。**v1.3.0** 全新实装内置 **Bilibili 原生多镜像下载引擎**（无需安装 `yt-dlp`，自动多 CDN 镜像故障转移根治 HTTP 567，**11/11 真实 Bilibili 公网视频完整下载并经 FFprobe + 解码验证 100% 通过**），新增 Internet Archive / Wikimedia Commons 原生支持，彻底修复 Android 端静态 DASH 封装与 HTTP 416 续传缺陷并重构 4 标签现代移动界面，加固 DSH-12 递归 OS 文件写入审计与公平多轮竞品基准（**较 FFmpeg 快 2.40×，较 yt-dlp 快 3.12×**），同步覆盖 Windows 图形化 `Setup.exe` / 真离线便携包、macOS/Linux 自举（Node 24 + yt-dlp）、`.deb`、本机管理中心（`/console`）与 27 个 MCP 工具。
 
 ## 平台支持矩阵
 
 | 平台 | 发行文件 | 支持状态 | 说明 |
 | :--- | :--- | :--- | :--- |
-| **Windows x64** | `VideoSave-1.2.0-Setup.exe`、`VideoSave-1.2.0-win-x64-offline.zip`、`VideoSave-1.2.0.zip` | **正式支持** | 图形化向导（无需管理员、不改系统 PATH），离线包已通过无网零依赖实测 |
-| **Linux (x64 / ARM64)** | `videosave_1.2.0_all.deb`、`VideoSave-1.2.0-unix.tar.gz` | **正式支持** | 缺少 Node 24 时自动下载并校验官方 Node.js 24 LTS，已通过 Ubuntu 24.04 CI 验证 |
-| **macOS (Apple Silicon / Intel)** | `VideoSave-1.2.0-unix.tar.gz`（含 `Launch VideoSave.command`） | **正式支持（未公证）** | 自动校验引导 Node.js 24 LTS，已通过 macOS 15 CI 验证；未含 Apple Developer 公证签名 |
-| **Android 8–16 / 鸿蒙 4.x** | `VideoSave-1.2.0-android-debug.apk` | **测试版 (Beta)** | 独立 APK，免 Root/Termux；当前为调试签名构建，详见 [Android 与鸿蒙指南](docs/android-harmonyos.md) |
+| **Windows x64** | `VideoSave-1.3.0-Setup.exe`、`VideoSave-1.3.0-win-x64-offline.zip`、`VideoSave-1.3.0.zip` | **正式支持** | 图形化向导（无需管理员、不改系统 PATH），离线包已通过无网零依赖实测 |
+| **Linux (x64 / ARM64)** | `videosave_1.3.0_all.deb`、`VideoSave-1.3.0-unix.tar.gz` | **正式支持** | 自动下载并校验官方 Node.js 24 LTS 与 yt-dlp，已通过 Ubuntu 24.04 CI 验证 |
+| **macOS (Apple Silicon / Intel)** | `VideoSave-1.3.0-unix.tar.gz`（含 `Launch VideoSave.command`） | **正式支持（未公证）** | 自动校验引导 Node.js 24 LTS 与 yt-dlp，已通过 macOS 15 CI 验证；未含 Apple Developer 公证 |
+| **Android 8–16 / 鸿蒙 4.x** | `VideoSave-1.3.0-android-debug.apk` | **测试版 (Beta)** | 独立 APK，免 Root/Termux（内置 Bilibili / 静态 DASH MediaMuxer / 严格 416 / 4 标签新界面，19/19 JVM 核心单测通过）；正式签名待配置密钥，详见 [Android 与鸿蒙指南](docs/android-harmonyos.md) |
 | **HarmonyOS NEXT (5.0+)** | — | **计划支持** | 纯血鸿蒙不支持原生 APK，ArkTS/ArkUI 路线图见 [docs/android-harmonyos.md](docs/android-harmonyos.md) |
-| **浏览器扩展** | `VideoSave-1.2.0-extension.zip`、`VideoSave-1.2.0-firefox.zip`、`VideoSave-1.2.0-android-dev.zip` | **正式支持（本地加载）/ 商店提交就绪** | Edge、Chrome、Brave、Firefox 136+、Firefox Android |
+| **浏览器扩展** | `VideoSave-1.3.0-extension.zip`、`VideoSave-1.3.0-firefox.zip`、`VideoSave-1.3.0-android-dev.zip` | **正式支持（本地加载）/ 商店提交就绪** | Edge、Chrome、Brave、Firefox 136+、Firefox Android |
 
 ![Microsoft Edge 中的 VideoSave 探测面板](docs/videosave-0.9-detection.png)
 

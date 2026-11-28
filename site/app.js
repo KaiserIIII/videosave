@@ -105,7 +105,7 @@ themeToggle.addEventListener('click', () => {
 function renderConfig() {
   const client = document.getElementById('cfg-client').value;
   const mode = document.getElementById('cfg-mode').value;
-  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.2.0';
+  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.3.0';
   const entry = rawPath.replace(/\\/g, '/') + '/tools/mcp-server.mjs';
   const clientId = document.getElementById('cfg-client-id').value.trim() || 'dsh-main';
   document.getElementById('cfg-client-id-wrap').hidden = mode !== 'managed';
@@ -187,6 +187,10 @@ async function loadReports() {
   const metricsEl = document.getElementById('summary-metrics');
 
   const preferredOrder = [
+    'v1.3.0-bilibili-public.json',
+    'v1.3.0-platforms-public.json',
+    'v1.3.0-competitor-benchmark.json',
+    'v1.3.0-dsh-acceptance.json',
     'v1.2.0-dsh-acceptance.json',
     'v1.2.0-chrome-stability.json',
     'v1.2.0-competitor-benchmark.json',
@@ -349,7 +353,8 @@ async function loadReports() {
     || loaded.find(r => r.name.includes('v1.1.0-mcp-edge'))
     || loaded.find(r => r.name.includes('mcp-edge'));
   const latestEdge = loaded.find(r => r.name.includes('v1.1.0-edge')) || loaded.find(r => r.name.includes('edge'));
-  const dshReport = loaded.find(r => r.name.includes('v1.2.0-dsh-acceptance'))
+  const dshReport = loaded.find(r => r.name.includes('v1.3.0-dsh-acceptance'))
+    || loaded.find(r => r.name.includes('v1.2.0-dsh-acceptance'))
     || loaded.find(r => r.name.includes('v1.1.0-dsh-acceptance'))
     || loaded.find(r => r.name.includes('dsh-acceptance'));
   const benchReport = loaded.find(r => r.name.includes('benchmark'));
@@ -435,6 +440,19 @@ async function loadReports() {
       );
       return tr;
     }
+    if (data.realPublicMediaOnly && data.summary) {
+      tr.append(
+        cell(name, '', true),
+        cell(data.version ?? '1.3.0'),
+        cell('Bilibili Native (0 yt-dlp)'),
+        cell('Real Public Bilibili'),
+        cell(`${data.summary.probed}/${data.summary.total} probed`, data.summary.probed === data.summary.total ? 'badge-good' : ''),
+        cell(`${data.fallbackToLocalFixtureCount ?? 0} fallback`, 'badge-good'),
+        cell(`${data.summary.verified}/${data.summary.total} verified (${data.summary.successRatePct}%)`, data.summary.verified === data.summary.total ? 'badge-good' : ''),
+        cell(`${Math.round((data.summary.totalDownloadedBytes || 0) / (1024 * 1024))} MiB`),
+      );
+      return tr;
+    }
     if (data.summary) {
       tr.append(
         cell(name, '', true),
@@ -466,15 +484,18 @@ async function loadReports() {
         const vs = data.results.find(r => /VideoSave/i.test(r.tool));
         const ff = data.results.find(r => /FFmpeg/i.test(r.tool));
         const yt = data.results.find(r => /yt-dlp/i.test(r.tool));
+        const vsMs = vs?.medianMs ?? vs?.elapsedMs;
+        const ffMs = ff?.medianMs ?? ff?.elapsedMs;
+        const ytMs = yt?.medianMs ?? yt?.elapsedMs;
         tr.append(
           cell(name, '', true),
-          cell(index.version || '1.2.0'),
+          cell(data.version || index.version || '1.3.0'),
           cell('Competitor Benchmark'),
           cell(`${data.fixture.segments}×${data.fixture.simulatedRttMs}ms HLS`),
-          cell(vs ? `${vs.elapsedMs} ms` : '—', 'badge-good'),
+          cell(vsMs != null ? `${vsMs} ms` : '—', 'badge-good'),
           cell('0 OOB writes', 'badge-good'),
-          cell(ff && vs ? `${(ff.elapsedMs / Math.max(1, vs.elapsedMs)).toFixed(2)}x vs FFmpeg` : '—', 'badge-good'),
-          cell(yt && yt.elapsedMs ? `yt-dlp ${yt.elapsedMs} ms` : '—'),
+          cell(ffMs && vsMs ? `${(ffMs / Math.max(1, vsMs)).toFixed(2)}x vs FFmpeg` : '—', 'badge-good'),
+          cell(ytMs ? (yt?.validForRanking === false ? 'yt-dlp invalid' : `yt-dlp ${ytMs} ms`) : '—'),
         );
         return tr;
       }

@@ -1,4 +1,4 @@
-import { platformDownloadsEnabled } from './platform-downloads.mjs';
+import { platformDownloadsEnabled, platformSupported } from './platform-downloads.mjs';
 import { streamlinkAvailable } from './streamlink-adapter.mjs';
 
 export const NON_FALLBACK_ERROR_CODES = new Set([
@@ -58,9 +58,25 @@ export function listRegisteredEngines() {
       supportsMultiConnection: false,
     },
     {
+      id: 'bilibili-native',
+      label: 'VideoSave Native Bilibili (Multi-CDN Range + FFmpeg)',
+      protocols: ['bilibili'],
+      available: true,
+      supportsResume: true,
+      supportsMultiConnection: true,
+    },
+    {
+      id: 'public-native',
+      label: 'VideoSave Native Public Platforms (Internet Archive / Wikimedia)',
+      protocols: ['internet-archive', 'wikimedia'],
+      available: true,
+      supportsResume: true,
+      supportsMultiConnection: false,
+    },
+    {
       id: 'yt-dlp',
       label: 'Managed Platform Extractor (yt-dlp)',
-      protocols: ['bilibili', 'youtube'],
+      protocols: ['youtube', 'vimeo', 'bilibili'],
       available: platformDownloadsEnabled(),
       supportsResume: true,
       supportsMultiConnection: true,
@@ -106,10 +122,15 @@ export function planDownloadEngines({
     };
   }
 
-  if (platform && platformDownloadsEnabled()) {
-    steps.push('yt-dlp');
+  if (platform && platformSupported(platform)) {
+    const engineId = platform === 'bilibili'
+      ? 'bilibili-native'
+      : (platform === 'internet-archive' || platform === 'wikimedia')
+        ? 'public-native'
+        : 'yt-dlp';
+    steps.push(engineId);
     return {
-      primary: 'yt-dlp',
+      primary: engineId,
       fallbacks: [],
       order: steps,
       rationale: `recognized-platform:${platform}`,

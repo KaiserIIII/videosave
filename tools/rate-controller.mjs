@@ -96,11 +96,28 @@ export function recordHostSuccess(host, { latencyMs = 0, bytes = 0 } = {}) {
   state.lastUpdatedAt = Date.now();
 }
 
+export function parseRetryAfterSeconds(headerValue, fallbackSec = 5) {
+  if (!headerValue) return fallbackSec;
+  const raw = String(headerValue).trim();
+  if (/^\d+$/.test(raw)) return Math.max(1, Math.min(120, Number.parseInt(raw, 10)));
+  const dateMs = Date.parse(raw);
+  if (Number.isFinite(dateMs)) {
+    return Math.max(1, Math.min(120, Math.ceil((dateMs - Date.now()) / 1000)));
+  }
+  return fallbackSec;
+}
+
+export function computeSlowTailDeadlineMs(host, floorMs = 5000, ceilingMs = 25_000) {
+  const state = hostStates.get(host);
+  if (!state || !state.avgLatencyMs || state.successes < 3) return ceilingMs;
+  return Math.max(floorMs, Math.min(ceilingMs, Math.round(state.avgLatencyMs * 4)));
+}
+
 export function recordHostThrottle(host, retryAfterSec = 5) {
   const state = getHostState(host);
   state.throttles++;
   state.cwnd = Math.max(state.minCwnd, Math.floor(state.cwnd / 2));
-  const waitSec = Math.max(1, Math.min(120, Number(retryAfterSec) || 5));
+  const waitSec = parseRetryAfterSeconds(retryAfterSec, 5);
   state.retryUntil = Math.max(state.retryUntil, Date.now() + waitSec * 1000);
   state.lastUpdatedAt = Date.now();
   return Math.ceil((state.retryUntil - Date.now()) / 1000);
