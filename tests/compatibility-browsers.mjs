@@ -31,55 +31,83 @@ export async function until(read, timeoutMs=10_000) {
 
 const here = fileURLToPath(new URL('../',import.meta.url));
 
-export async function withChromiumExtension(browser, source, output, run) {
-  const {connectCdp, withChromium} = await import(pathToFileURL(path.join(here,'tools/edge-session.mjs')).href);
-  const signal = AbortSignal.timeout(300_000);
-  const extension = path.join(source,'extension');
+export async function withChromiumExtension(browser, source, output, run, { onLaunchTelemetry } = {}) {
+  const { BROWSER_STAGES, BrowserTransportError, connectCdp, withChromium } = await import(
+    pathToFileURL(path.join(here, 'tools/edge-session.mjs')).href,
+  );
+  const signal = AbortSignal.timeout(360_000);
+  const extension = path.join(source, 'extension');
   return withChromium(['--disable-features=DisableLoadExtensionCommandLineSwitch',
-    '--autoplay-policy=no-user-gesture-required','--load-extension=' + extension],
-  async ({list,browserUrl}) => {
-    const inspector = await connectCdp(browserUrl,signal);
+    '--autoplay-policy=no-user-gesture-required', '--load-extension=' + extension],
+  async ({ list, browserUrl, launchTelemetry }) => {
+    let inspector;
+    try {
+      inspector = await connectCdp(browserUrl, signal);
+    } catch (error) {
+      throw new BrowserTransportError('Failed to connect to Chromium browser CDP', {
+        cause: error,
+        stage: BROWSER_STAGES.CDP_NOT_READY,
+      });
+    }
     try {
       const background = () => list().then(rows => rows.find(row => row.type === 'service_worker' &&
         row.url.startsWith('chrome-extension:') && row.url.endsWith('/background.mjs')));
-      if (!(await background())) {
+      let worker = await background();
+      if (!worker) {
         // Chrome stable can ignore --load-extension. Continue with the explicit developer command.
-        await inspector.send('Extensions.loadUnpacked',{path:extension}).catch(() => {});
+        await inspector.send('Extensions.loadUnpacked', { path: extension }).catch(() => {});
+        try {
+          worker = await until(background, 15_000);
+        } catch (error) {
+          throw new BrowserTransportError('Chromium extension service worker failed to load', {
+            cause: error,
+            stage: BROWSER_STAGES.EXTENSION_LOAD_FAILED,
+          });
+        }
       }
-      const worker = await until(background);
-      const tab = (await list()).find(row => row.type === 'page' && row.url === 'about:blank');
-      const page = await connectCdp(tab.webSocketDebuggerUrl,signal);
+      const tab = await until(
+        () => list().then(rows => rows.find(row => row.type === 'page' && row.url === 'about:blank') || rows.find(row => row.type === 'page')),
+        10_000,
+      ).catch(error => {
+        throw new BrowserTransportError('Chromium initial page target not ready', {
+          cause: error,
+          stage: BROWSER_STAGES.CDP_NOT_READY,
+        });
+      });
+      const page = await connectCdp(tab.webSocketDebuggerUrl, signal);
       const version = (await inspector.send('Browser.getVersion')).product;
+      onLaunchTelemetry?.({ ...launchTelemetry, browser, version: version.split('/').at(-1) });
       try {
         await page.send('Performance.enable');
         await run({
-          version:version.split('/').at(-1),
+          version: version.split('/').at(-1),
+          launchTelemetry,
           async navigate(url) {
-            const result = await page.send('Page.navigate',{url});
+            const result = await page.send('Page.navigate', { url });
             if (!result.errorText && result.loaderId) {
               await until(async () => (await page.send('Page.getFrameTree')).frameTree.frame.loaderId ===
                 result.loaderId, 10_000).catch(() => {});
             }
             return result;
           },
-          pageEval:expression => page.evaluate(expression),
-          metrics:async () => {
-            const metrics = Object.fromEntries((await page.send('Performance.getMetrics')).metrics.map(({name,value}) => [name,value]));
-            return {taskMs:Math.round(metrics.TaskDuration * 1000),heapBytes:metrics.JSHeapUsedSize};
+          pageEval: expression => page.evaluate(expression),
+          metrics: async () => {
+            const metrics = Object.fromEntries((await page.send('Performance.getMetrics')).metrics.map(({ name, value }) => [name, value]));
+            return { taskMs: Math.round(metrics.TaskDuration * 1000), heapBytes: metrics.JSHeapUsedSize };
           },
           async popup(use) {
-            const {targetId} = await inspector.send('Target.createTarget',{
-              url:new URL('/popup.html',worker.url).href,background:true,
+            const { targetId } = await inspector.send('Target.createTarget', {
+              url: new URL('/popup.html', worker.url).href, background: true,
             });
             const target = await until(() => list().then(rows => rows.find(row => row.id === targetId)));
-            const popup = await connectCdp(target.webSocketDebuggerUrl,signal);
+            const popup = await connectCdp(target.webSocketDebuggerUrl, signal);
             try {
               await page.send('Page.bringToFront');
               await popup.send('Page.reload');
               await use(expression => popup.evaluate(expression));
             } finally {
               popup.close();
-              await inspector.send('Target.closeTarget',{targetId});
+              await inspector.send('Target.closeTarget', { targetId });
             }
           },
         });
@@ -89,7 +117,7 @@ export async function withChromiumExtension(browser, source, output, run) {
     } finally {
       inspector.close();
     }
-  },signal,{executable:executable(browser),downloadsDirectory:output});
+  }, signal, { executable: executable(browser), downloadsDirectory: output, startupTimeoutMs: 30_000, maxStartupRetries: 2, onLaunchTelemetry });
 }
 
 async function openMarionette(port) {

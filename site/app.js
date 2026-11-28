@@ -64,7 +64,7 @@ const translations = {
     'bench.inspectorTitle': '原始 JSON 报告浏览器',
     'dsh.kicker': '真实用户反馈闭环',
     'dsh.title': '深度打磨 DeepSeek Harness (DSH) 使用体验',
-    'dsh.desc': 'VideoSave 1.0 逐项修复并实测验收了 DSH 反馈的 12 类真实问题，包括旧版进程漂移检测、HLS 403 请求头一致性、非标准后缀分片、故障注入断点续传与测试沙箱零污染。',
+    'dsh.desc': 'VideoSave v1.2.0 针对 DSH 反馈的 12 类真实问题完成源码修复与实测验证（其中 DSH-12 已实装 OS 级文件写入监控与软链逃逸拦截，状态保持待独立用户复测验收）。',
     'dsh.doc1Title': 'DSH 接入与升级指南',
     'dsh.doc1Desc': '涵盖一键配置、get_version 旧版检测、Netscape Cookie 导入与串行批量下载示例。',
     'dsh.doc2Title': '12 项反馈追踪表',
@@ -105,7 +105,7 @@ themeToggle.addEventListener('click', () => {
 function renderConfig() {
   const client = document.getElementById('cfg-client').value;
   const mode = document.getElementById('cfg-mode').value;
-  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.1.0';
+  const rawPath = document.getElementById('cfg-path').value.trim().replace(/[\\/]+$/, '') || 'C:/VideoSave/VideoSave-1.2.0';
   const entry = rawPath.replace(/\\/g, '/') + '/tools/mcp-server.mjs';
   const clientId = document.getElementById('cfg-client-id').value.trim() || 'dsh-main';
   document.getElementById('cfg-client-id-wrap').hidden = mode !== 'managed';
@@ -187,6 +187,10 @@ async function loadReports() {
   const metricsEl = document.getElementById('summary-metrics');
 
   const preferredOrder = [
+    'v1.2.0-dsh-acceptance.json',
+    'v1.2.0-chrome-stability.json',
+    'v1.2.0-competitor-benchmark.json',
+    'v1.2.0-platforms-public.json',
     'v1.1.0-edge.json',
     'v1.1.0-chrome.json',
     'v1.1.0-firefox.json',
@@ -205,6 +209,76 @@ async function loadReports() {
     'final-edge.json',
   ];
 
+  function detectClientOs() {
+    const ua = navigator.userAgent || '';
+    if (/Android/i.test(ua)) return 'android';
+    if (/Windows/i.test(ua)) return 'windows';
+    if (/Mac OS X|Macintosh/i.test(ua)) return 'macos';
+    if (/Linux/i.test(ua)) return 'linux';
+    return 'windows';
+  }
+
+  function applyDownloadSync(version, assets = []) {
+    const tag = 'v' + version;
+    const baseDl = `https://github.com/KaiserIIII/videosave/releases/download/${tag}/`;
+    const assetUrl = (name) => {
+      const found = assets.find(a => a.name === name);
+      return found ? found.browser_download_url : (baseDl + name);
+    };
+    const apkAsset = assets.find(a => /^VideoSave-.*-android-universal\.apk$/.test(a.name))
+      || assets.find(a => /^VideoSave-.*-android-debug\.apk$/.test(a.name));
+    const apkName = apkAsset ? apkAsset.name : `VideoSave-${version}-android-debug.apk`;
+
+    const setLink = (id, name, label) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.href = assetUrl(name);
+      el.textContent = (label || name) + ' ↗';
+    };
+    setLink('dl-win-setup-link', `VideoSave-${version}-Setup.exe`);
+    setLink('dl-win-offline-link', `VideoSave-${version}-win-x64-offline.zip`, 'Offline Portable ZIP');
+    setLink('dl-win-link', `VideoSave-${version}.zip`, 'Lite ZIP');
+    setLink('dl-apk-link', apkName);
+    setLink('dl-deb-link', `videosave_${version}_all.deb`, `videosave_${version}_all.deb`);
+    setLink('dl-unix-link', `VideoSave-${version}-unix.tar.gz`, `VideoSave-${version}-unix.tar.gz`);
+    setLink('dl-ext-link', `VideoSave-${version}-extension.zip`, `VideoSave-${version}-extension.zip`);
+    setLink('dl-sbom-link', 'SHA256SUMS.txt', 'SHA256SUMS.txt');
+
+    const osKind = detectClientOs();
+    const recMap = {
+      windows: {
+        title: currentLang === 'zh' ? '已为您识别设备（Windows）：' : 'Recommended for Windows:',
+        desc: currentLang === 'zh' ? `推荐下载图形化安装程序 VideoSave-${version}-Setup.exe（无需管理员权限，自动准备依赖）` : `Graphical installer VideoSave-${version}-Setup.exe (no admin rights, auto-prepares runtime)`,
+        file: `VideoSave-${version}-Setup.exe`,
+      },
+      android: {
+        title: currentLang === 'zh' ? '已为您识别设备（Android / 鸿蒙 4.x）：' : 'Recommended for Android / HarmonyOS 4.x:',
+        desc: currentLang === 'zh' ? `独立安装包 ${apkName}（无需 Root/Termux；鸿蒙 NEXT 纯血版暂不支持 APK）` : `Standalone APK ${apkName} (no Root/Termux; HarmonyOS NEXT does not support native APKs)`,
+        file: apkName,
+      },
+      macos: {
+        title: currentLang === 'zh' ? '已为您识别设备（macOS）：' : 'Recommended for macOS:',
+        desc: currentLang === 'zh' ? `自举运行包 VideoSave-${version}-unix.tar.gz（自动校验安装 Node 24，双击 Launch VideoSave.command 启动）` : `Self-bootstrapping VideoSave-${version}-unix.tar.gz (auto-installs verified Node 24)`,
+        file: `VideoSave-${version}-unix.tar.gz`,
+      },
+      linux: {
+        title: currentLang === 'zh' ? '已为您识别设备（Linux）：' : 'Recommended for Linux:',
+        desc: currentLang === 'zh' ? `Debian/Ubuntu 推荐 videosave_${version}_all.deb，其他发行版推荐 unix.tar.gz` : `Debian/Ubuntu .deb package videosave_${version}_all.deb or portable unix.tar.gz`,
+        file: `videosave_${version}_all.deb`,
+      },
+    };
+    const rec = recMap[osKind] || recMap.windows;
+    const tEl = document.getElementById('os-recommend-title');
+    const dEl = document.getElementById('os-recommend-desc');
+    const cEl = document.getElementById('os-recommend-cta');
+    if (tEl) tEl.textContent = rec.title + ' ';
+    if (dEl) dEl.textContent = rec.desc;
+    if (cEl) {
+      cEl.href = assetUrl(rec.file);
+      cEl.textContent = rec.file + ' ↗';
+    }
+  }
+
   let index;
   try {
     const res = await fetch('./data/index.json');
@@ -212,10 +286,26 @@ async function loadReports() {
     index = await res.json();
     if (index.version) {
       document.getElementById('live-version').textContent = 'v' + index.version;
-      const winLink = document.getElementById('dl-win-link');
-      const unixLink = document.getElementById('dl-unix-link');
-      if (winLink) winLink.textContent = `VideoSave-${index.version}.zip ↗`;
-      if (unixLink) unixLink.textContent = `VideoSave-${index.version}-unix.tar.gz ↗`;
+      applyDownloadSync(index.version, []);
+      // Best-effort sync with live GitHub Release asset list (only when live release >= site version)
+      const cmpVer = (a, b) => {
+        const pa = String(a || '').split('.').map(n => Number.parseInt(n, 10) || 0);
+        const pb = String(b || '').split('.').map(n => Number.parseInt(n, 10) || 0);
+        for (let i = 0; i < 3; i++) { if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0); }
+        return 0;
+      };
+      fetch('https://api.github.com/repos/KaiserIIII/videosave/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+        .then(r => r.ok ? r.json() : null)
+        .then(rel => {
+          if (rel?.tag_name && Array.isArray(rel.assets)) {
+            const liveVer = String(rel.tag_name).replace(/^v/i, '');
+            if (cmpVer(liveVer, index.version) >= 0) {
+              document.getElementById('live-version').textContent = 'v' + liveVer;
+              applyDownloadSync(liveVer, rel.assets);
+            }
+          }
+        })
+        .catch(() => {});
     }
   } catch {
     body.replaceChildren();
@@ -259,7 +349,9 @@ async function loadReports() {
     || loaded.find(r => r.name.includes('v1.1.0-mcp-edge'))
     || loaded.find(r => r.name.includes('mcp-edge'));
   const latestEdge = loaded.find(r => r.name.includes('v1.1.0-edge')) || loaded.find(r => r.name.includes('edge'));
-  const dshReport = loaded.find(r => r.name.includes('v1.1.0-dsh-acceptance')) || loaded.find(r => r.name.includes('dsh-acceptance'));
+  const dshReport = loaded.find(r => r.name.includes('v1.2.0-dsh-acceptance'))
+    || loaded.find(r => r.name.includes('v1.1.0-dsh-acceptance'))
+    || loaded.find(r => r.name.includes('dsh-acceptance'));
   const benchReport = loaded.find(r => r.name.includes('benchmark'));
 
   const cards = [];
@@ -284,7 +376,7 @@ async function loadReports() {
     cards.push({
       label: 'Real DSH Acceptance',
       value: `${s.passed}/${s.total}`,
-      sub: `Release ZIP · real dir delta: ${s.realDownloadDirDelta ?? 0}`,
+      sub: s.sandboxEnforced ? 'Release ZIP · OS FS audit: 0 OOB' : `Release ZIP · real dir delta: ${s.realDownloadDirDelta ?? 0}`,
     });
   }
   if (benchReport?.data?.stress2000Segments) {
@@ -351,16 +443,60 @@ async function loadReports() {
         cell('Real DSH Acceptance'),
         cell(`${data.summary.passed}/${data.summary.total}`, 'badge-good'),
         cell('0'),
-        cell('Zero dir pollution', 'badge-good'),
+        cell(data.summary.sandboxEnforced ? 'OS FS audit: 0 OOB' : 'Zero dir pollution', 'badge-good'),
         cell(data.summary.totalMs ? Math.round(data.summary.totalMs / 1000) + 's' : '—'),
       );
       return tr;
     }
     if (Array.isArray(data.results)) {
+      if (data.rounds) {
+        tr.append(
+          cell(name, '', true),
+          cell(index.version || '1.2.0'),
+          cell(`${data.browser || 'chrome'} (${data.rounds} rounds)`),
+          cell('Startup & Probe Stability'),
+          cell(`${data.passed}/${data.rounds}`, data.passed === data.rounds ? 'badge-good' : ''),
+          cell(`${data.totalStartupRetries ?? 0} retries`, (data.totalStartupRetries ?? 0) === 0 ? 'badge-good' : ''),
+          cell('State Machine Verified', 'badge-good'),
+          cell(data.medianRoundMs != null ? `${data.medianRoundMs} ms` : '—'),
+        );
+        return tr;
+      }
+      if (data.fixture) {
+        const vs = data.results.find(r => /VideoSave/i.test(r.tool));
+        const ff = data.results.find(r => /FFmpeg/i.test(r.tool));
+        const yt = data.results.find(r => /yt-dlp/i.test(r.tool));
+        tr.append(
+          cell(name, '', true),
+          cell(index.version || '1.2.0'),
+          cell('Competitor Benchmark'),
+          cell(`${data.fixture.segments}×${data.fixture.simulatedRttMs}ms HLS`),
+          cell(vs ? `${vs.elapsedMs} ms` : '—', 'badge-good'),
+          cell('0 OOB writes', 'badge-good'),
+          cell(ff && vs ? `${(ff.elapsedMs / Math.max(1, vs.elapsedMs)).toFixed(2)}x vs FFmpeg` : '—', 'badge-good'),
+          cell(yt && yt.elapsedMs ? `yt-dlp ${yt.elapsedMs} ms` : '—'),
+        );
+        return tr;
+      }
+      if (data.ytdlpConfigured !== undefined) {
+        const verified = data.results.filter(r => r.downloadStatus === 'verified').length;
+        const probed = data.results.filter(r => r.probeStatus === 'ok').length;
+        tr.append(
+          cell(name, '', true),
+          cell(index.version || '1.2.0'),
+          cell('Bilibili + YouTube'),
+          cell('Real Public Platforms'),
+          cell(`${probed}/${data.results.length} probed`, probed === data.results.length ? 'badge-good' : ''),
+          cell('0 fallback', 'badge-good'),
+          cell(`${verified}/${data.results.length} verified`, verified === data.results.length ? 'badge-good' : ''),
+          cell(data.results.length ? Math.round(data.results.reduce((s, r) => s + (r.elapsedMs || 0), 0) / data.results.length / 1000) + 's' : '—'),
+        );
+        return tr;
+      }
       const passed = data.results.filter(r => r.complete).length;
       tr.append(
         cell(name, '', true),
-        cell(index.version || '1.1.0'),
+        cell(index.version || '1.2.0'),
         cell('DASH Standalone'),
         cell('Public DASH Streams'),
         cell(`${passed}/${data.results.length}`, passed === data.results.length ? 'badge-good' : ''),

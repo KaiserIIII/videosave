@@ -1,18 +1,33 @@
 # 视频快存 · VideoSave
 
-[English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载最新版](https://github.com/KaiserIIII/videosave/releases/latest) · [MIT 许可证](LICENSE)
+[![Verify VideoSave](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml/badge.svg)](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml)
+[![Latest Release](https://img.shields.io/github/v/release/KaiserIIII/videosave)](https://github.com/KaiserIIII/videosave/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](LICENSE)
 
-[自动化验证 CI](https://github.com/KaiserIIII/videosave/actions/workflows/verify.yml) · [v1.1.0 更新日志](CHANGELOG.md#110) · [AI 与 CLI 实战手册](docs/ai-recipes.zh-CN.md) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [常见问题](docs/faq.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
+[English](README.md) · [官方产品网站](https://kaiseriiii.github.io/videosave/) · [下载 v1.2.0](https://github.com/KaiserIIII/videosave/releases/latest) · [Android 与鸿蒙指南](docs/android-harmonyos.md) · [安全审查报告](docs/security-audit-v1.2.md)
 
-扫描网页视频、实测验证可用画质并高速可靠保存。视频快存免费开源、本地优先、**零 npm 第三方依赖**。桌面伴侣内置仅本机认证访问的 **独立管理中心**（`http://127.0.0.1:8765/console`）、多引擎智能调度（HTTP Range / HLS / MP4 & WebM 静态 DASH / FFmpeg / 托管 yt-dlp）、2 字节画质可用性探测、SHA-256 `checkpoint.json` 跨进程续传、全链路统一请求头与 27 个 MCP 工具，支持一键生成 DeepSeek Harness (DSH)、Codex、Claude Code、Claude Desktop、Cursor 与 Antigravity 原生配置。
+[更新日志](CHANGELOG.md#120) · [AI 与 CLI 实战手册](docs/ai-recipes.zh-CN.md) · [DSH 接入指南](docs/dsh-guide.zh-CN.md) · [DSH 反馈追踪表](docs/dsh-feedback-tracker.md) · [常见问题](docs/faq.md) · [兼容性实测](docs/compatibility-report.zh-CN.md)
 
-![Microsoft Edge 中的 VideoSave 0.9 探测面板](docs/videosave-0.9-detection.png)
+扫描网页视频、实测验证可用画质并高速可靠保存。视频快存免费开源、本地优先、**零 npm 第三方依赖**。**v1.2.0** 新增 Windows 图形化 `Setup.exe` 安装向导、零网络依赖的完整离线便携包、macOS/Linux 自动引导安装与 `.deb` 软件包、独立 Android APK（Beta）、LL-HLS/动态 DASH 有界录制、官方 SHA-256 自动更新校验、独立本机管理中心（`http://127.0.0.1:8765/console`）以及 27 个 MCP 工具，原生支持 DeepSeek Harness (DSH)、Codex、Claude Code、Claude Desktop、Cursor 与 Antigravity。
+
+## 平台支持矩阵
+
+| 平台 | 发行文件 | 支持状态 | 说明 |
+| :--- | :--- | :--- | :--- |
+| **Windows x64** | `VideoSave-1.2.0-Setup.exe`、`VideoSave-1.2.0-win-x64-offline.zip`、`VideoSave-1.2.0.zip` | **正式支持** | 图形化向导（无需管理员、不改系统 PATH），离线包已通过无网零依赖实测 |
+| **Linux (x64 / ARM64)** | `videosave_1.2.0_all.deb`、`VideoSave-1.2.0-unix.tar.gz` | **正式支持** | 缺少 Node 24 时自动下载并校验官方 Node.js 24 LTS，已通过 Ubuntu 24.04 CI 验证 |
+| **macOS (Apple Silicon / Intel)** | `VideoSave-1.2.0-unix.tar.gz`（含 `Launch VideoSave.command`） | **正式支持（未公证）** | 自动校验引导 Node.js 24 LTS，已通过 macOS 15 CI 验证；未含 Apple Developer 公证签名 |
+| **Android 8–16 / 鸿蒙 4.x** | `VideoSave-1.2.0-android-debug.apk` | **测试版 (Beta)** | 独立 APK，免 Root/Termux；当前为调试签名构建，详见 [Android 与鸿蒙指南](docs/android-harmonyos.md) |
+| **HarmonyOS NEXT (5.0+)** | — | **计划支持** | 纯血鸿蒙不支持原生 APK，ArkTS/ArkUI 路线图见 [docs/android-harmonyos.md](docs/android-harmonyos.md) |
+| **浏览器扩展** | `VideoSave-1.2.0-extension.zip`、`VideoSave-1.2.0-firefox.zip`、`VideoSave-1.2.0-android-dev.zip` | **正式支持（本地加载）/ 商店提交就绪** | Edge、Chrome、Brave、Firefox 136+、Firefox Android |
+
+![Microsoft Edge 中的 VideoSave 探测面板](docs/videosave-0.9-detection.png)
 
 扩展的「AI 与 MCP」支持按客户端授权、限时共享当前页、手动授权同源直链媒体使用当前登录会话，以及按站点限制下载、暂停和恢复排队任务、筛选脱敏活动记录。 [托管客户端教程](docs/mcp.md#中文快速开始) · [控制中心截图](docs/videosave-mcp-control.png)
 
 高级模式和 Full Access 支持按站点保存长期授权，通过已打开的标签页更新媒体候选，并自动下载有明确推荐的正片。Maximum Compatibility 可延长观测窗口，在常规探测无结果时检查 iframe 和公开播放器 JSON。 [权限与探测选项](docs/mcp.md#高级授权和兼容性)
 
-候选版的托管 MCP 支持兼容的静态 DASH。启用关联媒体来源后，可下载正常播放中观察到的公网 HTTPS CDN 媒体。`get_engine_capabilities` 返回支持的传输路径，`get_task_report` 返回该客户端任务的实际引擎、耗时和结果。 [MCP 使用说明](docs/mcp.md)
+托管 MCP 支持兼容的静态 DASH。启用关联媒体来源后，可下载正常播放中观察到的公网 HTTPS CDN 媒体。`get_engine_capabilities` 返回支持的传输路径，`get_task_report` 返回该客户端任务的实际引擎、耗时和结果。 [MCP 使用说明](docs/mcp.md)
 
 ## 安装
 

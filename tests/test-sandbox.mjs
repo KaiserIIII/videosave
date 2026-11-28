@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
+import { startFsAuditMonitor } from '../tools/fs-audit-monitor.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 export const SANDBOX_BASE = path.resolve(
@@ -48,7 +49,8 @@ function userConfiguredOutDir() {
 }
 
 export function realDownloadDirectories() {
-  const candidates = [windowsDownloadsFolder(), userConfiguredOutDir()].filter(Boolean);
+  const stateDir = process.env.LOCALAPPDATA || path.join(os.homedir(), '.config');
+  const candidates = [windowsDownloadsFolder(), userConfiguredOutDir(), path.join(stateDir, 'VideoSave')].filter(Boolean);
   return [...new Set(candidates.map(dir => path.resolve(dir)))].filter(existsSync);
 }
 
@@ -115,6 +117,12 @@ export async function createTestSandbox(label = 'run') {
   await Promise.all(Object.values(dirs).map(dir => mkdir(dir, { recursive: true })));
   const settingsFile = path.join(dirs.dbDir, 'settings.sqlite');
   const realBefore = await snapshotRealDownloadDirs();
+  const fsMonitor = await startFsAuditMonitor({
+    sandboxRoot: root,
+    protectedDirs: realDownloadDirectories(),
+    label: safeLabel,
+  });
+  let stoppedAudit = null;
 
   function env(extra = {}) {
     const clean = Object.fromEntries(
@@ -193,6 +201,8 @@ export async function createTestSandbox(label = 'run') {
         assert.ok(!isInside(realDir, target), `Actual write path targeted real user download directory: ${target}`);
       }
     }
+    const auditReport = stoppedAudit ?? await fsMonitor.stop({ assertClean: true });
+    stoppedAudit = auditReport;
     return {
       label: reportLabel,
       sandboxEnforced: true,
@@ -203,12 +213,18 @@ export async function createTestSandbox(label = 'run') {
       extraDirs: extraDirs.map(d => path.resolve(d)),
       writtenFileCount: writtenFiles.length,
       writtenFiles: writtenFiles.map(file => path.relative(root, file).replaceAll('\\', '/')),
-      allWritesInsideSandbox: true,
+      osMonitorMechanism: auditReport.osMonitorMechanism,
+      observedSandboxEventCount: auditReport.observedSandboxEventCount,
+      observedSandboxWritePaths: auditReport.observedSandboxWritePaths,
+      outOfBoundsViolationCount: auditReport.outOfBoundsViolationCount,
+      allWritesInsideSandbox: auditReport.clean,
     };
   }
 
   async function verifyIsolation() {
+    if (!stoppedAudit) stoppedAudit = await fsMonitor.stop({ assertClean: true });
     await assertRealDownloadDirsUntouched(realBefore, safeLabel);
+    return stoppedAudit;
   }
 
   async function cleanup({ keep = false } = {}) {
@@ -221,5 +237,5 @@ export async function createTestSandbox(label = 'run') {
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 });
   }
 
-  return { ...dirs, settingsFile, env, applyProcessEnv, sandboxArgs, collectActualWritePaths, verifyIsolation, cleanup };
+  return { ...dirs, settingsFile, env, applyProcessEnv, sandboxArgs, collectActualWritePaths, verifyIsolation, cleanup, recordProcess: fsMonitor.recordProcess };
 }

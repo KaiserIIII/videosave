@@ -1,13 +1,23 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
-- **DSH-12 test isolation (reopened → partially fixed)**: User verification of `v1.1.0` showed 118 test artifacts in the real configured `outDir`; the previous `Delta = 0` claim compared against an already-polluted baseline and is withdrawn.
-  - Added forced sandbox mode: `--sandbox[=DIR]` / `--sandbox-dir DIR` on `server.mjs`, `mcp-server.mjs`, `media-cli.mjs`, plus `VIDEOSAVE_NO_USER_SETTINGS=1`. It overrides `OUT_DIR`, `MEDIA_TOOLKIT_SETTINGS`, profiles and tools into a temporary directory and refuses to open the user `settings.sqlite`.
-  - `update_settings` now rejects an out-of-sandbox `outDir` **before** persisting it (previously it was written to SQLite, then rejected).
-  - `media-cli.mjs --out` now takes precedence over a saved `outDir` in `settings.sqlite`; JSONL progress reports `actualOutDir`.
-  - `get_version` / `get_effective_settings` report `sandboxActive`, `sandboxRoot` and `settingsFile`.
-  - All tests, smoke, release smoke, compatibility, DSH acceptance and benchmarks run with forced sandbox and print `ACTUAL_WRITE_PATHS` (every written file, asserted inside the sandbox) instead of relying on before/after directory counts.
+- **DSH-12 Real OS Filesystem Write Audit & Symlink-Safe Sandbox (`tools/fs-audit-monitor.mjs`, `tools/preferences.mjs`, `tests/dsh12-fs-audit.test.mjs`)**:
+  - Added real OS-level filesystem monitoring (`ReadDirectoryChangesW` on Windows, `FSEvents` on macOS, `inotify` on Linux + recursive tree diff) recording actual observed writes and asserting zero out-of-bounds writes across protected user download and state directories.
+  - Hardened `assertSandboxPath` with `resolveThroughSymlinks` (rejects symlinks, Windows Junctions, UNC paths, and `os.tmpdir()` escapes for output/settings/profile targets BEFORE any byte is written), pre-persistence SQLite validation, CLI `--out` precedence over `settings.sqlite`, ambient companion URL stripping under `--sandbox`, and `ACTUAL_WRITE_PATHS` reporting across all smoke/compatibility/acceptance runs.
+  - Verified all 8 DSH-12 scenarios + junction escape rejection (`tests/dsh12-fs-audit.test.mjs`); DSH-12 remains transparently marked **partially fixed / pending independent user re-verification** in `docs/dsh-feedback-tracker.md`.
+- **Browser Launch State Machine & Windows Chrome CI Stability (`tools/edge-session.mjs`, `tests/compatibility-browsers.mjs`, `tests/chrome-stability.mjs`)**:
+  - Added structured stages (`BROWSER_NOT_STARTED`, `BROWSER_EXITED_EARLY`, `CDP_NOT_READY`, `EXTENSION_LOAD_FAILED`, `PAGE_LOAD_FAILED`, `PROBE_FAILED`, `DOWNLOAD_FAILED`), captured Chromium stderr diagnostics, verified HTTP `/json/version` readiness before attaching CDP, increased startup deadline to 30s with CI stability flags, and bounded startup-only retries (max 2) without ever retrying functional failures. Verified **6/6 Chrome 158 rounds passed with 0 retries (711 ms median)**.
+- **True All-in-One Cross-Platform Installers (`installer/windows/VideoSaveSetup.cs`, `tools/build_setup_exe.py`, `tools/build_offline_windows.py`, `tools/build_deb.py`, `tools/start-unix.sh`, `Launch VideoSave.command`)**:
+  - **Windows**: Native graphical WinForms `VideoSave-1.2.0-Setup.exe` (zero admin rights, zero PATH pollution, Start Menu/Desktop/Auto-start options, atomic rollback, silent `/S` verification), complete self-contained Offline Portable ZIP (`VideoSave-1.2.0-win-x64-offline.zip` bundling verified Node.js 24.22.3 + FFmpeg 8.1.2 + yt-dlp 2026.11.23, verified in a network-blackholed zero-dependency environment), and lightweight Portable ZIP.
+  - **macOS & Linux**: Self-bootstrapping `tools/start-unix.sh` automatically downloading & SHA-256-verifying official Node.js 24.22.3 on macOS Apple Silicon/Intel and Linux x64/ARM64, double-clickable macOS `.command` launchers, and deterministic Debian/Ubuntu `videosave_1.2.0_all.deb` verified via `dpkg-deb`.
+- **Standalone Native Android APK (Beta) & HarmonyOS Guide (`android/`, `tools/build_android_apk.py`, `docs/android-harmonyos.md`)**:
+  - Built zero-Root, zero-Termux, zero-Python native Android app (`minSdk 26`, `targetSdk 35`, ARM64/universal ART) with Share Menu intake, 2-byte HLS/HTTP quality probe, Foreground Service progress notification, resumable HTTP Range & HLS (including clear-key AES-128), batch queue, Scoped Storage `Downloads/VideoSave` export, download history, EN/中文 & Dark/Light themes, verified via `apksigner verify` and `aapt2 dump badging`.
+  - Clearly distinguishes debug-signed beta builds (`-android-debug.apk`) from release-signed APKs and documents Huawei Mate 60 Pro HarmonyOS 4.x vs HarmonyOS NEXT (ArkTS planned roadmap).
+- **Advanced Live Protocols, Platform Short Links, Auto-Updater & `/console` Upgrades (`tools/live-protocols.mjs`, `tools/updater.mjs`, `tools/upgrade-dsh.mjs`, `tools/server.mjs`, `tools/console/`)**:
+  - Added LL-HLS (`EXT-X-PART` / `EXT-X-PRELOAD-HINT` / `EXT-X-SERVER-CONTROL`), bounded sliding-window live HLS recording, multi-init discontinuity handling, and Dynamic DASH bounded recording.
+  - Added `b23.tv` SSRF-safe short-link resolution, bare `BV...` ID recognition, YouTube Live/Music URL support, verified GitHub Releases auto-updater (`SHA256SUMS.txt` + strict official URL allowlist, never auto-executes), opt-in safe DSH upgrader (`tools/upgrade-dsh.mjs`), live `/console` disk free space, Check Updates, One-Click Component Repair, and sanitized diagnostic bundle export.
+  - Enriched `get_version` MCP tool with `installHealth` and optional `checkUpdates` without bloating duplicate tool counts.
 
 ## 1.1.0
 

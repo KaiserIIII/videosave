@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { platformVideo } from '../extension/media.mjs';
 import { ApiError, FFMPEG, runMedia } from './media-source.mjs';
 import { locateManagedBinary } from './runtime-manager.mjs';
 
@@ -14,6 +15,29 @@ export function extractorPath() {
 
 export function platformDownloadsEnabled() {
   return Boolean(extractorPath());
+}
+
+/**
+ * Safely resolve legitimate b23.tv short links (strictly verifying destination stays on bilibili.com).
+ */
+export async function resolvePlatformShortLink(video, signal) {
+  if (!video?.shortLink || video.platform !== 'bilibili') return video;
+  const res = await fetch(video.url, {
+    method: 'GET',
+    redirect: 'manual',
+    signal: AbortSignal.any([signal, AbortSignal.timeout(10_000)]),
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+  });
+  await res.body?.cancel().catch(() => {});
+  const location = res.headers.get('location');
+  if (!location) {
+    throw new ApiError('PLATFORM_DOWNLOAD_FAILED', '无法解析 Bilibili 短链接目标地址', 502, { platform: 'bilibili' });
+  }
+  const canonical = platformVideo(new URL(location, video.url).href);
+  if (!canonical || canonical.platform !== 'bilibili' || canonical.shortLink) {
+    throw new ApiError('PLATFORM_DOWNLOAD_FAILED', 'Bilibili 短链接未指向标准视频页面', 422, { platform: 'bilibili' });
+  }
+  return canonical;
 }
 
 export function platformFailure(platform, { failure, stdout = '', stderr = '' }) {
@@ -65,7 +89,8 @@ function runExtractor(video, args, signal, onLine) {
 }
 
 export async function probePlatform(video, signal) {
-  const result = await runExtractor(video, [
+  const resolved = await resolvePlatformShortLink(video, signal);
+  const result = await runExtractor(resolved, [
     '--skip-download', '--print', '%(.{title,duration,thumbnail,subtitles})j',
     '--print', '%(formats.:.{format_id,height,width,fps,tbr,vcodec,acodec,has_drm,ext})j',
   ], AbortSignal.any([signal, AbortSignal.timeout(55_000)]));
@@ -127,9 +152,10 @@ function selection({ mode, quality }) {
 }
 
 export async function stagePlatform(video, target, staging, connections, signal, onProgress, headers = {}) {
+  const resolved = await resolvePlatformShortLink(video, signal);
   const transfers = new Map();
   const subArgs = target.subtitles ? ['--write-subs', '--sub-langs', 'zh.*,en.*,all', '--embed-subs'] : [];
-  await runExtractor(video, [
+  await runExtractor(resolved, [
     ...Object.entries(headers).flatMap(([name, value]) => ['--add-headers', name + ':' + value]),
     '--no-simulate', '--newline', '--progress', '--progress-template',
     'download:videosave=%(info.format_id)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s',

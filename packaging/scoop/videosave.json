@@ -1,11 +1,11 @@
-{
-  "version": "1.1.0",
+﻿{
+  "version": "1.2.0",
   "description": "Open-source local-first media downloader, management center, and MCP server for AI agents.",
   "homepage": "https://kaiseriiii.github.io/videosave/",
   "license": "MIT",
-  "url": "https://github.com/KaiserIIII/videosave/releases/download/v1.1.0/VideoSave-1.1.0.zip",
-  "hash": "6ce8df821c62a0923e950980e4989f00ada166133a247e882dda79af2d6142dc",
-  "extract_dir": "VideoSave-1.1.0",
+  "url": "https://github.com/KaiserIIII/videosave/releases/download/v1.2.0/VideoSave-1.2.0.zip",
+  "hash": "3aa275c39783433507f00e5673c73ea362c7fe24cf265cce021f837fb0ca3d73",
+  "extract_dir": "VideoSave-1.2.0",
   "bin": [
     ["Start VideoSave.cmd", "videosave"]
   ],

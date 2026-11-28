@@ -253,11 +253,12 @@ function tally(predicate) {
 }
 
 let actualWritePaths;
+let launchTelemetry = null;
 try {
   fixtures = await serveFixtures(media,requested);
   if (isMcp) await withMcp(testMcp);
   else if (browser === 'firefox') await withFirefoxExtension(source,directory,output,testExtension);
-  else await withChromiumExtension(engine,source,output,testExtension);
+  else await withChromiumExtension(engine,source,output,testExtension,{ onLaunchTelemetry: t => { launchTelemetry = t; } });
   actualWritePaths = sandbox
     ? await sandbox.collectActualWritePaths({ label: 'compatibility-' + browser })
     : {
@@ -296,9 +297,13 @@ const regression = rows.filter(row => core.has(row.id) && (row.detected === fals
   row.diagnosticCorrect === false || ['mp4','webm'].includes(row.id) && row.download !== 'verified'));
 const report = {version,browser,browserVersion,node:process.version,platform:process.platform,
   sample:live ? 'includes public media' : 'local fixtures',scenarioCount:requested.length,infrastructureError,
+  launchTelemetry,
   actualWritePaths: actualWritePaths ? {
     sandboxEnforced: actualWritePaths.sandboxEnforced,
     noUserSettings: actualWritePaths.noUserSettings,
+    osMonitorMechanism: actualWritePaths.osMonitorMechanism ?? null,
+    observedSandboxEventCount: actualWritePaths.observedSandboxEventCount ?? null,
+    outOfBoundsViolationCount: actualWritePaths.outOfBoundsViolationCount ?? 0,
     writtenFileCount: actualWritePaths.writtenFileCount ?? actualWritePaths.writtenFiles?.length ?? 0,
     allWritesInsideSandbox: actualWritePaths.allWritesInsideSandbox,
   } : null,
