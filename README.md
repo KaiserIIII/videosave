@@ -6,7 +6,7 @@
 
 [简体中文](README.zh-CN.md) · [Official Website](https://kaiseriiii.github.io/videosave/) · [Download v1.3.2](https://github.com/KaiserIIII/videosave/releases/latest) · [Android & HarmonyOS](docs/android-harmonyos.md) · [Security Audit](docs/security-audit-v1.3.1.md)
 
-[Changelog](CHANGELOG.md#132) · [AI & CLI Cookbook](docs/ai-recipes.md) · [DSH Guide](docs/dsh-guide.md) · [DSH Feedback Tracker](docs/dsh-feedback-tracker.md) · [Launch Kit](docs/launch-kit.md) · [FAQ](docs/faq.md) · [Compatibility Results](docs/compatibility-report.zh-CN.md)
+[Changelog](CHANGELOG.md#132) · [AI & CLI Cookbook](docs/ai-recipes.md) · [DSH Guide](docs/dsh-guide.md) · [FAQ](docs/faq.md) · [Compatibility Results](docs/compatibility-report.zh-CN.md) · [Discussions](https://github.com/KaiserIIII/videosave/discussions) · [Report an Issue](https://github.com/KaiserIIII/videosave/issues/new/choose)
 
 Find the video playing in your browser, verify real quality availability, and save it reliably. VideoSave is free, MIT-licensed, local-first, and built with **zero third-party npm dependencies**. Version **1.3.2** (Final Polish stability release built on the verified `v1.3.1` evidence baseline, adding MV3 Service Worker readiness & XHR-JSON response settlement fixes) delivers a built-in **Native Bilibili Engine** (zero `yt-dlp` required, **11/11 real public Bilibili videos verified** with **11/11 quality negotiation consistency** and strict `exact:HEIGHT` enforcement), native Internet Archive & Wikimedia Commons adapters, Android Static DASH (`MediaMuxer`) + strict HTTP 416 + backup migration verified live on **Android 16 Emulator**, unified `quick`/`standard`/`deep` verification semantics, hardened DSH-12 recursive OS audit, fair multi-round & same-concurrency controlled HLS benchmarks, Windows graphical `Setup.exe` & true Offline Portable ZIP, Linux x64/ARM64 self-bootstrapping (Node 24 + FFmpeg 8.1 + yt-dlp) & `.deb`, Local Management Center (`/console`), and 27 MCP tools for DSH, Codex, Claude, Cursor, and Antigravity.
 
@@ -19,7 +19,7 @@ Find the video playing in your browser, verify real quality availability, and sa
 | **macOS (Apple Silicon / Intel)** | `VideoSave-1.3.2-unix.tar.gz` (`Launch VideoSave.command`) | **Official (Unsigned)** | Auto-bootstraps verified Node.js 24 LTS & yt-dlp; ARM64 verified on macOS 15 CI; Apple Developer notarization not included |
 | **Android 8–16 & HarmonyOS 4.x** | `VideoSave-1.3.2-android-debug.apk` | **Beta** | Standalone APK (native Bilibili, Static DASH `MediaMuxer`, strict HTTP 416, 4-tab UI, 24/24 JVM tests + live Android 16 Emulator E2E); debug-signed until release keystore Secrets are configured; physical Mate 60 Pro sign-off pending; see [Android & HarmonyOS Guide](docs/android-harmonyos.md) |
 | **HarmonyOS NEXT (5.0+)** | — | **Planned** | Does not run native Android APKs; ArkTS/ArkUI roadmap documented in [docs/android-harmonyos.md](docs/android-harmonyos.md) |
-| **Browser Extensions** | `VideoSave-1.3.2-extension.zip`, `VideoSave-1.3.2-firefox.zip`, `VideoSave-1.3.2-android-dev.zip` | **Official (Unpacked) / Store Submission Ready** | Manifest V3 for Edge, Chrome, Brave, Firefox 136+, and Firefox Android |
+| **Browser Extensions** | `VideoSave-1.3.2-extension.zip`, `VideoSave-1.3.2-firefox.zip`, `VideoSave-1.3.2-android-dev.zip` | **Unpacked / developer release** | Store listings are pending. Firefox desktop uses temporary installation and Android uses a separate developer build. |
 
 ## Verified Public Media Platforms (Honest Evidence-Backed Status)
 

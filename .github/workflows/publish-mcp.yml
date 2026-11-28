@@ -1,0 +1,50 @@
+name: Publish MCP Registry
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: mcp-registry-publication
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.repository == 'KaiserIIII/videosave' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, MIT
+        with:
+          persist-credentials: false
+      - name: Verify published MCP bundle and publisher
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mcp-registry"
+          workspace="$RUNNER_TEMP/mcp-registry"
+          manifest=packaging/mcp-registry/server.json
+          url=$(jq -er '.packages[0].identifier' "$manifest")
+          digest=$(jq -er '.packages[0].fileSha256' "$manifest")
+          [[ "$url" =~ ^https://github.com/KaiserIIII/videosave/releases/download/v[0-9.]+/VideoSave-[0-9.]+-mcp\.mcpb$ ]]
+          [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+          curl --fail --silent --show-error --location "$url" --output "$workspace/bundle.mcpb"
+          printf '%s  %s\n' "$digest" "$workspace/bundle.mcpb" | sha256sum --check
+
+          # modelcontextprotocol/registry v1.8.21, commit 7e39f2d4fc2c67cf5295fe3ae04fe23d52e85c99.
+          curl --fail --silent --show-error --location \
+            https://github.com/modelcontextprotocol/registry/releases/download/v1.8.21/mcp-publisher_linux_amd64.tar.gz \
+            --output "$workspace/publisher.tar.gz"
+          printf '%s  %s\n' ca2e5b24e8fc2718be4bb58ab086b39b7d60c79840c24b2057bc3f36d6ab2a59 "$workspace/publisher.tar.gz" | sha256sum --check
+          tar -xzf "$workspace/publisher.tar.gz" -C "$workspace" mcp-publisher
+      - name: Validate and publish with GitHub OIDC
+        shell: bash
+        run: |
+          set -euo pipefail
+          publisher="$RUNNER_TEMP/mcp-registry/mcp-publisher"
+          manifest=packaging/mcp-registry/server.json
+          "$publisher" validate "$manifest"
+          "$publisher" login github-oidc
+          "$publisher" publish "$manifest"

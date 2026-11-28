@@ -24,8 +24,10 @@ for (const line of sumsText.split(/\r?\n/)) {
 
 const zipName = `VideoSave-${version}.zip`;
 const unixName = `VideoSave-${version}-unix.tar.gz`;
+const setupName = `VideoSave-${version}-Setup.exe`;
 const zipSha = sums.get(zipName);
 const unixSha = sums.get(unixName);
+const setupSha = sums.get(setupName);
 if (!zipSha || !unixSha) {
   console.error(`Missing expected checksums in ${sumsPath}: ${zipName}=${zipSha}, ${unixName}=${unixSha}`);
   process.exit(1);
@@ -36,10 +38,20 @@ const targets = [
     rel: 'packaging/winget/KaiserIIII.VideoSave.yaml',
     render: prev => prev
       .replace(/PackageVersion:\s*\S+/g, `PackageVersion: ${version}`)
+      .replace(/^(\s*-\s+RelativeFilePath:[ \t]*)VideoSave-[^\\\r\n]+\\Start VideoSave\.cmd[ \t]*$/m,
+        (_, field) => `${field}VideoSave-${version}\\Start VideoSave.cmd`)
       .replace(/\/releases\/download\/v[^/]+\/VideoSave-[^/\s]+\.zip/g, `/releases/download/v${version}/${zipName}`)
       .replace(/InstallerSha256:\s*[0-9a-fA-F]{64}/g, `InstallerSha256: ${zipSha.toUpperCase()}`)
       .replace(/ReleaseNotesUrl:\s*\S+/g, `ReleaseNotesUrl: https://github.com/KaiserIIII/videosave/releases/tag/v${version}`),
   },
+  ...(setupSha ? [{
+    rel: 'packaging/winget/setup/KaiserIIII.VideoSave.yaml',
+    render: prev => prev
+      .replace(/PackageVersion:\s*\S+/g, `PackageVersion: ${version}`)
+      .replace(/\/releases\/download\/v[^/]+\/VideoSave-[^/\s]+-Setup\.exe/g, `/releases/download/v${version}/${setupName}`)
+      .replace(/InstallerSha256:\s*[0-9a-fA-F]{64}/g, `InstallerSha256: ${setupSha.toUpperCase()}`)
+      .replace(/ReleaseNotesUrl:\s*\S+/g, `ReleaseNotesUrl: https://github.com/KaiserIIII/videosave/releases/tag/v${version}`),
+  }] : []),
   {
     rel: 'packaging/scoop/videosave.json',
     render: prev => {
@@ -58,22 +70,6 @@ const targets = [
         `url "https://github.com/KaiserIIII/videosave/releases/download/v${version}/${unixName}"`)
       .replace(/sha256\s+"[0-9a-fA-F]{64}"/g, `sha256 "${unixSha}"`)
       .replace(/version\s+"[^"]+"/g, `version "${version}"`),
-  },
-  {
-    rel: 'packaging/mcp-registry/server.json',
-    render: prev => {
-      const obj = JSON.parse(prev);
-      obj.version = version;
-      if (Array.isArray(obj.packages)) {
-        for (const p of obj.packages) {
-          if (p.version) p.version = version;
-          if (typeof p.identifier === 'string' && p.identifier.includes('/releases/download/')) {
-            p.identifier = `https://github.com/KaiserIIII/videosave/releases/download/v${version}/${zipName}`;
-          }
-        }
-      }
-      return JSON.stringify(obj, null, 2) + '\n';
-    },
   },
 ];
 

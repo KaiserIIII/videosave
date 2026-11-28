@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Discussion and help / 讨论与互助
+    url: https://github.com/KaiserIIII/videosave/discussions
+    about: Ask a question or share your experience. / 提问或分享使用经验。
+  - name: Private security report / 私密安全报告
+    url: https://github.com/KaiserIIII/videosave/security/policy
+    about: Follow the private reporting process for suspected vulnerabilities. / 请按私密流程报告疑似漏洞。
